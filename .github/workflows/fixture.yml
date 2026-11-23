@@ -45,6 +45,11 @@ jobs:
           x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -o eh.exe tests/fixtures/eh.cpp
           ls -l eh.exe
           x86_64-w64-mingw32-objdump -p eh.exe | sed -n '/DLL Name/p;/^Entry/p' || true
+      - name: Build the vectored handler fixture
+        run: |
+          x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -o veh.exe tests/fixtures/veh.cpp
+          ls -l veh.exe
+          x86_64-w64-mingw32-objdump -p veh.exe | sed -n '/DLL Name/p;/^Entry/p' || true
       - name: Build the Anyxbox tools (Linux)
         run: |
           mkdir -p obj
@@ -68,6 +73,11 @@ jobs:
           ./run_exe --i-built-this eh.exe || true
           ANYXBOX_SEH_TRACE=1 ./run_exe --i-built-this eh.exe 2>&1 | head -80 || true
           gdb -batch -ex run -ex bt -ex 'info registers rip rsp rax rcx rdx' -ex 'x/10i $rip-12' --args ./run_exe --i-built-this eh.exe 2>&1 | head -60 || true
+      - name: Import coverage and run of the vectored handler fixture
+        run: |
+          ./import_gap veh.exe || true
+          ./run_exe --i-built-this veh.exe || true
+          ANYXBOX_SEH_TRACE=1 ./run_exe --i-built-this veh.exe 2>&1 | head -40 || true
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
@@ -95,6 +105,7 @@ jobs:
             hello_crt.exe
             tls_crt.exe
             eh.exe
+            veh.exe
             scene.exe
             scene.png
             triangle.png
