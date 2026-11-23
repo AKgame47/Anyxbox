@@ -18,7 +18,8 @@ static bool crashes(const std::vector<uint8_t>& img) {
   if (p == 0) {
     int nul = open("/dev/null", O_WRONLY); dup2(nul, 2); dup2(nul, 1);
     auto r = anyxbox::run_pe(img.data(), img.size(), true);
-    _exit(r.ran ? 0 : 3);
+    // a fault in guest code is now an unhandled guest exception: the program ends with the exception code (0xC...)
+    _exit(r.ran && (r.exit_code & 0xF0000000u) != 0xC0000000u ? 0 : 3);
   }
   int st = 0; waitpid(p, &st, 0);
   return !(WIFEXITED(st) && WEXITSTATUS(st) == 0);
