@@ -58,13 +58,13 @@ int main(int argc, char** argv) {
         User32Context u; D3D11Runtime rt;
         auto r = run_pe(data.data(), data.size(), true, [&](ImportRegistry& reg) { user32_register(reg, u); rt.register_imports(reg); });
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
-        if (n == "asset_read.run.exe" || n == "asset_scene.run.exe") {
+        if (n == "asset_read.run.exe" || n == "asset_scene.run.exe" || n=="keyboard_scene.run.exe") {
           CHECK(r.ran && r.loaded && r.exit_code == (n=="asset_read.run.exe"?10u:40u) && r.output.empty());
           char temp[]="/tmp/anyxbox-assets-XXXXXX";
           char* root=::mkdtemp(temp);CHECK(root);
           std::filesystem::create_directories(std::string(root)+"/data");
           {std::ofstream asset(std::string(root)+"/data/message.txt",std::ios::binary);asset<<"Anyxbox rooted asset\n";CHECK(asset.good());}
-          if(n=="asset_scene.run.exe") {
+          if(n!="asset_read.run.exe") {
             std::ofstream tex(std::string(root)+"/data/texture.rgba",std::ios::binary);
             const uint32_t colors[]={0xff0000ffu,0xff00ff00u,0xffff0000u,0xffffffffu};
             for(unsigned y=0;y<512;++y)for(unsigned x=0;x<512;++x)tex.write((const char*)&colors[(y>=256?2:0)+(x>=256?1:0)],4);
