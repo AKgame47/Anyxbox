@@ -9,6 +9,19 @@ static bool near(int a, int b, int tol = 1) { return std::abs(a - b) <= tol; }
 static const uint8_t* px(const std::vector<uint8_t>& im, int w, int x, int y) { return &im[((size_t)y * w + x) * 4]; }
 
 int main() {
+  // Automatic mip reduction: all four channels, odd dimensions, regeneration and invalid IDs.
+  for (auto f : {Format::R8G8B8A8_UNORM,Format::B8G8R8A8_UNORM}) {
+    Device d; auto t = d.CreateTexture2D(3,1,f,0); CHECK(t);
+    const uint8_t raw[12]={0,30,60,90,30,60,90,120,60,90,120,150};
+    CHECK(d.UpdateTexture(t,raw,sizeof raw) && d.GenerateMips(t));
+    CHECK(d.texture(t)->mips.size()==1 && d.texture(t)->mips[0]==std::vector<uint8_t>({30,60,90,120}));
+    std::vector<uint8_t> solid(12,200); CHECK(d.UpdateTexture(t,solid.data(),solid.size()) && d.GenerateMips(t));
+    CHECK(d.texture(t)->mips[0]==std::vector<uint8_t>(4,200)); CHECK(!d.GenerateMips(0));
+    auto square=d.CreateTexture2D(4,4,f,0); std::vector<uint8_t> pattern(64,0);
+    for(size_t i=0;i<16;++i) { pattern[i*4]=(uint8_t)(i*4); pattern[i*4+3]=255; }
+    CHECK(d.UpdateTexture(square,pattern.data(),pattern.size()) && d.GenerateMips(square));
+    CHECK(d.texture(square)->mips[0][0]==10 && d.texture(square)->mips[1][0]==30 && d.texture(square)->mips[1][3]==255);
+  }
   const int W = 64, H = 64;
   std::vector<InputElement> layout = {{"POSITION", Format::R32G32B32_FLOAT, 0}, {"COLOR", Format::R32G32B32A32_FLOAT, 12}};
   Device dev; DeviceContext ctx(dev);
