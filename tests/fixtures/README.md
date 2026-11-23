@@ -205,3 +205,8 @@ and index retain/unbind. Exact combined output, zero exit, two translated shader
 zero presents and empty D3D11 error are required. Fresh and retained CI require
 the input-buffer marker. Partial/index replacement, refusal and teardown remain
 unit evidence, not independent guest evidence. Older provenance is historical.
+
+Batch92 extends only the fresh public-header probe with VS/PS constant-buffer
+caller release, cross-slot swap, rebind and unbind reference checks. Retained
+run275 bytes remain unchanged and lack this marker. Independent MinGW compile
+and execution await CI. This is reference accounting, not a new rendered scene.
