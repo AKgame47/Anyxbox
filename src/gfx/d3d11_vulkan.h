@@ -26,9 +26,14 @@ class VulkanDrawBackend : public DrawBackend {
             DrawStats* stats, std::string* err) override;
  // Replace the pass-through shaders with translated SPIR-V (see shader/dxbc_spirv.h for the interface rules).
   // The vertex layout stays fixed: location 0 = float4 clip position, location 1 = float3 colour.
-  // Empty vectors restore the pass-through pair.
+  // Empty vectors restore the pass-through pair. The vertex shader must come from dxbc_to_spirv with vulkan_flip_y
+  // (the default): with custom shaders the backend no longer negates input y, the shader negates its output y.
   void SetShaders(std::vector<uint32_t> vs, std::vector<uint32_t> fs) { vs_ = std::move(vs); fs_ = std::move(fs); }
+ // cb0 contents are pushed to the vertex shader as push constants (max 128 bytes = 8 float4 registers; the Vulkan
+ // guaranteed minimum). Larger buffers make the draw fail with an error rather than truncating.
+ void set_vs_constants(const std::vector<uint8_t>& cb0) override { cb0_ = cb0; }
  private:
+  std::vector<uint8_t> cb0_;
   std::vector<uint32_t> vs_, fs_;
   struct Target { pnr::graphics::FrameSurface surf; bool has_surface = false; float clear[4] = {0, 0, 0, 0}; };
   pnr::graphics::VulkanBackend& vk_;
