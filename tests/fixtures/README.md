@@ -102,3 +102,11 @@ window rather than ScriptHost. It injects key-down/up/focus-loss with SDL_PushEv
 SDL_PollEvent translation and user32 held-state code. All four frames are presented to the SDL window as well
 as captured for pixel assertions. Between frames the test clears unrelated Xvfb events before injecting its
 known sequence. This is synthetic SDL queue coverage, not a physical keyboard or uncontrolled focus test.
+
+## resource_interfaces.cpp
+Public d3d11.h-based C++ probe, built separately by MinGW in CI. Checks device/context
+and buffer/color/depth resource interface identity, inherited interfaces, GetType,
+GetDevice and an unsupported-interface query. Not a rendered scene. Build:
+`x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o resource_interfaces.exe tests/fixtures/resource_interfaces.cpp -ld3d11`.
+CI requires zero exit and its completion marker, and retains the executable and log.
+Independent binary evidence is pending CI; no retained binary is supplied in batch 72.
