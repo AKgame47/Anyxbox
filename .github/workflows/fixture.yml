@@ -145,6 +145,7 @@ jobs:
         run: |
           ./import_gap asset_scene.exe
           ./tbin/test_fixture_asset_scene asset_scene.exe --require-vulkan asset-scene-frame
+          ./tbin/test_fixture_asset_scene tests/fixtures/asset_scene.run.exe --require-vulkan committed-asset-scene-frame
       - name: Run independent file-backed launcher fixture (strict)
         run: |
           mkdir -p test-assets/data
@@ -195,6 +196,7 @@ jobs:
           path: |
             asset_scene.exe
             asset-scene-frame*.ppm
+            committed-asset-scene-frame*.ppm
             asset_read.exe
             asset-read*.log
             committed-asset-read*.log
