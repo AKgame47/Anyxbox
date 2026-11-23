@@ -78,11 +78,19 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   BlendState bs; bs.enable = st_.blend.enable; bs.src_color = vk_factor(st_.blend.src); bs.dst_color = vk_factor(st_.blend.dst);
   bs.color_op = vk_op(st_.blend.op); bs.src_alpha = vk_factor(st_.blend.src_a); bs.dst_alpha = vk_factor(st_.blend.dst_a); bs.alpha_op = vk_op(st_.blend.op_a);
   TexInput texin; if (textured) { texin.rgba = tex_.data(); texin.w = tex_w_; texin.h = tex_h_; texin.linear = smp_.linear; texin.repeat = smp_.wrap; }
+  std::vector<pnr::graphics::TexInput> extra_in;
+  for (int xi = 0; xi < 3; xi++) {
+    const Extra& e = extra_[xi]; if (e.rgba.empty()) continue;
+    if (!textured) { *err = "vulkan draw: textures t1..t3 need t0 bound as well"; return false; }
+    if (e.w > 256 || e.h > 256) { *err = "vulkan draw: textures larger than 256x256 are not supported yet"; return false; }
+    if (xi != (int)extra_in.size()) { *err = "vulkan draw: bind t1, t2, t3 in order without gaps"; return false; }
+    pnr::graphics::TexInput t; t.rgba = e.rgba.data(); t.w = e.w; t.h = e.h; t.linear = e.smp.linear; t.repeat = e.smp.wrap; extra_in.push_back(t);
+  }
   for (size_t first = 0; first < total_tris; first += chunk) {
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 3 * fpv, kept.begin() + (first + n) * 3 * fpv);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
-    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr)
+    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, extra_in.empty() ? nullptr : &extra_in)
       : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr);
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
