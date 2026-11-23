@@ -1,4 +1,5 @@
 #include "runtime/kernel32.h"
+#include "runtime/teb.h"
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -73,7 +74,8 @@ MSABI uint32_t k_VirtualFree(void* addr, uint64_t size, uint32_t type) {
 typedef uint32_t (MSABI *ThreadStart)(void*);
 MSABI uint64_t k_CreateThread(void*, uint64_t, ThreadStart fn, void* param, uint32_t, uint32_t* tid) {
   if (!fn) return 0;
-  uint32_t h = anyxbox::CreateThread(C->handles, [fn, param] { return fn(param); });
+  uint64_t base = C->image_base;
+  uint32_t h = anyxbox::CreateThread(C->handles, [fn, param, base] { teb_install(base); uint32_t r = fn(param); teb_restore(); return r; });
   if (tid && h) *tid = h;
   return h;
 }
