@@ -99,6 +99,21 @@ int main(){
   CHECK(vertices[0]->AddRef()==2);ctx->IASetIndexBuffer(nullptr,DXGI_FORMAT_R16_UINT,0);
   CHECK(vertices[0]->Release()==0);
   std::puts("input buffers: vertex caller release, swap, rebind and index retain/unbind references ok");
+  for(unsigned stage=0;stage<2;++stage){
+    ID3D11Buffer* constants[2]={};bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+    CHECK(SUCCEEDED(dev->CreateBuffer(&bd,nullptr,&constants[0])));
+    CHECK(SUCCEEDED(dev->CreateBuffer(&bd,nullptr,&constants[1])));
+    if(stage)ctx->PSSetConstantBuffers(0,2,constants);else ctx->VSSetConstantBuffers(0,2,constants);
+    CHECK(constants[0]->Release()==1&&constants[1]->Release()==1);
+    ID3D11Buffer* swappedConstants[]={constants[1],constants[0]};
+    for(unsigned repeat=0;repeat<2;++repeat){
+      if(stage)ctx->PSSetConstantBuffers(0,2,swappedConstants);else ctx->VSSetConstantBuffers(0,2,swappedConstants);
+    }
+    CHECK(constants[0]->AddRef()==2&&constants[1]->AddRef()==2);
+    if(stage)ctx->PSSetConstantBuffers(0,2,nullptr);else ctx->VSSetConstantBuffers(0,2,nullptr);
+    CHECK(constants[0]->Release()==0&&constants[1]->Release()==0);
+  }
+  std::puts("constant buffers: VS/PS caller release, cross-slot swap, rebind and unbind references ok");
   ID3D11VertexShader* vs=nullptr;ID3D11PixelShader* ps=nullptr;
   CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&vs)));
   CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&ps)));
