@@ -305,6 +305,31 @@ int main(){
   }
   for(auto* shader:surviving)CHECK(finalRelease(shader)==0);
   puts("shader bindings: retain, same-object rebind, replacement, unbind and runtime teardown references ok");
+  // ClearState drops every supported reference category, including repeated shared buffers.
+  using Clear=void(MS*)(void*);auto clear=(Clear)vt(ctx)[110];
+  void* held[10]={};
+  for(unsigned k=0;k<4;++k){CHECK(makeState(dev,k,&held[k])==0);bindState(ctx,k,held[k]);}
+  CHECK(((State)vt(dev)[23])(dev,samplerDesc,&held[4])==0);bindSampler(ctx,3,1,&held[4]);
+  bd[2]=7;CHECK(((CB)vt(dev)[3])(dev,bd,nullptr,&held[5])==0);
+  void* shared[]={held[5],held[5]};bindVB(ctx,14,2,shared,strides,offsets);bindIB(ctx,held[5],57,0);
+  ((BindResources)vt(ctx)[7])(ctx,12,2,shared);((BindResources)vt(ctx)[16])(ctx,12,2,shared);
+  CHECK(refs(held[5])==8);
+  td[4]=28;td[8]=0x28;void* color=nullptr;CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&color)==0);
+  CHECK(((CB)vt(dev)[9])(dev,(const uint32_t*)color,nullptr,&held[6])==0);
+  CHECK(((CB)vt(dev)[7])(dev,(const uint32_t*)color,nullptr,&held[7])==0);((R)vt(color)[2])(color);
+  bindTargets(ctx,1,&held[6],nullptr);bindResources(ctx,3,1,&held[7]);
+  CHECK(((Shader)vt(dev)[12])(dev,triangle_vs,sizeof(triangle_vs),nullptr,&held[8])==0);
+  CHECK(((Shader)vt(dev)[15])(dev,triangle_ps,sizeof(triangle_ps),nullptr,&held[9])==0);
+  ((BindShader)vt(ctx)[11])(ctx,held[8],nullptr,0);((BindShader)vt(ctx)[9])(ctx,held[9],nullptr,0);
+  void* clearDepth=nullptr;td[4]=40;td[8]=0x40;void* dt=nullptr;
+  CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&dt)==0);CHECK(((CB)vt(dev)[10])(dev,(const uint32_t*)dt,nullptr,&clearDepth)==0);
+  ((R)vt(dt)[2])(dt);bindTargets(ctx,1,&held[6],clearDepth);
+  clear(ctx);clear(ctx);
+  for(auto* o:held)CHECK(refs(o)==1);
+  CHECK(refs(clearDepth)==1);
+  for(auto* o:held)CHECK(((R)vt(o)[2])(o)==0);
+  CHECK(((R)vt(clearDepth)[2])(clearDepth)==0);
+  puts("ClearState: all supported binding references released, repeated clear safe");
   for(auto* o:objects)((R)vt(o)[2])(o);
   puts("resource GetDesc: buffer/color/depth/staging/full-mip/backbuffer fields and output extents ok");
   puts("D3D11 interface identity, type, GetDevice, swapchain interface refusal and balanced reference paths ok");
