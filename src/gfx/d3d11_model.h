@@ -107,6 +107,9 @@ class DeviceContext {
   bool ClearDepthStencilView(ResourceId dsv, float depth);
   bool ClearRenderTargetView(ResourceId rtv, const float rgba[4]);
   bool Draw(uint32_t vertex_count, uint32_t start_vertex);
+  // Index buffer: 16 or 32 bit unsigned indices; byte offset into the buffer. Slot-0 vertex buffer only, like Draw.
+  bool IASetIndexBuffer(ResourceId buffer, bool index32, uint32_t offset);
+  bool DrawIndexed(uint32_t index_count, uint32_t start_index, int32_t base_vertex);
   const std::string& last_error() const { return err_; }
   const DrawStats& stats() const { return stats_; }
  private:
@@ -114,6 +117,8 @@ class DeviceContext {
   Device& dev_;
   DrawBackend* backend_ = nullptr;
   std::vector<InputElement> layout_;
+  bool draw_impl(uint32_t count, uint32_t start, bool indexed, int32_t base_vertex);
+  ResourceId ib_ = 0; bool ib32_ = false; uint32_t ib_offset_ = 0;
   PipelineState state_;
   ResourceId dsv_ = 0;
   ResourceId vb_ = 0, rtv_ = 0, vs_cb0_ = 0, ps_cb0_ = 0, ps_tex_ = 0;
