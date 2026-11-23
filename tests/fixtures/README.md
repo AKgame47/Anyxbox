@@ -158,3 +158,9 @@ interface, descriptor and view checks. Fixture-slot requires exact combined outp
 zero exit, two translated shaders, zero presents and empty D3D11 error. CI requires
 the shader marker in fresh and retained paths. Older provenance above is historical.
 Shader creation/translation is not graphics presentation or game compatibility.
+
+Batch86 extends only the fresh public-header source probe with output-merger
+RTV/DSV binding reference checks: caller release, same-object rebind, resource
+access through the retained view, and null unbind. Retained run248 bytes remain
+unchanged and do not prove these new operations. Fresh independent MinGW build
+and execution await CI. No new executable fixture or scene is added.
