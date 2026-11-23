@@ -43,3 +43,7 @@ The first real MinGW program (hello_crt.exe, CI run #20) faulted on `mov rax, gs
 parameters, heap handle and a Windows 10 version. Everything else in those structures reads zero. Linux x86-64 only. Result: hello_crt.exe and triangle.exe, both built by CI from our own sources,
 now run end to end (hello prints its line; triangle presents 3 frames with the expected pixels). They are committed as tests/fixtures/*.run.exe and run by test_fixture_slot.
 Still not covered: the TLS directory (callbacks, __declspec(thread) data), SEH unwinding, DLL loading (LoadLibrary/GetProcAddress), real Xbox binaries.
+
+## Batch 31: scene fixture
+
+tests/fixtures/scene.c is a self-written freestanding program that uses a depth buffer, an index buffer, a dynamic constant buffer updated with Map between draws, and a 2x2 texture. test_fixture_scene runs the same C file host-compiled against the runtime and checks pixels on the software Vulkan driver. The MinGW build and the real exe run are decided by CI. run_exe gained --gpu (Vulkan backend) and --save-frame (PNG). The CI source list now includes src/runtime/teb.cpp.
