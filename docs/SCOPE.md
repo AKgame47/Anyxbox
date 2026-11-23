@@ -767,3 +767,19 @@ full descriptor validation or corrected null-sampler filtering defaults. Other
 state bindings, child/device lifetime, reclamation, thread safety and host isolation
 remain incomplete. Runtime lifetime required. Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetsamplers
+
+## Batch95: retain verified independent pixel-sampler regression
+
+Replaces the same resource probe with exact run293 bytes from source 064c39b.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports;
+direct execution passes all nine markers, zero exit, two translated shaders,
+zero presents and empty error. Fixture-slot requires exact output and retained
+CI requires the sampler marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Independent sampler checks cover caller release, cross-slot swap, rebind and
+unbind. Partial replacement/range refusal/teardown remain unit evidence. Four
+sampler slots/reference ownership only, not full capacity, descriptor validation
+or null filtering defaults. Other state/device lifetime, model reclamation,
+thread safety and native host isolation remain incomplete. Runtime lifetime is
+required. No new physical-device/input or Xbox-game compatibility evidence.
