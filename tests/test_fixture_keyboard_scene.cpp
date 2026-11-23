@@ -91,4 +91,10 @@ static int run_case(int argc,char** argv) {
   std::puts("test_fixture_keyboard_scene ok"); return 0;
 }
 
-int main(int argc,char** argv){return run_case(argc,argv);}
+int main(int argc,char** argv){
+ int rc=run_case(argc,argv);if(rc)return rc;
+ std::string dir=argc>1?argv[1]:"tests/fixtures";
+ if(dir.size()>=4 && dir.substr(dir.size()-4)==".exe")return 0;
+ std::string path=dir+"/keyboard_scene.run.exe";std::vector<char> p(path.begin(),path.end());p.push_back(0);
+ char* args[]={argv[0],p.data()};return run_case(2,args);
+}
