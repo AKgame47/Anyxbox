@@ -131,3 +131,8 @@ add_test(NAME test_d3d11_slots COMMAND test_d3d11_slots)
 add_executable(test_dxgi_factory tests/test_dxgi_factory.cpp)
 target_link_libraries(test_dxgi_factory PRIVATE anyxbox_d3d11_rt)
 add_test(NAME test_dxgi_factory COMMAND test_dxgi_factory)
+
+add_executable(test_multi_tex tests/test_multi_tex.cpp)
+target_include_directories(test_multi_tex PRIVATE tests)
+target_link_libraries(test_multi_tex PRIVATE anyxbox_shader anyxbox_gfx)
+add_test(NAME test_multi_tex COMMAND test_multi_tex)
