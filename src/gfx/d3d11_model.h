@@ -22,6 +22,17 @@ struct InputElement { std::string semantic; Format format; uint32_t offset; };
 struct Viewport { float x = 0, y = 0, width = 0, height = 0; };
 struct DrawStats { uint64_t triangles_in = 0, triangles_drawn = 0, pixels_written = 0; };
 
+// Fixed-function state (D3D11 semantics). Defaults match D3D11's defaults for a null state object.
+enum class Cull { None, Front, Back };
+enum class Compare { Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always };
+enum class BlendFactor { Zero, One, SrcColor, InvSrcColor, SrcAlpha, InvSrcAlpha, DestAlpha, InvDestAlpha, DestColor, InvDestColor };
+enum class BlendOp { Add, Subtract, RevSubtract, Min, Max };
+struct RasterizerDesc { Cull cull = Cull::Back; bool front_ccw = false; };   // front = clockwise on screen by default
+struct DepthStencilDesc { bool depth_enable = true; bool depth_write = true; Compare func = Compare::Less; };
+struct BlendDesc { bool enable = false; BlendFactor src = BlendFactor::One, dst = BlendFactor::Zero; BlendOp op = BlendOp::Add;
+                   BlendFactor src_a = BlendFactor::One, dst_a = BlendFactor::Zero; BlendOp op_a = BlendOp::Add; };
+struct PipelineState { RasterizerDesc rs; DepthStencilDesc ds; BlendDesc blend; bool depth_bound = false; };
+
 struct ClipVertex { float x, y, z, w; float r, g, b, a; float u = 0, v = 0; };  // D3D clip space (y up)
 
 struct SamplerDesc { bool linear = false; bool wrap = false; };   // point/linear filter, clamp/wrap (U and V)
@@ -35,6 +46,10 @@ class DrawBackend {
   virtual bool draw(Device& dev, ResourceId tex, const Viewport& vp, const std::vector<ClipVertex>& verts,
                     DrawStats* stats, std::string* err) = 0;
   // Vertex-shader constant buffer 0 contents for the next draw (empty = none bound). Default: ignored.
+  // Fixed-function state for the next draw. Default: ignored (backends that cannot honour it should fail the draw).
+  virtual void set_pipeline_state(const PipelineState&) {}
+  // Depth buffer cleared (value in 0..1). Return false with *err when the backend cannot do it.
+  virtual bool clear_depth(Device&, float, std::string*) { return true; }
   virtual void set_vs_constants(const std::vector<uint8_t>& /*cb0*/) {}
   virtual void set_ps_constants(const std::vector<uint8_t>& /*cb0*/) {}
   // Pixel-shader texture t0 for the next draw, RGBA byte order, row 0 at top; rgba == nullptr = none bound.
@@ -47,6 +62,11 @@ class Device {
   ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f);       // RGBA8 or BGRA8 only; max 16384
   bool UpdateBuffer(ResourceId buffer, const void* data, size_t bytes);   // whole buffer, same size
   bool UpdateTexture(ResourceId texture, const void* data, size_t bytes);   // whole texture, in the texture's own byte order
+  ResourceId CreateDepthBuffer(uint32_t w, uint32_t h);               // 32-bit float depth, 0 on failure
+  ResourceId CreateDepthStencilView(ResourceId depth_buffer);          // 0 on failure
+  struct Depth { uint32_t w = 0, h = 0; std::vector<float> z; };
+  Depth* depth(ResourceId id) { return id && id <= depths_.size() ? &depths_[id - 1] : nullptr; }
+  ResourceId dsv_depth(ResourceId dsv) const { return dsv && dsv <= dsvs_.size() ? dsvs_[dsv - 1] : 0; }
   ResourceId CreateRenderTargetView(ResourceId texture);              // 0 on failure
   bool ReadTexture(ResourceId texture, std::vector<uint8_t>* out) const;  // row 0 = top
   // internal, used by DeviceContext
@@ -59,13 +79,17 @@ class Device {
  private:
   std::vector<Buffer> buffers_;     // id = index + 1
   std::vector<Texture> textures_;
+  std::vector<Depth> depths_;
+  std::vector<ResourceId> dsvs_;
   std::vector<ResourceId> rtvs_;    // rtv id -> texture id
   // ids are in separate spaces by kind; callers must not mix them
 };
 
 class DeviceContext {
  public:
-  explicit DeviceContext(Device& d) : dev_(d) {}
+  // The model's own default is no culling (older callers rely on it); D3D11CreateDevice-style users get D3D's default
+  // (cull back, clockwise front) from the COM layer, which calls RSSetState(RasterizerDesc()) at creation.
+  explicit DeviceContext(Device& d) : dev_(d) { state_.rs.cull = Cull::None; }
   void SetDrawBackend(DrawBackend* b) { backend_ = b; }  // null = built-in reference renderer
   void IASetInputLayout(const std::vector<InputElement>& layout) { layout_ = layout; }
   void IASetVertexBuffer(ResourceId buffer, uint32_t stride, uint32_t offset) { vb_ = buffer; stride_ = stride; vb_offset_ = offset; }
@@ -76,7 +100,11 @@ class DeviceContext {
   bool PSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   bool PSSetShaderResource(uint32_t slot, ResourceId texture);   // slot 0 only; 0 unbinds
   bool PSSetSampler(uint32_t slot, const SamplerDesc& s);        // slot 0 only
-  void OMSetRenderTarget(ResourceId rtv) { rtv_ = rtv; }
+  void OMSetRenderTarget(ResourceId rtv, ResourceId dsv = 0) { rtv_ = rtv; dsv_ = dsv; }
+  void RSSetState(const RasterizerDesc& d) { state_.rs = d; }
+  void OMSetDepthStencilState(const DepthStencilDesc& d) { state_.ds = d; }
+  void OMSetBlendState(const BlendDesc& d) { state_.blend = d; }
+  bool ClearDepthStencilView(ResourceId dsv, float depth);
   bool ClearRenderTargetView(ResourceId rtv, const float rgba[4]);
   bool Draw(uint32_t vertex_count, uint32_t start_vertex);
   const std::string& last_error() const { return err_; }
@@ -86,6 +114,8 @@ class DeviceContext {
   Device& dev_;
   DrawBackend* backend_ = nullptr;
   std::vector<InputElement> layout_;
+  PipelineState state_;
+  ResourceId dsv_ = 0;
   ResourceId vb_ = 0, rtv_ = 0, vs_cb0_ = 0, ps_cb0_ = 0, ps_tex_ = 0;
   SamplerDesc ps_smp_;
   uint32_t stride_ = 0, vb_offset_ = 0;
