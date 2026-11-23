@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
           CHECK(r.output.empty() && rt.presents == 2 && rt.shaders_translated == 4 && rt.last_error.empty());
         }
         if(n=="resource_interfaces.run.exe") {
-          CHECK(r.output=="resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok\n");
+          CHECK(r.output=="resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok\nresource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok\n");
           CHECK(rt.presents==0 && rt.shaders_translated==0 && rt.last_error.empty());
         }
         if (n.find("texture_copy.") == 0) {
