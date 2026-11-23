@@ -1,5 +1,9 @@
 #include "runtime/kernel32.h"
 #include <chrono>
+#include <cstdlib>
+#include <functional>
+#include <map>
+#include <mutex>
 #include <thread>
 #if defined(__linux__) && defined(__x86_64__)
 #define MSABI __attribute__((ms_abi))
@@ -100,6 +104,65 @@ MSABI void k_EnterCriticalSection(void* p) { if (auto* c = find_cs(p)) c->enter(
 MSABI uint32_t k_TryEnterCriticalSection(void* p) { auto* c = find_cs(p); return c && c->try_enter() ? 1 : 0; }
 MSABI void k_LeaveCriticalSection(void* p) { if (auto* c = find_cs(p)) c->leave(); }
 MSABI void k_DeleteCriticalSection(void* p) { std::lock_guard<std::mutex> l(C->cs_mutex); C->critical_sections.erase((uintptr_t)p); }
+
+// ---- process/thread basics, TLS, a small process heap, time (what a C runtime startup typically touches) ----
+thread_local uint32_t t_last_error = 0;
+const int kTlsSlots = 64;
+bool g_tls_used[kTlsSlots];
+thread_local uint64_t t_tls[kTlsSlots];
+std::mutex g_tls_mutex, g_heap_mutex;
+std::map<uintptr_t, size_t> g_heap_blocks;
+size_t g_heap_used = 0;
+const size_t kHeapLimit = size_t(1) << 30;
+MSABI uint32_t k_GetLastError() { return t_last_error; }
+MSABI void k_SetLastError(uint32_t e) { t_last_error = e; }
+MSABI uint32_t k_GetCurrentProcessId() { return 4242; }
+MSABI uint32_t k_GetCurrentThreadId() { return (uint32_t)(std::hash<std::thread::id>()(std::this_thread::get_id()) & 0x7FFFFFFFu) | 1u; }
+MSABI uint64_t k_GetCurrentProcess() { return ~0ull; }
+MSABI uint64_t k_GetCurrentThread() { return ~1ull; }
+MSABI uint32_t k_GetTickCount() { return (uint32_t)k_GetTickCount64(); }
+MSABI void k_GetSystemTimeAsFileTime(uint64_t* ft) {
+  if (!ft) return;
+  auto d = std::chrono::system_clock::now().time_since_epoch();
+  *ft = (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(d).count() / 100 + 116444736000000000ull;
+}
+MSABI uint32_t k_IsDebuggerPresent() { return 0; }
+MSABI uint64_t k_SetUnhandledExceptionFilter(uint64_t) { return 0; }
+MSABI uint32_t k_TlsAlloc() {
+  std::lock_guard<std::mutex> l(g_tls_mutex);
+  for (int i = 0; i < kTlsSlots; i++) if (!g_tls_used[i]) { g_tls_used[i] = true; t_tls[i] = 0; return (uint32_t)i; }
+  return 0xFFFFFFFFu;
+}
+MSABI uint32_t k_TlsFree(uint32_t i) {
+  std::lock_guard<std::mutex> l(g_tls_mutex);
+  if (i >= (uint32_t)kTlsSlots || !g_tls_used[i]) return 0;
+  g_tls_used[i] = false; return 1;
+}
+MSABI uint64_t k_TlsGetValue(uint32_t i) { t_last_error = 0; return i < (uint32_t)kTlsSlots && g_tls_used[i] ? t_tls[i] : 0; }
+MSABI uint32_t k_TlsSetValue(uint32_t i, uint64_t v) {
+  if (i >= (uint32_t)kTlsSlots || !g_tls_used[i]) return 0;
+  t_tls[i] = v; return 1;
+}
+MSABI const char* k_GetCommandLineA() { return "anyxbox_program"; }
+MSABI uint64_t k_GetProcessHeap() { return 0x9000; }
+MSABI void* k_HeapAlloc(uint64_t heap, uint32_t flags, uint64_t n) {
+  if (heap != 0x9000) return nullptr;
+  if (n == 0) n = 1;
+  std::lock_guard<std::mutex> l(g_heap_mutex);
+  if (n > kHeapLimit || g_heap_used > kHeapLimit - n) return nullptr;
+  void* p = (flags & 8) ? std::calloc(1, n) : std::malloc(n);   // 8 = HEAP_ZERO_MEMORY
+  if (!p) return nullptr;
+  g_heap_blocks[(uintptr_t)p] = n; g_heap_used += n; return p;
+}
+MSABI uint32_t k_HeapFree(uint64_t heap, uint32_t, void* p) {
+  if (heap != 0x9000) return 0;
+  if (!p) return 1;
+  std::lock_guard<std::mutex> l(g_heap_mutex);
+  auto it = g_heap_blocks.find((uintptr_t)p);
+  if (it == g_heap_blocks.end()) return 0;   // unknown or double free: never forwarded to the host
+  g_heap_used -= it->second; g_heap_blocks.erase(it); std::free(p); return 1;
+}
+MSABI void k_OutputDebugStringA(const char*) {}
 }  // namespace
 
 bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
@@ -131,6 +194,25 @@ bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
   r.add(K, "TryEnterCriticalSection", A(&k_TryEnterCriticalSection));
   r.add(K, "LeaveCriticalSection", A(&k_LeaveCriticalSection));
   r.add(K, "DeleteCriticalSection", A(&k_DeleteCriticalSection));
+  r.add(K, "GetLastError", A(&k_GetLastError));
+  r.add(K, "SetLastError", A(&k_SetLastError));
+  r.add(K, "GetCurrentProcessId", A(&k_GetCurrentProcessId));
+  r.add(K, "GetCurrentThreadId", A(&k_GetCurrentThreadId));
+  r.add(K, "GetCurrentProcess", A(&k_GetCurrentProcess));
+  r.add(K, "GetCurrentThread", A(&k_GetCurrentThread));
+  r.add(K, "GetTickCount", A(&k_GetTickCount));
+  r.add(K, "GetSystemTimeAsFileTime", A(&k_GetSystemTimeAsFileTime));
+  r.add(K, "IsDebuggerPresent", A(&k_IsDebuggerPresent));
+  r.add(K, "SetUnhandledExceptionFilter", A(&k_SetUnhandledExceptionFilter));
+  r.add(K, "TlsAlloc", A(&k_TlsAlloc));
+  r.add(K, "TlsFree", A(&k_TlsFree));
+  r.add(K, "TlsGetValue", A(&k_TlsGetValue));
+  r.add(K, "TlsSetValue", A(&k_TlsSetValue));
+  r.add(K, "GetCommandLineA", A(&k_GetCommandLineA));
+  r.add(K, "GetProcessHeap", A(&k_GetProcessHeap));
+  r.add(K, "HeapAlloc", A(&k_HeapAlloc));
+  r.add(K, "HeapFree", A(&k_HeapFree));
+  r.add(K, "OutputDebugStringA", A(&k_OutputDebugStringA));
   return true;
 }
 }
