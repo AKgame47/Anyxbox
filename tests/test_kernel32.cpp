@@ -154,4 +154,4 @@ int main() {
     CHECK(r.exit_code == 5 + 0x1234 + 99);
   }
   std::puts("ok"); return 0;
-  }
+}
