@@ -74,3 +74,10 @@ Self-written scene with a 512x512 raw RGBA texture read from `data/texture.rgba`
 The fixture uses scene.c's authored shader/geometry and presents twice. The test generates a 1 MiB four-quadrant asset
 in a temporary directory, passes its root to run_pe and checks both frames on Vulkan. Host mode binds the same rooted
 file functions. CI compiles the independent MinGW binary and requires Vulkan for its pixel checks; compile/run awaits CI.
+
+The retained `asset_scene.run.exe` is the exact MinGW artifact from run 187, source commit 1d9405f:
+https://github.com/AKgame47/Anyxbox/actions/runs/45248161131/job/137950337383
+15111 bytes; SHA-256 `72ee6ddf07f1ef8963c4976f03bf331e7544aaf5f519d9620c1d6528488c3008`.
+The directory-mode scene verifier runs source calls and this retained binary. CI requires Vulkan separately
+for fresh and retained executables and retains both frame pairs. Fixture-slot checks default-denial exit40,
+then executes with a generated asset root; dedicated Vulkan tests own its pixel assertions.
