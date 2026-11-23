@@ -9,6 +9,8 @@ class ImportRegistry {
   void add(const std::string& dll, const std::string& name, uint64_t host_addr);
   void add_ordinal(const std::string& dll, uint16_t ordinal, uint64_t host_addr);
   uint64_t resolve(const std::string& dll, const std::string& name, uint16_t ordinal, bool by_ordinal) const;
+  // True when at least one function is registered for this dll (name compared case-insensitively, with the ".dll" suffix).
+  bool has_dll(const std::string& dll) const;
   size_t size() const { return map_.size(); }
  private:
   static std::string key(const std::string& dll, const std::string& n);
