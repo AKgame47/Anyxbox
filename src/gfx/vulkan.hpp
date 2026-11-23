@@ -202,7 +202,8 @@ public:
                                const BlendState* blend = nullptr,
                                int32_t cull_mode = VK_CULL_MODE_NONE,
                                int32_t front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-                               int32_t depth_compare = VK_COMPARE_OP_LESS);
+                               int32_t depth_compare = VK_COMPARE_OP_LESS,
+                               const std::vector<uint32_t>* vertex_push = nullptr);  // Anyxbox: 1..32 words, vertex stage
 
   // Destroys a FrameSurface's Vulkan objects and zeroes it (slice S13).
   void destroy_frame(FrameSurface& s);
