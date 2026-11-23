@@ -164,3 +164,14 @@ RTV/DSV binding reference checks: caller release, same-object rebind, resource
 access through the retained view, and null unbind. Retained run248 bytes remain
 unchanged and do not prove these new operations. Fresh independent MinGW build
 and execution await CI. No new executable fixture or scene is added.
+
+Batch87 replaces the same resource_interfaces.run.exe with exact run257 output,
+source tip 15f73fa. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45279424900/job/138059645554
+507671 bytes; SHA256 f5a097cd81e3c1414ab3f530a70a036b505c048c832915ef66cc7a42409ee6ff.
+It includes all five interface/descriptor/view/shader/output-merger markers.
+Fixture-slot requires exact combined output, zero exit, two translated shaders,
+zero presents and empty D3D11 error. Fresh and retained CI require the new marker.
+The output-merger probe covers caller release/rebind/unbind, not replacement,
+teardown or MRT refusal. Those remain interface-unit coverage. Earlier binary
+provenance is historical. Runtime lifetime and other ownership limits still apply.
