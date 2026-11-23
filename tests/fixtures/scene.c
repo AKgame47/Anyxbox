@@ -34,6 +34,11 @@ IMPORT(void, "user32.dll", PostQuitMessage, (int))
 IMPORT(void, "kernel32.dll", ExitProcess, (uint32_t))
 IMPORT(int32_t, "d3d11.dll", D3D11CreateDeviceAndSwapChain, (void*, uint32_t, void*, uint32_t, const void*, uint32_t, uint32_t, const void*, void**, void**, uint32_t*, void**))
 
+#ifdef ASSET_SCENE_FIXTURE
+IMPORT(uint64_t, "kernel32.dll", CreateFileA, (const char*,uint32_t,uint32_t,void*,uint32_t,uint32_t,void*))
+IMPORT(uint32_t, "kernel32.dll", ReadFile, (uint64_t,void*,uint32_t,uint32_t*,void*))
+IMPORT(uint32_t, "kernel32.dll", CloseHandle, (uint64_t))
+#endif
 #define VT(o) (*(void***)(o))
 typedef int32_t (MS *F_Present)(void*, uint32_t, uint32_t);
 typedef int32_t (MS *F_GetBuffer)(void*, uint32_t, const void*, void**);
@@ -140,12 +145,22 @@ MS uint32_t entry(void) {
 #if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
   put32(tx,28,2 /* DYNAMIC */); put32(tx,36,0x10000 /* CPU_ACCESS_WRITE */);
 #endif
+#ifdef ASSET_SCENE_FIXTURE
+  put32(tx,0,512);put32(tx,4,512);
+#endif
   void *tex = 0, *srv = 0, *smp = 0;
   if (((F_CreateTex)VT(dev)[5])(dev, tx, 0, &tex) < 0) return 14;
   if (((F_CreateView)VT(dev)[7])(dev, tex, 0, &srv) < 0) return 15;
   uint8_t smd[64]; zero(smd, sizeof smd); put32(smd, 0, 0 /* POINT */); put32(smd, 4, 3); put32(smd, 8, 3); put32(smd, 12, 3);
   if (((F_CreateState)VT(dev)[23])(dev, smd, &smp) < 0) return 16;
-#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+#ifdef ASSET_SCENE_FIXTURE
+  static uint8_t asset[512*512*4]; uint32_t read=0;
+  uint64_t file=CreateFileA("data/texture.rgba",0x80000000u,1,0,3,0,0);
+  if(file==~(uint64_t)0) return 40;
+  if(!ReadFile(file,asset,sizeof asset,&read,0) || read!=sizeof asset) return 41;
+  if(!CloseHandle(file)) return 42;
+  ((F_Update)VT(ctx)[48])(ctx,tex,0,0,asset,512*4,0);
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
   uint8_t initial_map[16]; zero(initial_map,sizeof initial_map);
   if (((F_Map)VT(ctx)[14])(ctx,tex,0,4,0,initial_map)<0) return 35;
   uint8_t* initial_data=*(uint8_t**)initial_map; uint32_t initial_pitch=*(uint32_t*)(initial_map+8);
