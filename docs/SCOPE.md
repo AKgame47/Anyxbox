@@ -80,3 +80,9 @@ tests/fixtures/eh.cpp is a MinGW C++ throw/catch program built statically in CI.
 ## Batch 39: registry reconciliation, five more msvcrt functions
 
 import_gap and test_fixture_slot now register the same function sets as run_pe (including the exception functions), so a coverage report matches what run_exe can resolve. Added msvcrt memchr, fputs, _write, _read, _close (descriptors 0, 1 and 2 only: stdin is always at end of file, output is captured). Whether eh.exe runs is still decided by CI.
+
+## Batch 40: C++ exceptions through the SEH layer
+- Entry stubs for RaiseException, RtlCaptureContext, RtlUnwindEx and RtlUnwind align the stack themselves; guest code may call them misaligned.
+- Host frames of the dispatcher have no unwind tables, so a walk that reaches one continues from a saved continuation context (the walk that called the handler). This lets libgcc's nested RaiseException/RtlUnwindEx (cleanups, catch) find the frames above.
+- ANYXBOX_SEH_TRACE=1 prints each dispatch and unwind step to stderr.
+- The CI-built eh.exe (static MinGW libstdc++) runs locally: three destructors, "caught boom", "ok".
