@@ -22,8 +22,9 @@ struct InputElement { std::string semantic; Format format; uint32_t offset; };
 struct Viewport { float x = 0, y = 0, width = 0, height = 0; };
 struct DrawStats { uint64_t triangles_in = 0, triangles_drawn = 0, pixels_written = 0; };
 
-struct ClipVertex { float x, y, z, w; float r, g, b, a; };  // D3D clip space (y up)
+struct ClipVertex { float x, y, z, w; float r, g, b, a; float u = 0, v = 0; };  // D3D clip space (y up)
 
+struct SamplerDesc { bool linear = false; bool wrap = false; };   // point/linear filter, clamp/wrap (U and V)
 class Device;
 // Pluggable draw path. The reference renderer is built in; the Vulkan backend lives in d3d11_vulkan.h.
 class DrawBackend {
@@ -36,12 +37,15 @@ class DrawBackend {
   // Vertex-shader constant buffer 0 contents for the next draw (empty = none bound). Default: ignored.
   virtual void set_vs_constants(const std::vector<uint8_t>& /*cb0*/) {}
   virtual void set_ps_constants(const std::vector<uint8_t>& /*cb0*/) {}
+  // Pixel-shader texture t0 for the next draw, RGBA byte order, row 0 at top; rgba == nullptr = none bound.
+  virtual void set_ps_texture(const uint8_t* /*rgba*/, uint32_t /*w*/, uint32_t /*h*/, const SamplerDesc& /*s*/) {}
 };
 
 class Device {
  public:
   ResourceId CreateBuffer(const void* data, size_t bytes);           // 0 on failure
   ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f);       // RGBA8 or BGRA8 only; max 16384
+  bool UpdateTexture(ResourceId texture, const void* data, size_t bytes);   // whole texture, in the texture's own byte order
   ResourceId CreateRenderTargetView(ResourceId texture);              // 0 on failure
   bool ReadTexture(ResourceId texture, std::vector<uint8_t>* out) const;  // row 0 = top
   // internal, used by DeviceContext
@@ -69,6 +73,8 @@ class DeviceContext {
   // Only slot 0 exists for now; returns false (and sets last_error) for any other slot or an invalid buffer. 0 unbinds.
   bool VSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   bool PSSetConstantBuffer(uint32_t slot, ResourceId buffer);
+  bool PSSetShaderResource(uint32_t slot, ResourceId texture);   // slot 0 only; 0 unbinds
+  bool PSSetSampler(uint32_t slot, const SamplerDesc& s);        // slot 0 only
   void OMSetRenderTarget(ResourceId rtv) { rtv_ = rtv; }
   bool ClearRenderTargetView(ResourceId rtv, const float rgba[4]);
   bool Draw(uint32_t vertex_count, uint32_t start_vertex);
@@ -79,7 +85,8 @@ class DeviceContext {
   Device& dev_;
   DrawBackend* backend_ = nullptr;
   std::vector<InputElement> layout_;
-  ResourceId vb_ = 0, rtv_ = 0, vs_cb0_ = 0, ps_cb0_ = 0;
+  ResourceId vb_ = 0, rtv_ = 0, vs_cb0_ = 0, ps_cb0_ = 0, ps_tex_ = 0;
+  SamplerDesc ps_smp_;
   uint32_t stride_ = 0, vb_offset_ = 0;
   Topology topo_ = Topology::Undefined;
   Viewport vp_; bool has_vp_ = false;
