@@ -343,3 +343,26 @@ reject every metadata overlap, add a guest execution timeout or fix native-code 
 and process privileges. External destination buffers may already contain partial
 mapping on failure, as before. Complete object lifetime and thread-safety work remains.
 PE layout reference: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+
+## Batch 75: validate executable launch entry location
+
+run_pe now refuses an entry RVA of zero, an RVA outside SizeOfImage, or an RVA not
+inside a declared executable section extent. This check precedes marking the image
+loaded, changing page permissions and running TLS callbacks/entry code. It uses the
+actual section extent rather than rounded protection pages, so page-tail padding is
+not accepted as entry code. Header entry points are outside this launcher's policy.
+No instruction decoding, content or termination check is implied.
+
+Expanded existing test_run_pe checks zero/header/out-of-image/max-RVA entry points,
+a full-page section gap, writable data entry, a section without EXECUTE, exact section
+end and rounded-page tail. Positive checks cover executable non-writable code and
+VirtualSize=0/raw-size fallback. Null launcher input is also rejected. All 41 local
+ASan/UBSan programs pass after relinking, including the sixteen retained independent
+binaries. No new binary/probe, target or CMake change. CI evidence remains pending.
+
+This is an executable-launch policy, not general Windows PE parity. Zero entry RVAs
+can have meaning in other PE contexts; this launcher does not launch those images.
+TLS callback executable-section validation is not added by this slice. Arbitrary
+native instructions remain host-privileged. Full metadata validation, overlaps,
+timeouts, partial mapping on failure, COM ownership and thread safety remain open.
+Layout reference: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
