@@ -87,7 +87,12 @@ int operand_count(uint32_t op) {
   switch (op) {
     case OP_MOV: case OP_FRC: case OP_RSQ: case OP_SQRT: case OP_EXP: case OP_LOG: return 2;
     case OP_ADD: case OP_MUL: case OP_DIV: case OP_MIN: case OP_MAX: case OP_DP2: case OP_DP3: case OP_DP4: return 3;
-    case OP_MAD: return 4;
+    case OP_MAD: case OP_MOVC: return 4;
+    case OP_IF: case OP_BREAKC: case OP_CONTINUEC: case OP_RETC: case OP_DISCARD: return 1;
+    case OP_ELSE: case OP_ENDIF: case OP_LOOP: case OP_ENDLOOP: case OP_BREAK: case OP_CONTINUE: return 0;
+    case OP_ITOF: case OP_FTOI: case OP_INEG: case OP_NOT: return 2;
+    case OP_EQ: case OP_NE: case OP_LT: case OP_GE: case OP_IEQ: case OP_INE: case OP_ILT: case OP_IGE:
+    case OP_IADD: case OP_AND: case OP_OR: case OP_XOR: return 3;
     case OP_SAMPLE: return 4;
     case OP_SAMPLE_L: return 5;
     case OP_DCL_RESOURCE: case OP_DCL_SAMPLER: return 1;
