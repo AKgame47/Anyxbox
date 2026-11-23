@@ -21,3 +21,13 @@ SHA-256: `a88610e4658caec2e7b9c0e48f512e856d7812a8f2bf226983a2559fc22fc6d8` (502
 It checks whole mip-chain copies, region copies, staging Map readback and generated-mip copying.
 `test_fixture_slot` requires its four exact output lines, zero exit, no runtime error and zero presented frames/shader translations.
 This fixture tests resource operations only, not drawing or GPU rendering.
+
+## draw_copy.c
+This source selects the draw-copy variant of scene.c and reuses its authored DXBC and geometry.
+CI builds it with the same freestanding MinGW command as scene.c (substitute draw_copy for scene).
+After frame 1 it copies yellow into the sampled texture and cyan into the active backbuffer.
+Frame 2 redraws without clearing either color or depth, using LESS_EQUAL depth testing.
+`test_fixture_draw_copy draw_copy.exe --require-vulkan draw-copy-frame` runs the independent binary,
+requires Vulkan, checks pixels from both presents and retains both frames as PPM images.
+With a fixture-directory argument instead of an executable, the test runs the same source as host calls.
+That local host-source test is not proof of the MinGW binary; its compile and execution await CI.
