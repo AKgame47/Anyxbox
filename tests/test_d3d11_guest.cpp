@@ -142,7 +142,7 @@ int main() {
   std::printf("SKIP: guest code runs on Linux x86-64 only\n"); return 0;
 #else
   static_assert(sizeof wine_vs_code < 0x400 && sizeof wine_ps_code < 0x400, "blob slots");
-  std::vector<V> t = {{-0.8f,-0.8f,0,1, 1,0,0,1}, {0.8f,-0.8f,0,1, 0,1,0,1}, {0,0.8f,0,1, 0,0,1,1}};
+  std::vector<V> t = {{-0.8f,-0.8f,0,1, 1,0,0,1}, {0,0.8f,0,1, 0,0,1,1}, {0.8f,-0.8f,0,1, 0,1,0,1}}   /* clockwise: survives D3D's default back-face culling */;
   auto pe = finish_pe(build_guest(), t);
 
   // 1. No GPU: the guest runs, creates everything, translates both real shaders, and draws on the reference renderer.
