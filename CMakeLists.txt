@@ -221,3 +221,8 @@ foreach(method region update map)
   target_link_libraries(test_fixture_draw_${method} PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
   add_test(NAME fixture_draw_${method} COMMAND test_fixture_draw_${method} ${CMAKE_SOURCE_DIR}/tests/fixtures)
 endforeach()
+
+add_executable(test_fixture_asset_scene tests/test_fixture_asset_scene.cpp)
+target_include_directories(test_fixture_asset_scene PRIVATE tests tests/fixtures)
+target_link_libraries(test_fixture_asset_scene PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
+add_test(NAME fixture_asset_scene COMMAND test_fixture_asset_scene ${CMAKE_SOURCE_DIR}/tests/fixtures)
