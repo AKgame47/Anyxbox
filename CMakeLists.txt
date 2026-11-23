@@ -90,3 +90,15 @@ add_executable(test_real_dxbc tests/test_real_dxbc.cpp)
 target_include_directories(test_real_dxbc PRIVATE tests)
 target_link_libraries(test_real_dxbc anyxbox_shader anyxbox_gfx)   # same libraries test_dxbc links
 add_test(NAME real_dxbc COMMAND test_real_dxbc)
+
+# Build fix: anyxbox_gfx was referenced by test_dxbc and test_real_dxbc but never defined.
+add_library(anyxbox_gfx INTERFACE)
+target_link_libraries(anyxbox_gfx INTERFACE anyxbox_d3d11_vulkan)
+
+# Batch 16: D3D11 COM layer for guest programs
+add_library(anyxbox_d3d11_rt src/runtime/d3d11_runtime.cpp)
+target_link_libraries(anyxbox_d3d11_rt PUBLIC anyxbox_runtime anyxbox_shader anyxbox_d3d11)
+add_executable(test_d3d11_guest tests/test_d3d11_guest.cpp)
+target_include_directories(test_d3d11_guest PRIVATE tests)
+target_link_libraries(test_d3d11_guest anyxbox_d3d11_rt anyxbox_gfx)
+add_test(NAME d3d11_guest COMMAND test_d3d11_guest)
