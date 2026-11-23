@@ -47,3 +47,11 @@ Map/Unmap writes a dynamic sampled texture directly. For the backbuffer it write
 then CopyResource transfers staging bytes to the live target, rather than mapping a default render target.
 All use two presents and require Vulkan in CI's independently compiled binary checks. Fresh executables
 and both frames are retained. Independent compilation/execution of these new variants awaits CI.
+
+The three retained `.run.exe` variants are exact artifacts from run 159 at source commit 92d1420:
+https://github.com/AKgame47/Anyxbox/actions/runs/45239239109/job/137919083466
+- draw_region.run.exe: 15610 bytes, SHA-256 `165bbf157652c550144c8b5b2180979163e64c7cf9e5524b32e2b5ffa5d22442`.
+- draw_update.run.exe: 15610 bytes, SHA-256 `395f86ab0ab09bbf08f083a2045a3807b462a0f83546fc6dabf926f44c3fa819`.
+- draw_map.run.exe: 15062 bytes, SHA-256 `2f4782134501d53a7c3b1138a5a3aabbbd48d77d9776cb54a780ac7eeabbdf1a`.
+Directory-mode tests cover source calls and retained variants. CI also explicitly requires Vulkan
+for each freshly built and retained variant and keeps all captured frames. No physical-GPU coverage is implied.
