@@ -81,3 +81,11 @@ https://github.com/AKgame47/Anyxbox/actions/runs/45248161131/job/137950337383
 The directory-mode scene verifier runs source calls and this retained binary. CI requires Vulkan separately
 for fresh and retained executables and retains both frame pairs. Fixture-slot checks default-denial exit40,
 then executes with a generated asset root; dedicated Vulkan tests own its pixel assertions.
+
+## keyboard_scene.c
+File-backed 512 texture scene with arrow-key movement of the green quad and Escape to stop.
+Default four frames for CI. Build with `-DFRAMES=3600` for a bounded interactive run, then use
+`run_exe --i-built-this keyboard_scene.exe --window --gpu --asset-root ROOT` with the generated quadrant asset.
+`test_fixture_keyboard_scene` supplies scripted host events after each present: right-down, right-up,
+then right-down followed by focus-loss. It verifies movement and identical stopped frames after release/focus-loss.
+Scripted event tests are not physical-keyboard evidence. Independent MinGW compilation/run awaits CI.
