@@ -73,8 +73,10 @@ std::vector<uint8_t> build_guest() {
   a.on(CTX); a.load(2, PS); a.zero_r8(); a.zero_r9(); a.vcall(9);
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, SMP); a.vcall(10);                           // PSSetSamplers(0, 1, &smp)
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, SRVA); a.vcall(8);                           // PSSetShaderResources(0, 1, &srvA)
+  a.on(SRVA);a.vcall(2);a.on(TEXA);a.vcall(2); // caller release after binding
   a.on(CTX); a.mov_edx(6); a.zero_r8(); a.zero_r9(); a.vcall(12);                                   // DrawIndexed(6, 0, 0)
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, SRVB); a.vcall(8);                           // switch to texture B
+  a.on(SRVB);a.vcall(2);a.on(TEXB);a.vcall(2); // replacement view remains context-owned
   a.on(CTX); a.mov_edx(6); a.mov_r8d(6); a.zero_r9(); a.vcall(12);                                  // DrawIndexed(6, 6, 0)
   a.b({0x31, 0xC0});
   a.b({0x48, 0x83, 0xC4, 0x68, 0xC3});
