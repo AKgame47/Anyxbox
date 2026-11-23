@@ -88,6 +88,9 @@ int operand_count(uint32_t op) {
     case OP_MOV: case OP_FRC: case OP_RSQ: case OP_SQRT: case OP_EXP: case OP_LOG: return 2;
     case OP_ADD: case OP_MUL: case OP_DIV: case OP_MIN: case OP_MAX: case OP_DP2: case OP_DP3: case OP_DP4: return 3;
     case OP_MAD: return 4;
+    case OP_SAMPLE: return 4;
+    case OP_SAMPLE_L: return 5;
+    case OP_DCL_RESOURCE: case OP_DCL_SAMPLER: return 1;
     case OP_RET: return 0;
     case OP_DCL_INPUT: case OP_DCL_INPUT_PS: case OP_DCL_OUTPUT: case OP_DCL_CONSTANT_BUFFER:
     case OP_DCL_INPUT_SIV: case OP_DCL_INPUT_SGV: case OP_DCL_INPUT_PS_SIV: case OP_DCL_INPUT_PS_SGV:
@@ -127,6 +130,7 @@ Program decode_shader(const uint8_t* d, size_t n) {
       }
       bool siv = op == OP_DCL_INPUT_SIV || op == OP_DCL_INPUT_SGV || op == OP_DCL_INPUT_PS_SIV || op == OP_DCL_INPUT_PS_SGV ||
                  op == OP_DCL_OUTPUT_SIV || op == OP_DCL_OUTPUT_SGV;
+      if (op == OP_DCL_RESOURCE) { if (p >= i + len) return fail("missing resource return type token"); in.value = w[p++]; }
       if (siv) { if (p >= i + len) return fail("missing system value token"); in.value = w[p++]; }
       if (p != i + len) return fail("instruction length does not match its operands (opcode " + std::to_string(op) + ")");
     }
