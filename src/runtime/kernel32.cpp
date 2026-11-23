@@ -16,6 +16,7 @@ namespace {
 Kernel32Context* C = nullptr;
 const uint64_t kStdIn = 0xFFF0, kStdOut = 0xFFF4, kStdErr = 0xFFF8, kInvalid = ~0ull;
 const uint32_t GENERIC_READ_ = 0x80000000u, GENERIC_WRITE_ = 0x40000000u;
+thread_local uint32_t t_last_error = 0;
 bool h32(uint64_t h, uint32_t& o) { if (h > 0xFFFFFFFFull) return false; o = (uint32_t)h; return true; }
 bool is_std_out(uint64_t h) { return h == kStdOut || h == kStdErr; }
 
@@ -82,6 +83,20 @@ MSABI uint64_t k_CreateThread(void*, uint64_t, ThreadStart fn, void* param, uint
 MSABI uint32_t k_GetExitCodeThread(uint64_t h, uint32_t* code) { uint32_t hh; return h32(h, hh) && anyxbox::GetExitCodeThread(C->handles, hh, code) ? 1 : 0; }
 MSABI uint32_t k_WaitForSingleObject(uint64_t h, uint32_t ms) { uint32_t hh; return h32(h, hh) ? anyxbox::WaitForSingleObject(C->handles, hh, ms) : WAIT_FAILED; }
 MSABI uint64_t k_CreateEventA(void*, int32_t manual, int32_t initial, const char*) { return C->handles.add(std::make_shared<Event>(manual != 0, initial != 0)); }
+MSABI uint64_t k_CreateEventW(void* a, int32_t manual, int32_t initial, const uint16_t*) { return k_CreateEventA(a, manual, initial, nullptr); }
+MSABI uint64_t k_CreateSemaphoreA(void*, int32_t initial, int32_t maximum, const char*) {
+  if (maximum <= 0 || initial < 0 || initial > maximum) { t_last_error = 87; return 0; }   // ERROR_INVALID_PARAMETER
+  return C->handles.add(std::make_shared<Semaphore>(initial, maximum));
+}
+MSABI uint64_t k_CreateSemaphoreW(void* a, int32_t initial, int32_t maximum, const uint16_t*) { return k_CreateSemaphoreA(a, initial, maximum, nullptr); }
+MSABI uint32_t k_ReleaseSemaphore(uint64_t h, int32_t n, int32_t* prev) {
+  uint32_t hh; if (!h32(h, hh) || n <= 0) { t_last_error = 87; return 0; }
+  auto sem = std::dynamic_pointer_cast<Semaphore>(C->handles.get(hh)); if (!sem) { t_last_error = 6; return 0; }   // ERROR_INVALID_HANDLE
+  int32_t p = 0;
+  if (!sem->release(n, &p)) { t_last_error = 298; return 0; }                                                   // ERROR_TOO_MANY_POSTS
+  if (prev) *prev = p;
+  return 1;
+}
 MSABI uint32_t k_SetEvent(uint64_t h) { uint32_t hh; if (!h32(h, hh)) return 0; auto e = std::dynamic_pointer_cast<Event>(C->handles.get(hh)); if (!e) return 0; e->set(); return 1; }
 MSABI uint32_t k_ResetEvent(uint64_t h) { uint32_t hh; if (!h32(h, hh)) return 0; auto e = std::dynamic_pointer_cast<Event>(C->handles.get(hh)); if (!e) return 0; e->reset(); return 1; }
 MSABI void k_Sleep(uint32_t ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
@@ -111,7 +126,6 @@ MSABI void k_LeaveCriticalSection(void* p) { if (auto* c = find_cs(p)) c->leave(
 MSABI void k_DeleteCriticalSection(void* p) { std::lock_guard<std::mutex> l(C->cs_mutex); C->critical_sections.erase((uintptr_t)p); }
 
 // ---- process/thread basics, TLS, a small process heap, time (what a C runtime startup typically touches) ----
-thread_local uint32_t t_last_error = 0;
 const int kTlsSlots = 64;
 bool g_tls_used[kTlsSlots];
 thread_local uint64_t t_tls[kTlsSlots];
@@ -259,6 +273,10 @@ bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
   r.add(K, "GetExitCodeThread", A(&k_GetExitCodeThread));
   r.add(K, "WaitForSingleObject", A(&k_WaitForSingleObject));
   r.add(K, "CreateEventA", A(&k_CreateEventA));
+  r.add(K, "CreateEventW", A(&k_CreateEventW));
+  r.add(K, "CreateSemaphoreA", A(&k_CreateSemaphoreA));
+  r.add(K, "CreateSemaphoreW", A(&k_CreateSemaphoreW));
+  r.add(K, "ReleaseSemaphore", A(&k_ReleaseSemaphore));
   r.add(K, "SetEvent", A(&k_SetEvent));
   r.add(K, "ResetEvent", A(&k_ResetEvent));
   r.add(K, "Sleep", A(&k_Sleep));
