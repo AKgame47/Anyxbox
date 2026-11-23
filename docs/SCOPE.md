@@ -454,3 +454,31 @@ Successful open is not proof of every present, visible window pixels, screenshot
 physical display/input or uncontrolled focus. Failed opens can be retried by guest
 calls, but any failure still makes this CLI request fail. Native host privileges,
 thread safety, object lifetime and the other earlier limitations remain unchanged.
+
+## Batch 80: query existing resource descriptors
+
+Supported buffers and color/depth Texture2D objects now implement public GetDesc at
+resource slot10. They retain creation fields and report resolved mip counts when
+MipLevels=0, plus realized single array/sample counts. Depth resources also retain
+usage/bind fields used by the existing copy/map policy. Swapchain backbuffers report
+actual selected dimensions/format, one mip/sample/layer, default usage and bind flags
+mapped from shader-input/render-target buffer usage. Resource and generic-child
+vtables remain separate. This adds metadata lookup, not new rendering features.
+
+The existing interface unit checks buffer/color/depth/staging/full-mip/backbuffer
+fields and output extents. The existing public-header resource probe is extended with
+GetDesc checks for buffer/color/depth/staging and resolved full mip chains. CI requires
+the new marker for the fresh probe. The retained run212 probe deliberately remains
+unchanged until a newly compiled independent artifact is verified. All41 local
+ASan/UBSan programs pass after full relink, including sixteen retained binaries.
+Independent new public-header compile/run remains pending CI. No new target/CMake.
+
+Creation validation remains partial: echoing an accepted descriptor field does not
+mean its associated feature is implemented. Unsupported arrays/multisampling are
+still unavailable, and previously accepted zero array/sample counts are reported
+as the realized single resource. No descriptor/private-data support for views/state
+objects is added. Existing lifetime/device-retention/ownership/thread-safety and
+native-host-privilege limits remain. No new graphics or physical-device claim.
+References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11buffer-getdesc
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11texture2d-getdesc
