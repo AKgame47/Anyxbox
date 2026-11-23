@@ -742,3 +742,28 @@ evidence. Fourteen slots per stage, binding references only; full validation and
 D3D11.1 offset binding remain incomplete. Other state/device lifetime, reclamation,
 thread safety and host isolation remain incomplete. Runtime lifetime required.
 No new rendering, physical-device/input or Xbox-game evidence is added.
+
+## Batch94: retain supported pixel-sampler bindings
+
+The supported s0..s3 sampler slots now hold sampler interface references. Incoming
+batches acquire all references before replacing old slots so solely-context-owned
+cross-slot swaps are safe. Partial updates preserve other slots; null arrays unbind
+the requested range. Out-of-range batches refuse before changes with overflow-safe
+checks. Runtime teardown releases each held sampler slot.
+
+Existing interface unit checks exact caller-release/swap/rebind/partial/high-slot/
+replacement/range-refusal/unbind/teardown counts, including one sampler bound in
+two slots during teardown. Saved static Release only is used after teardown, not
+calls through runtime-owned vtables. Existing textured guest releases the caller
+sampler reference after binding; reference execution draws four triangles and
+software Vulkan verifies all eight texture quadrants. All 41 local sanitizer
+programs pass after full relink. No physical-device/input evidence is added.
+
+The existing public-header probe adds sampler caller-release/swap/rebind/unbind
+checks; fresh CI requires its marker. Independent MinGW compilation/execution
+awaits CI. Retained run284 stays previous regression only. No new fixture/scene/
+CMake target/release. This is s0..s3 ownership, not full sixteen-sampler support,
+full descriptor validation or corrected null-sampler filtering defaults. Other
+state bindings, child/device lifetime, reclamation, thread safety and host isolation
+remain incomplete. Runtime lifetime required. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetsamplers
