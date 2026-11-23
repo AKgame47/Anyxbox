@@ -96,3 +96,10 @@ import_gap and test_fixture_slot now register the same function sets as run_pe (
 
 ## Batch 43: CI runs the unit tests
 - fixture.yml now compiles and runs every tests/test_*.cpp against the CI object list (strict, no `|| true`), so the committed fixture assertions (test_fixture_slot) are checked by CI. veh.run.exe is committed.
+
+## Batch 44: safe signal-to-exception handoff
+- The hardware-fault signal handler previously wrote a context and exception record below the interrupted stack pointer, overlapping memory Linux may still be using for the active signal frame and handler stack.
+- It now saves those records in thread-local storage. After sigreturn completes, fault_dispatch copies them into its own locals before calling guest handlers. No writes to the interrupted stack occur in the signal handler.
+- test_seh adds a hardware VEH case that edits the saved instruction pointer and resumes after the faulting instruction.
+- Strict CI test failures print the full test log, and test logs upload even on failure. An additional strict test builds the SEH layer and its test with explicit stack protection.
+- The prior CI crash could not be reproduced locally. This fixes the stack overlap found during review; confirmation on that runner remains required.
