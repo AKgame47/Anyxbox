@@ -45,6 +45,7 @@ class Device {
  public:
   ResourceId CreateBuffer(const void* data, size_t bytes);           // 0 on failure
   ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f);       // RGBA8 or BGRA8 only; max 16384
+  bool UpdateBuffer(ResourceId buffer, const void* data, size_t bytes);   // whole buffer, same size
   bool UpdateTexture(ResourceId texture, const void* data, size_t bytes);   // whole texture, in the texture's own byte order
   ResourceId CreateRenderTargetView(ResourceId texture);              // 0 on failure
   bool ReadTexture(ResourceId texture, std::vector<uint8_t>* out) const;  // row 0 = top
