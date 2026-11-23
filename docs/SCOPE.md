@@ -234,3 +234,12 @@ API references for this backend:
 - Committed the exact CI run-173 asset_read.exe with source/build/hash provenance. Local sanitizer execution verified exact read output, zero exit with explicit root and exit 10 without root.
 - Fixture-slot now checks thirteen retained programs. Its asset case creates only synthetic temporary files, checks explicit-root output, source asset unchanged and default denial. CI separately runs fresh/retained binaries through the CLI, both rooted and default-denied.
 - All 36 local sanitizer tests pass. Production code unchanged; read-only path routing still does not isolate native code or provide writable saves.
+
+## Batch 66: file-backed 512 texture target and bounded larger sampling
+- Added asset_scene.c, which reads a generated 512x512 RGBA asset through the explicit read-only root, uploads it and presents the scene twice. Local host-source mode checks both frames on software Vulkan. Independent MinGW compile/run awaits strict CI.
+- Raised the sampled-texture policy cap from 256 to 1024 per side, at all four slots. Packed mip metadata/copy arrays now support eleven levels; tests sample the final level of a full 1024 chain separately at each slot.
+- Before staging upload or image creation, query vkGetPhysicalDeviceImageFormatProperties for the exact format/type/tiling/usage/flags and validate extents, mip/layer counts, sample count and logical bytes. Actual Vulkan create/allocation/bind failures remain checked. These capability checks do not guarantee allocation success.
+- Limit logical texture storage/upload to 64 MiB per resource. The model rejects larger host allocations before allocation; D3D11 supplies exact packed storage length to the Vulkan layer, which rejects short input before memcpy. Legacy raw Vulkan callers may omit byte_size and still own pointer-length correctness. Bounded dimensions/mips/layers/depth keep byte arithmetic within 64-bit size_t.
+- Tests reject short storage, over-cap extents, excessive mip counts and upload-budget excess. Device-specific rejection branches beyond the local driver's reported capabilities are not yet exercised by a synthetic driver. Scope remains RGBA/BGRA D3D11 2D sampling, software Vulkan, not games or physical devices. The 1024 cap is policy, not an advertised hardware maximum.
+
+Capability references: https://docs.vulkan.org/refpages/latest/refpages/source/VkImageFormatProperties.html and https://docs.vulkan.org/refpages/latest/refpages/source/vkGetPhysicalDeviceImageFormatProperties.html
