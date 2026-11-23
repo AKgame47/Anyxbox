@@ -198,6 +198,32 @@ int main(){
   }
   CHECK(bufferRelease(teardownBuffer)==0); // static Release only after runtime destruction
   puts("input buffers: caller release, vertex swap, rebind, partial replacement, index replacement, refusal, unbind and teardown ok");
+  for(unsigned stage:{7u,16u}){
+    auto bindCB=(BindResources)vt(ctx)[stage];void* constants[2]={};bd[2]=4;
+    for(auto& cb:constants)CHECK(((CB)vt(dev)[3])(dev,bd,nullptr,&cb)==0);
+    bindCB(ctx,0,2,constants);for(auto* cb:constants)CHECK(((R)vt(cb)[2])(cb)==1);
+    void* swapped[]={constants[1],constants[0]};bindCB(ctx,0,2,swapped);bindCB(ctx,0,2,swapped);
+    for(auto* cb:constants)CHECK(refs(cb)==1);
+    bindCB(ctx,13,2,swapped);CHECK(!rt.last_error.empty());rt.last_error.clear();
+    bindCB(ctx,0xffffffffu,2,swapped);CHECK(!rt.last_error.empty());rt.last_error.clear();
+    for(auto* cb:constants)CHECK(refs(cb)==1);
+    for(auto* cb:constants)CHECK(((R)vt(cb)[1])(cb)==2);
+    bindCB(ctx,1,1,nullptr);CHECK(refs(constants[0])==1&&refs(constants[1])==2);
+    bindCB(ctx,13,1,&constants[0]);CHECK(refs(constants[0])==2);
+    bindCB(ctx,0,1,&constants[0]);CHECK(refs(constants[0])==3&&refs(constants[1])==1);
+    bindCB(ctx,0,14,nullptr);for(auto* cb:constants)CHECK(((R)vt(cb)[2])(cb)==0);
+  }
+  void* teardownCB=nullptr;R cbRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    CHECK(((CB)vt(d)[3])(d,bd,nullptr,&teardownCB)==0);cbRelease=(R)vt(teardownCB)[2];
+    void* repeat[]={teardownCB,teardownCB};
+    ((BindResources)vt(c)[7])(c,12,2,repeat);((BindResources)vt(c)[16])(c,12,2,repeat);
+    CHECK(refs(teardownCB)==5);
+  }
+  CHECK(cbRelease(teardownCB)==0); // static Release only, not a post-runtime guest call
+  puts("constant buffers: VS/PS caller release, swap, rebind, partial replacement, range refusal, unbind and teardown ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
