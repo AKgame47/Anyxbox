@@ -72,6 +72,17 @@ int main(){
   ctx->OMSetRenderTargets(0,nullptr,nullptr);
   CHECK(boundRT->Release()==0&&boundDS->Release()==0);
   std::puts("output merger: RTV/DSV caller release, same-object rebind and unbind references ok");
+  ID3D11ShaderResourceView* inputs[2]={};
+  CHECK(SUCCEEDED(dev->CreateShaderResourceView(texture,nullptr,&inputs[0])));
+  CHECK(SUCCEEDED(dev->CreateShaderResourceView(texture,nullptr,&inputs[1])));
+  ctx->PSSetShaderResources(0,2,inputs);
+  CHECK(inputs[0]->Release()==1&&inputs[1]->Release()==1);
+  ID3D11ShaderResourceView* swapInputs[]={inputs[1],inputs[0]};
+  ctx->PSSetShaderResources(0,2,swapInputs);ctx->PSSetShaderResources(0,2,swapInputs);
+  CHECK(inputs[0]->AddRef()==2&&inputs[1]->AddRef()==2);
+  ctx->PSSetShaderResources(0,2,nullptr);
+  CHECK(inputs[0]->Release()==0&&inputs[1]->Release()==0);
+  std::puts("pixel SRV bindings: caller release, cross-slot swap, rebind and unbind references ok");
   ID3D11VertexShader* vs=nullptr;ID3D11PixelShader* ps=nullptr;
   CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&vs)));
   CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&ps)));
