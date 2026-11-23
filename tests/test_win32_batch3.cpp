@@ -2,6 +2,8 @@
 #include <cstring>
 #include <filesystem>
 #include <thread>
+#include <fstream>
+#include <sys/stat.h>
 #include "loader/pe_report.h"
 #include "syslayer/win32_file.h"
 #include "syslayer/win32_thread.h"
@@ -49,7 +51,26 @@ int main() {
   CHECK(mf.exists("saves/a.sav") && !mf.exists("../a.sav"));
   uint32_t r = mf.CreateFile(t, "saves/a.sav", OPEN_EXISTING_RW_READ);
   CHECK(ReadFile(t, r, buf, 5, &got) && got == 5 && std::memcmp(buf, "hello", 5) == 0);
-  std::filesystem::remove_all(root);
+  // Synthetic external paths only. Root routing must not follow links or open special files.
+  std::string outside=root+"_outside";
+  std::filesystem::create_directories(outside);
+  { std::ofstream out(outside+"/marker");out<<"outside"; }
+  std::filesystem::create_directory_symlink(outside,root+"/link");
+  std::filesystem::create_symlink(outside+"/marker",root+"/filelink");
+  CHECK(!mf.exists("link/marker") && !mf.exists("filelink"));
+  CHECK(mf.CreateFile(t,"link/new",CREATE_WRITE_TRUNCATE)==0xFFFFFFFF);
+  CHECK(mf.CreateFile(t,"filelink",CREATE_WRITE_TRUNCATE)==0xFFFFFFFF);
+  CHECK(!std::filesystem::exists(outside+"/new"));
+  CHECK(std::filesystem::file_size(outside+"/marker")==7);
+  CHECK(!mf.resolve("a:stream",h));
+  CHECK(::mkfifo((root+"/pipe").c_str(),0600)==0);
+  CHECK(mf.CreateFile(t,"pipe",OPEN_EXISTING_RW_READ)==0xFFFFFFFF);
+  MappedFolder ro(root,true);CHECK(ro.valid());
+  CHECK(ro.CreateFile(t,"new",CREATE_WRITE_TRUNCATE)==0xFFFFFFFF);
+  CHECK(ro.CreateFile(t,"saves/a.sav",OPEN_EXISTING_RW_READ)!=0xFFFFFFFF);
+  std::filesystem::create_directory_symlink(root,outside+"/rootlink");
+  MappedFolder linked(outside+"/rootlink",true);CHECK(!linked.valid());
+  std::filesystem::remove_all(root);std::filesystem::remove_all(outside);
   // report
   LoadedImage bad; bad.error = "bad DOS magic";
   CHECK(pe_report(bad).find("FAILED (bad DOS magic)") != std::string::npos);
