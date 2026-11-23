@@ -197,3 +197,11 @@ add_executable(test_devices tests/test_devices.cpp)
 target_include_directories(test_devices PRIVATE tests)
 target_link_libraries(test_devices PRIVATE anyxbox_runtime anyxbox_loader)
 add_test(NAME devices COMMAND test_devices)
+
+target_sources(anyxbox_runtime PRIVATE src/runtime/seh.cpp)
+# batch 37: NEW SOURCE FILES src/runtime/seh.cpp and seh.h. Add seh.cpp to the library that holds src/runtime/run_pe.cpp (anyxbox_runtime) if sources are listed explicitly.
+# seh.cpp contains top-level assembly; it needs no extra link flags.
+add_executable(test_seh tests/test_seh.cpp)
+target_include_directories(test_seh PRIVATE tests)
+target_link_libraries(test_seh PRIVATE anyxbox_runtime anyxbox_loader)
+add_test(NAME seh COMMAND test_seh)
