@@ -94,6 +94,7 @@ struct MeshInput {
   bool depth = false;
   const TexInput* tex = nullptr;  // sampled at set 0 binding 0 (fragment stage)
   const std::vector<uint8_t>* frag_ubo = nullptr;  // Anyxbox: fragment uniform buffer at set 1 binding 0 (1..16384 bytes)
+  const std::vector<uint8_t>* vert_ubo = nullptr;  // Anyxbox: vertex uniform buffer at set 1 binding 1 (1..16384 bytes)
   FrameSurface* shared_frame = nullptr;  // slice S13: persistent targets; null = per-draw
   bool depth_write = true;               // DB_DEPTH_CONTROL depth_write_enable
   // Slice S26 (DB_DEPTH_CONTROL func, bits 4..6): VK_COMPARE_OP_* value. The
@@ -205,7 +206,8 @@ public:
                                int32_t front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE,
                                int32_t depth_compare = VK_COMPARE_OP_LESS,
                                const std::vector<uint32_t>* vertex_push = nullptr,
-                               const std::vector<uint8_t>* frag_ubo = nullptr);  // Anyxbox: 1..32 words, vertex stage
+                               const std::vector<uint8_t>* frag_ubo = nullptr,
+                               const std::vector<uint8_t>* vert_ubo = nullptr);  // Anyxbox: 1..32 words, vertex stage
 
   // Destroys a FrameSurface's Vulkan objects and zeroes it (slice S13).
   void destroy_frame(FrameSurface& s);
@@ -247,7 +249,8 @@ public:
                                         int32_t front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE,
                                         int32_t depth_compare = VK_COMPARE_OP_LESS,
                                         const std::vector<uint32_t>* vertex_push = nullptr,
-                                        const std::vector<uint8_t>* frag_ubo = nullptr);
+                                        const std::vector<uint8_t>* frag_ubo = nullptr,
+                               const std::vector<uint8_t>* vert_ubo = nullptr);
 
   // Texture-array variant (slice S27): float4 clip position + float3 colour +
   // float3 (u, v, layer) per vertex (10 floats); the fragment shader samples a
