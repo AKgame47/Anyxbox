@@ -434,3 +434,23 @@ window screenshot parity or physical graphics/input. This is output/exit-status 
 not full renderer correctness, atomic file replacement or crash-safe storage. CLI PNG
 writes still overwrite a supplied destination and are not confined by the guest asset
 root. Native execution and the existing loader/COM lifetime/thread-safety limits remain.
+
+## Batch 79: honor an explicit window request
+
+The CLI wraps its real SDL host to count attempted/successful/failed window opens.
+Explicit `--window` now returns failure if SDL cannot load, no guest window ever
+opens, or any requested host open fails. Final output reports the counts and whether
+the request was satisfied. A loaded guest may still run before the display failure
+is known; this is truthful final status, not a preflight display guarantee. Shared
+headless behavior outside the CLI remains unchanged.
+
+The actual CLI script forces an invalid SDL video driver, checks a non-windowed hello
+guest cannot satisfy the request, then requires a real SDL window open under Xvfb
+with the existing triangle guest and Vulkan. All three actual CLI scripts and all41
+local sanitizer test programs pass. CI strictly runs the window script under Xvfb and
+retains its three logs. No new guest variant, target or CMake addition.
+
+Successful open is not proof of every present, visible window pixels, screenshots,
+physical display/input or uncontrolled focus. Failed opens can be retried by guest
+calls, but any failure still makes this CLI request fail. Native host privileges,
+thread safety, object lifetime and the other earlier limitations remain unchanged.
