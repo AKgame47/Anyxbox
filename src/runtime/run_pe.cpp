@@ -27,7 +27,7 @@ typedef uint32_t (MSABI *EntryFn)();
 }  // namespace
 #endif
 
-RunResult run_pe(const uint8_t* data, size_t size, bool trust) {
+RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::function<void(ImportRegistry&)>& extra_imports) {
   RunResult res;
 #if !ANYXBOX_CAN_RUN
   (void)data; (void)size; (void)trust;
@@ -48,6 +48,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust) {
   MsvcrtContext crt;
   crt.out = &out;
   msvcrt_register(reg, crt);
+  if (extra_imports) extra_imports(reg);
   reg.add("kernel32.dll", "ExitProcess", (uint64_t)(uintptr_t)&host_ExitProcess);
   auto img = load_pe_image(data, size, [&](const std::string& d, const std::string& n, uint16_t o, bool b) {
     return reg.resolve(d, n, o, b); }, (uint8_t*)mem, len);
