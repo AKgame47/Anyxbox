@@ -88,6 +88,47 @@ int main(){
     CHECK(((R)vt(returned)[2])(returned)==0);
   }
   puts("view GetResource: RTV/SRV/DSV retain original resource and returned reference outlives view");
+  using BindTargets=void(MS*)(void*,uint32_t,void* const*,void*);
+  auto bindTargets=(BindTargets)vt(ctx)[33];
+  void* targetViews[2][2]={};
+  for(unsigned pair=0;pair<2;++pair)for(unsigned kind=0;kind<2;++kind){
+    td[4]=kind?40:28;td[8]=kind?0x40:0x20;
+    void* resource=nullptr;CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&resource)==0);
+    CHECK(((CB)vt(dev)[kind?10:9])(dev,(const uint32_t*)resource,nullptr,&targetViews[pair][kind])==0);
+    CHECK(((R)vt(resource)[2])(resource)==1);
+  }
+  auto refs=[](void* o){uint32_t n=((R)vt(o)[1])(o);((R)vt(o)[2])(o);return n-1;};
+  bindTargets(ctx,1,&targetViews[0][0],targetViews[0][1]);
+  for(auto* view:targetViews[0])CHECK(refs(view)==2);
+  bindTargets(ctx,1,&targetViews[0][0],targetViews[0][1]);
+  for(auto* view:targetViews[0])CHECK(refs(view)==2);
+  bindTargets(ctx,2,&targetViews[1][0],targetViews[1][1]);
+  CHECK(!rt.last_error.empty());rt.last_error.clear(); // refusal must leave old bindings intact
+  for(auto* view:targetViews[0])CHECK(refs(view)==2);
+  for(auto* view:targetViews[1])CHECK(refs(view)==1);
+  bindTargets(ctx,1,&targetViews[1][0],targetViews[1][1]);
+  for(auto* view:targetViews[0])CHECK(((R)vt(view)[2])(view)==0);
+  for(auto* view:targetViews[1])CHECK(((R)vt(view)[2])(view)==1); // caller release
+  bindTargets(ctx,1,&targetViews[1][0],targetViews[1][1]); // solely context-owned rebind
+  for(auto* view:targetViews[1])CHECK(((R)vt(view)[1])(view)==2);
+  bindTargets(ctx,0,nullptr,nullptr);
+  for(auto* view:targetViews[1])CHECK(((R)vt(view)[2])(view)==0);
+  void* teardownViews[2]={};R viewRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    for(unsigned kind=0;kind<2;++kind){
+      td[4]=kind?40:28;td[8]=kind?0x40:0x20;void* resource=nullptr;
+      CHECK(((CB)vt(d)[5])(d,td,nullptr,&resource)==0);
+      CHECK(((CB)vt(d)[kind?10:9])(d,(const uint32_t*)resource,nullptr,&teardownViews[kind])==0);
+      CHECK(((R)vt(resource)[2])(resource)==1);
+    }
+    viewRelease=(R)vt(teardownViews[0])[2];
+    ((BindTargets)vt(c)[33])(c,1,&teardownViews[0],teardownViews[1]);
+  }
+  // Static Release only, not guest calls through runtime-owned vtables after teardown.
+  for(auto* view:teardownViews)CHECK(viewRelease(view)==0);
+  puts("output merger: RTV/DSV retain, rebind, replacement, caller release, unbind, teardown and MRT refusal ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
