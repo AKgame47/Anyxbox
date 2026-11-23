@@ -213,8 +213,8 @@ int main() {
     }
     std::printf("%s: %d wrong\n", variant == 0 ? "unbound t0/t1 read zeros" : "t0 clamp + t2 wrap, two samplers", bad); CHECK(bad == 0);
   }
-  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<8;++mode) {
-    float lod = mode == 3 ? 1.5f : mode == 4 ? 0.f : mode == 5 ? 2.f : mode == 6 ? 0.f : mode == 7 ? 4.f : (float)mode;
+  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<9;++mode) {
+    float lod = mode == 8 ? 10.f : mode == 3 ? 1.5f : mode == 4 ? 0.f : mode == 5 ? 2.f : mode == 6 ? 0.f : mode == 7 ? 4.f : (float)mode;
     auto pb = dxb::ps_sample(dxb::swz(0,1,2,3),lod,slotno,0,false);
     // Add declarations before sample instructions through the builder's normal list construction.
     if(slotno) {
@@ -223,15 +223,16 @@ int main() {
     } else pb=dxb::ps_sample(dxb::swz(0,1,2,3),lod); auto psr = shader::dxbc_to_spirv(pb.data(),pb.size()); CHECK(psr.ok);
     d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words,psr.words);
     d3d11::Device dev; d3d11::DeviceContext ctx(dev); ctx.SetDrawBackend(&be); ctx.SetTexturePairing(psr.tex_sampler);
-    auto tex=dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,0); CHECK(tex && dev.texture(tex)->mips.size()==2);
-    for(uint32_t l=0;l<3;++l) { std::vector<uint8_t> bytes((4u>>l)*(4u>>l)*4,0); for(size_t i=0;i<bytes.size();i+=4) {bytes[i+l]=255;bytes[i+3]=255;} CHECK(dev.UpdateTextureMip(tex,l,bytes.data(),bytes.size())); }
+    uint32_t side=mode==8?1024:4,count=mode==8?11:3;
+    auto tex=dev.CreateTexture2D(side,side,d3d11::Format::R8G8B8A8_UNORM,0); CHECK(tex && dev.texture(tex)->mips.size()==count-1);
+    for(uint32_t l=0;l<count;++l) { std::vector<uint8_t> bytes((side>>l)*(side>>l)*4,0); for(size_t i=0;i<bytes.size();i+=4) {bytes[i+l%3]=255;bytes[i+3]=255;} CHECK(dev.UpdateTextureMip(tex,l,bytes.data(),bytes.size())); }
     if(mode==5) {
       std::vector<uint8_t> checker(64,0); for(size_t i=0;i<16;++i) {checker[i*4]=(i%2)?200:0;checker[i*4+1]=60;checker[i*4+3]=255;}
       CHECK(dev.UpdateTexture(tex,checker.data(),checker.size()) && dev.GenerateMips(tex));
     }
-    CHECK(!dev.UpdateTextureMip(tex,3,"",1)); CHECK(!dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,4));
+    CHECK(!dev.UpdateTextureMip(tex,count,"",1)); CHECK(!dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,4));
     auto rt=dev.CreateTexture2D(W,H,d3d11::Format::R8G8B8A8_UNORM); auto rtv=dev.CreateRenderTargetView(rt);
-    CHECK(ctx.PSSetShaderResource(slotno,tex,mode>=6 ? 1 : 0,mode>=6 ? 1 : ~0u)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
+    CHECK(ctx.PSSetShaderResource(slotno,tex,(mode==6||mode==7) ? 1 : 0,(mode==6||mode==7) ? 1 : ~0u)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
     ctx.IASetInputLayout(lay); ctx.IASetPrimitiveTopology(d3d11::Topology::TriangleList); ctx.RSSetViewport({0,0,(float)W,(float)H}); ctx.OMSetRenderTarget(rtv);
     VT a{-1,1,0,1,1,1,1,1,0,0},b{1,1,0,1,1,1,1,1,1,0},c{-1,-1,0,1,1,1,1,1,0,1},d{1,-1,0,1,1,1,1,1,1,1}; std::vector<VT> q={a,b,c,b,d,c};
     ctx.IASetVertexBuffer(dev.CreateBuffer(q.data(),q.size()*sizeof(VT)),sizeof(VT),0); const float black[4]={0,0,0,1}; CHECK(ctx.ClearRenderTargetView(rtv,black));
@@ -240,6 +241,23 @@ int main() {
     int er=mode==5?100:mode==0?255:0,eg=mode>=6?255:mode==5?60:mode==1||mode==4?255:mode==3?128:0,eb=mode==2?255:mode==3?128:0;
     std::printf("mip t%u mode %d got %u %u %u\n",slotno,mode,p[0],p[1],p[2]); CHECK(std::abs(p[0]-er)<=1 && std::abs(p[1]-eg)<=1 && std::abs(p[2]-eb)<=1);
     if(std::getenv("ANYXBOX_MIP_PREVIEW") && mode==1) { FILE* f=std::fopen("/downloads/mip-green.ppm","wb");if(f){std::fprintf(f,"P6\n%d %d\n255\n",W,H);for(size_t k=0;k<img.size();k+=4) std::fwrite(img.data()+k,1,3,f);std::fclose(f);} }
+  }
+  // Negative upload validation uses deliberately tiny storage and must fail before memcpy.
+  {
+    auto pb=dxb::ps_sample();auto psr=shader::dxbc_to_spirv(pb.data(),pb.size());CHECK(psr.ok);
+    std::vector<float> v={-1,1,0,1,1,1,1,0,0, 1,1,0,1,1,1,1,1,0, -1,-1,0,1,1,1,1,0,1};
+    std::vector<uint32_t> indices={0,1,2};std::vector<uint8_t> output;
+    uint8_t tiny[4]={};pnr::graphics::TexInput input;input.rgba=tiny;input.byte_size=4;input.w=512;input.h=512;
+    const float clear[4]={};
+    auto bad=vk.render_textured_clip_mesh_rgba(8,8,vsr.words,psr.words,v,indices,false,input,clear,&output);
+    CHECK(!bad && bad.error.message.find("byte length")!=std::string::npos);
+    input.w=1024;input.h=1024;input.layers=256;
+    auto budget=vk.render_textured_clip_mesh_rgba(8,8,vsr.words,psr.words,v,indices,false,input,clear,&output);
+    CHECK(!budget && budget.error.message.find("budget")!=std::string::npos);
+    input.layers=1;
+    input.w=1025;CHECK(!vk.render_textured_clip_mesh_rgba(8,8,vsr.words,psr.words,v,indices,false,input,clear,&output));
+    input.w=4;input.h=4;input.levels=12;CHECK(!vk.render_textured_clip_mesh_rgba(8,8,vsr.words,psr.words,v,indices,false,input,clear,&output));
+    std::puts("sampled upload rejects short bytes, over-cap extent and excessive mips");
   }
   std::printf("multi texture: all ok\n");
   return 0;
