@@ -132,6 +132,7 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
       }
     }
   }
+  { uint32_t erva, esz; dir(3, erva, esz); if (esz && m.ok(erva, esz)) { r.pdata_rva = erva; r.pdata_size = esz - esz % 12; } }
   // TLS directory (9)
   uint32_t trva, tsz; dir(9, trva, tsz);
   if (tsz) {
