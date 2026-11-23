@@ -146,6 +146,10 @@ jobs:
             ./tbin/test_fixture_draw_${method} draw_${method}.exe --require-vulkan draw-${method}-frame
             ./tbin/test_fixture_draw_${method} tests/fixtures/draw_${method}.run.exe --require-vulkan committed-draw-${method}-frame
           done
+      - name: Verify SDL event route with independent keyboard scene (synthetic SDL input, strict)
+        run: |
+          xvfb-run -a ./tbin/test_fixture_keyboard_sdl keyboard_scene.exe --require-vulkan sdl-keyboard-scene-frame
+          xvfb-run -a ./tbin/test_fixture_keyboard_sdl tests/fixtures/keyboard_scene.run.exe --require-vulkan committed-sdl-keyboard-scene-frame
       - name: Verify independent keyboard scene (scripted host events, required Vulkan)
         run: |
           ./import_gap keyboard_scene.exe
@@ -205,6 +209,8 @@ jobs:
           name: fixture-exes
           path: |
             keyboard_scene.exe
+            sdl-keyboard-scene-frame*.ppm
+            committed-sdl-keyboard-scene-frame*.ppm
             keyboard-scene-frame*.ppm
             committed-keyboard-scene-frame*.ppm
             asset_scene.exe
