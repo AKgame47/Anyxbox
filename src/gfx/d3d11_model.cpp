@@ -27,6 +27,10 @@ ResourceId Device::CreateTexture2D(uint32_t w, uint32_t h, Format f) {
   Texture t; t.w = w; t.h = h; t.f = f; t.px.assign((size_t)w * h * 4, 0);
   textures_.push_back(std::move(t)); return (ResourceId)textures_.size();
 }
+bool Device::UpdateBuffer(ResourceId id, const void* data, size_t bytes) {
+  if (id == 0 || id > buffers_.size() || !data || bytes != buffers_[id - 1].data.size()) return false;
+  std::memcpy(buffers_[id - 1].data.data(), data, bytes); return true;
+}
 bool Device::UpdateTexture(ResourceId id, const void* data, size_t bytes) {
   Texture* t = texture(id);
   if (!t || !data || bytes != t->px.size()) return false;
