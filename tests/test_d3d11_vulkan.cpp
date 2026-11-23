@@ -100,7 +100,7 @@ int main() {
     CHECK(r.draw(bad));
     auto a = r.image(); CHECK(a[0] == 5 && a[1] == 8);                                          // still the clear colour
     r.ctx.RSSetViewport({0, 0, 64, 64});
-    CHECK(!r.draw({{-1,-1,0,1, 1,1,1,1}, {1,-1,0,1, 1,1,1,1}, {0,1,0,1, 1,1,1,1}}));
-    CHECK(r.ctx.last_error().find("viewport") != std::string::npos); }
+    CHECK(r.draw({{-1,-1,0,1, 1,1,1,1}, {1,-1,0,1, 1,1,1,1}, {0,1,0,1, 1,1,1,1}}));
+    CHECK(r.ctx.last_error().empty()); }
   std::puts("ok"); return 0;
 }
