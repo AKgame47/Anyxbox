@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install MinGW-w64 (Ubuntu package)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 g++ gdb xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 g++ gdb xvfb libsdl2-2.0-0
       - name: Build the Windows fixture
         run: |
           x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables \
