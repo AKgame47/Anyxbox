@@ -88,6 +88,8 @@ jobs:
           done
           g++ -std=c++17 -O1 -Isrc tools/import_gap.cpp obj/*.o -ldl -lpthread -o import_gap
           g++ -std=c++17 -O1 -g -Isrc tools/run_exe.cpp obj/*.o -ldl -lpthread -o run_exe
+      - name: Verify strict launcher arguments before guest execution
+        run: sh tests/check_launcher_cli.sh ./run_exe
       - name: Run every unit test and the committed-fixture checks (strict, fails the job)
         run: |
           mkdir -p tbin
@@ -248,6 +250,7 @@ jobs:
             draw-copy-frame*.ppm
             committed-draw-copy-frame*.ppm
             resource_interfaces.exe
+            launcher-cli-success.log
             resource-interfaces.log
             retained-resource-interfaces.log
             texture_copy.exe
