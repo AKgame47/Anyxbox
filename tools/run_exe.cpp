@@ -5,7 +5,7 @@
 // --save-frame writes the last presented frame as a PNG; missing frames or failed writes return failure.
 // --asset-root opts into read-only relative file access under an existing directory. No root means file opens fail.
 // This is path routing, not isolation of native guest code.
-// --window opens an SDL2 window when libSDL2 and a display exist; otherwise the run is headless.
+// --window requires at least one successful SDL2 window open and no failed opens; it never reports headless success.
 // WARNING: the program's machine code runs natively with your privileges. Use only binaries you built yourself.
 #include <algorithm>
 #include <cstdio>
@@ -20,6 +20,20 @@
 #include "runtime/devices.h"
 #include "runtime/user32.h"
 #include "runtime/window_present.h"
+
+// Track explicit display requests without changing the shared headless host policy.
+class CheckedWindow final:public anyxbox::HostWindow {
+  std::unique_ptr<anyxbox::HostWindow> inner_;
+ public:
+  unsigned attempts=0,opened=0,failed=0;
+  explicit CheckedWindow(std::unique_ptr<anyxbox::HostWindow> inner):inner_(std::move(inner)){}
+  bool open(uint32_t w,uint32_t h,const char* title)override{
+    ++attempts;bool ok=inner_->open(w,h,title);if(ok)++opened;else ++failed;return ok;
+  }
+  void present(const uint8_t* rgba,uint32_t w,uint32_t h)override{inner_->present(rgba,w,h);}
+  bool poll(anyxbox::HostEvent& event)override{return inner_->poll(event);}
+  void close()override{inner_->close();}
+};
 
 static uint32_t crc32(const uint8_t* d, size_t n, uint32_t c = 0) {
   static uint32_t t[256]; static bool init = false;
@@ -71,8 +85,12 @@ int main(int argc, char** argv) {
     else std::puts("controller: SDL2 unavailable, pads disconnected");
   }
   anyxbox::User32Context u; anyxbox::D3D11Runtime rt;
-  std::unique_ptr<anyxbox::HostWindow> win;
-  if (window) { win = anyxbox::make_sdl_window(); if (!win) std::puts("note: libSDL2 not found, running headless"); }
+  std::unique_ptr<CheckedWindow> win;
+  if(window){
+    auto host=anyxbox::make_sdl_window();
+    if(!host){std::fputs("window: requested SDL backend unavailable; refusing headless fallback\n",stderr);return 1;}
+    win=std::make_unique<CheckedWindow>(std::move(host));
+  }
   u.host = win.get();
   pnr::graphics::VulkanBackend vk; std::unique_ptr<anyxbox::d3d11::VulkanDrawBackend> be;
   if (gpu) {
@@ -100,5 +118,7 @@ int main(int argc, char** argv) {
     std::printf("saved frame %s: %s\n",save,saved?"ok":"failed (no valid frame or output not writable)");
   }
   std::printf("frames presented=%d d3d11 last_error='%s' shaders_translated=%d\n", rt.presents, rt.last_error.c_str(), (int)rt.shaders_translated);
-  return r.ran && r.exit_code == 0 && saved ? 0 : 1;
+  bool displayed=!window || (win->opened>0 && win->failed==0);
+  if(window)std::printf("window: attempts=%u opened=%u failed=%u request=%s\n",win->attempts,win->opened,win->failed,displayed?"satisfied":"failed");
+  return r.ran && r.exit_code == 0 && saved && displayed ? 0 : 1;
 }
