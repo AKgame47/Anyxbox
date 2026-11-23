@@ -250,3 +250,8 @@ caller release/rebind/unbind. Exact combined output, zero exit, two translated
 shaders, zero presents and empty error are required. Fresh and retained CI require
 the copied-state marker. Replacement/teardown remain unit evidence. Earlier
 provenance is historical; ignored state parameters/full lifetime are not proved.
+
+Batch98 extends only the fresh public-header probe with ClearState shared VS/PS
+constant-buffer release and repeated-clear checks. Retained run301 stays unchanged
+and lacks the marker. Independent MinGW compilation/execution awaits CI. This is
+not independent coverage of every pipeline default or every released binding kind.
