@@ -5,7 +5,7 @@
 namespace anyxbox { namespace shader {
 namespace {
 enum { sOpExtInst = 12, sOpExtInstImport = 11, sOpMemoryModel = 14, sOpEntryPoint = 15, sOpExecutionMode = 16, sOpCapability = 17,
-       sOpTypeVoid = 19, sOpTypeFloat = 22, sOpTypeVector = 23, sOpTypePointer = 32, sOpTypeFunction = 33,
+       sOpTypeVoid = 19, sOpTypeInt = 21, sOpTypeFloat = 22, sOpTypeArray = 28, sOpTypeStruct = 30, sOpAccessChain = 65, sOpMemberDecorate = 72, sOpTypeVector = 23, sOpTypePointer = 32, sOpTypeFunction = 33,
        sOpConstant = 43, sOpConstantComposite = 44, sOpFunction = 54, sOpFunctionEnd = 56, sOpVariable = 59,
        sOpLoad = 61, sOpStore = 62, sOpDecorate = 71, sOpVectorShuffle = 79, sOpCompositeConstruct = 80,
        sOpCompositeExtract = 81, sOpFNegate = 127, sOpFAdd = 129, sOpFMul = 133, sOpFDiv = 136, sOpDot = 148,
@@ -59,6 +59,8 @@ struct B {
     uint32_t r = id(); std::vector<uint32_t> o = {T(w), r, glsl, fn}; o.insert(o.end(), args.begin(), args.end());
     putv(body, sOpExtInst, o); return r;
   }
+  uint32_t uzero = 0;
+  uint32_t id_zero_uint(uint32_t t_uint) { if (!uzero) { uzero = id(); put(globals, sOpConstant, {t_uint, uzero, 0}); } return uzero; }
   uint32_t extract(uint32_t v, uint32_t i) { uint32_t r = id(); put(body, sOpCompositeExtract, {t_float, r, v, i}); return r; }
   uint32_t construct4(uint32_t a, uint32_t b, uint32_t c, uint32_t d) { uint32_t r = id(); put(body, sOpCompositeConstruct, {T(4), r, a, b, c, d}); return r; }
 };
@@ -67,7 +69,7 @@ struct Reg { uint32_t var = 0; int width = 4; bool builtin = false; };
 uint32_t fbits(float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; }
 }  // namespace
 
-SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size) {
+SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) {
   SpirvResult R;
   auto fail = [&](const std::string& m) { R.ok = false; R.error = m; return R; };
   DxbcContainer c = parse_dxbc(data, size);
@@ -92,7 +94,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size) {
 
   std::map<uint32_t, Reg> in, out, tmp;
   std::vector<uint32_t> iface;
-  uint32_t ntemps = 0;
+  uint32_t ntemps = 0, cb_count = 0, cb_var = 0, t_uint = 0;
   // signature lookup helpers
   auto sig_for = [&](const std::vector<SigElement>& s, uint32_t reg) -> const SigElement* {
     for (auto& e : s) { if (e.reg == reg) return &e; }
@@ -122,7 +124,14 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size) {
         if (pixel || I.value != 1 || o->index_dim != 1) return fail("unsupported system-value output (only vertex SV_POSITION)");
         Reg r; r.builtin = true; r.width = 4; out[o->index[0]] = r; break; }
       case OP_DCL_GLOBAL_FLAGS: break;
-      case OP_DCL_CONSTANT_BUFFER: return fail("constant buffers are not supported yet");
+      case OP_DCL_CONSTANT_BUFFER: {
+        if (pixel) return fail("constant buffers in pixel shaders are not supported yet (vertex shaders only)");
+        if (o->type != OT_CBUFFER || o->index_dim != 2) return fail("unsupported constant buffer declaration");
+        if (o->index[0] != 0) return fail("only constant buffer slot 0 is supported");
+        if (cb_count) return fail("constant buffer 0 declared twice");
+        if (I.control & 1) return fail("dynamically indexed constant buffers are not supported yet");
+        if (o->index[1] == 0 || o->index[1] > 8) return fail("constant buffer 0 must have 1 to 8 registers (128 byte push-constant limit)");
+        cb_count = o->index[1]; break; }
       default: break;
     }
   }
@@ -146,6 +155,17 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size) {
   }
   if (pixel && out.empty()) return fail("pixel shader declares no output");
   if (!pixel && out.empty()) return fail("vertex shader declares no output");
+  if (cb_count) {
+    t_uint = b.id(); b.put(b.globals, sOpTypeInt, {t_uint, 32, 0});
+    uint32_t len = b.id(); b.put(b.globals, sOpConstant, {t_uint, len, cb_count});
+    uint32_t arr = b.id(); b.put(b.globals, sOpTypeArray, {arr, b.T(4), len});
+    uint32_t st = b.id(); b.put(b.globals, sOpTypeStruct, {st, arr});
+    uint32_t pp = b.id(); b.put(b.globals, sOpTypePointer, {pp, 9, st});
+    cb_var = b.id(); b.put(b.globals, sOpVariable, {pp, cb_var, 9});
+    b.put(b.decor, sOpDecorate, {arr, 6, 16});
+    b.put(b.decor, sOpDecorate, {st, 2});
+    b.put(b.decor, sOpMemberDecorate, {st, 0, 35, 0});
+  }
   // temps live in the function (declared at the start of the entry block below)
   uint32_t main_id = b.id(), label = b.id();
   for (uint32_t i = 0; i < ntemps; i++) { Reg r; r.var = b.id(); tmp[i] = r; }
@@ -168,6 +188,13 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size) {
         for (int k = 0; k < r.width; k++) comp[k] = r.width == 1 ? raw : b.extract(raw, k);
         base = b.construct4(comp[0], comp[1], comp[2], comp[3]);
       }
+    }
+    else if (o.type == OT_CBUFFER) {
+      if (!cb_count || o.index_dim != 2 || o.index[0] != 0) { err = "read of an undeclared constant buffer"; return false; }
+      if (o.index[1] >= cb_count) { err = "constant buffer read past the declared size"; return false; }
+      uint32_t ic = b.id(); b.put(b.globals, sOpConstant, {t_uint, ic, o.index[1]});
+      uint32_t ch = b.id(); b.put(b.body, sOpAccessChain, {b.P(9, 4), ch, cb_var, b.id_zero_uint(t_uint), ic});
+      base = b.load(4, ch);
     }
     else if (o.type == OT_OUTPUT) { auto it = out.find(o.index[0]); if (o.index_dim != 1 || it == out.end()) { err = "read of an undeclared output"; return false; } base = b.load(4, it->second.var); }
     else { err = "unsupported source operand type " + std::to_string(o.type); return false; }
@@ -226,6 +253,13 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size) {
     if (!store_dst(I.ops[0], r)) return fail(err + " (opcode " + std::to_string(I.opcode) + ")");
   }
   if (!seen_ret) return fail("shader has no ret");
+  if (!pixel && vulkan_flip_y) {
+    for (auto& kv : out) if (kv.second.builtin) {
+      const uint32_t fl[4] = {fbits(1), fbits(-1), fbits(1), fbits(1)};
+      uint32_t fc = b.C4(fl), v = b.load(4, kv.second.var);
+      b.store(kv.second.var, b.bin(sOpFMul, 4, v, fc));
+    }
+  }
 
   // entry point + execution mode
   { std::vector<uint32_t> e = {pixel ? 4u : 0u, main_id}; e.push_back(0x6e69616d); e.push_back(0);   // "main"
