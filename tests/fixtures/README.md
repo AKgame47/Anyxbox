@@ -148,3 +148,13 @@ Batch84 extends the fresh resource_interfaces.cpp probe with shader bind/caller-
 same-object-rebind/unbind reference checks. It uses existing hand-built triangle DXBC,
 not Microsoft shader output. Retained run239 is unchanged and does not prove these
 new calls. Fresh independent evidence awaits CI.
+
+Batch85 replaces the same resource_interfaces.run.exe with the verified run248
+artifact from source tip 55e3fa0. This is not an additional fixture.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45276785711/job/138050528948
+506647 bytes; SHA256 4fc6a84c5447a20cf862e7a584d02b48654d1b4b216f778027ca8ab6e09a0dcf.
+The retained probe now includes shader binding checks alongside the earlier
+interface, descriptor and view checks. Fixture-slot requires exact combined output,
+zero exit, two translated shaders, zero presents and empty D3D11 error. CI requires
+the shader marker in fresh and retained paths. Older provenance above is historical.
+Shader creation/translation is not graphics presentation or game compatibility.
