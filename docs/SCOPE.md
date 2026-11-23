@@ -86,3 +86,10 @@ import_gap and test_fixture_slot now register the same function sets as run_pe (
 - Host frames of the dispatcher have no unwind tables, so a walk that reaches one continues from a saved continuation context (the walk that called the handler). This lets libgcc's nested RaiseException/RtlUnwindEx (cleanups, catch) find the frames above.
 - ANYXBOX_SEH_TRACE=1 prints each dispatch and unwind step to stderr.
 - The CI-built eh.exe (static MinGW libstdc++) runs locally: three destructors, "caught boom", "ok".
+
+## Batch 42: vectored handlers and the unhandled-exception filter
+- AddVectoredExceptionHandler / AddVectoredContinueHandler / RemoveVectoredExceptionHandler / RemoveVectoredContinueHandler, SetUnhandledExceptionFilter and UnhandledExceptionFilter (kernel32 and ntdll names).
+- Order: vectored handlers, then frame handlers, then the filter, then the program ends with the exception code. A handler or the filter returning EXCEPTION_CONTINUE_EXECUTION resumes the program (for hardware faults at the context, which the handler may have edited).
+- Handlers and the filter are cleared when a program ends.
+- Not done: a context edit by a handler during a software RaiseException is ignored (execution resumes after the call); the filter's second-chance semantics for a debugger are not modeled.
+- New fixture source tests/fixtures/veh.cpp (built by CI only until its exe is committed).
