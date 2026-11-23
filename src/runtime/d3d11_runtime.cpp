@@ -252,7 +252,7 @@ MSABI void ctx_IASetPrimitiveTopology(void* self, uint32_t t) {
   G(self)->ctx->IASetPrimitiveTopology(t == 4 ? Topology::TriangleList : Topology::Undefined);
 }
 MSABI void ctx_RSSetViewports(void* self, uint32_t n, const Viewport6* v) {
-  if (n >= 1 && v) G(self)->ctx->RSSetViewport({v->x, v->y, v->w, v->h});
+  if (n >= 1 && v) G(self)->ctx->RSSetViewport({v->x, v->y, v->w, v->h, v->mn, v->mx});
 }
 MSABI void ctx_RSSetScissorRects(void* self, uint32_t n, const ScissorRect* rects) {
   auto rt = G(self);
