@@ -493,3 +493,26 @@ and retained paths. All41 local sanitizer programs pass, still sixteen retained 
 binaries. No production/CMake/target change. Accepted descriptor fields still do not
 implement unsupported features; all earlier lifetime/ownership/thread-safety limits
 remain. No new visual claim.
+
+## Batch82: views retain and return their originating resource
+
+RTV/SRV/DSV objects now retain a COM reference to their originating resource and drop
+it when the view reaches zero references. GetResource at view slot7 returns that exact
+resource object with an added reference. A separate view vtable avoids resource GetType
+slot7 collision. QueryInterface recognizes ID3D11View and each supported concrete view
+ID in addition to DeviceChild/IUnknown. No view descriptor method is added.
+
+Existing interface unit tests create each view kind, release the original caller's
+resource reference, obtain it through GetResource, release the view, then safely use
+and release the returned reference. Exact reference counts are checked. The existing
+public-header probe is extended with view/base/concrete identity and GetResource
+lifetime checks; CI requires its new marker on the fresh path. Retained run230 bytes
+remain unchanged and do not prove these new calls. All41 local sanitizer programs pass
+after relinking, including sixteen independent retained binaries. Fresh independent
+compiler/run evidence awaits CI. No new target/CMake/binary variant or visual claim.
+
+This fixes the view-to-resource reference edge, not full COM lifetime. Bound views,
+shaders and state objects still lack complete binding ownership; children do not retain
+their device, and underlying model allocations are not reclaimed by COM release.
+Thread safety, full validation and host isolation remain incomplete. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11view-getresource
