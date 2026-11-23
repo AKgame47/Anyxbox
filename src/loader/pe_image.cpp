@@ -25,7 +25,7 @@ bool cstr(const uint8_t* m, uint32_t msize, uint32_t rva, std::string& out) {
 LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver& resolver, uint8_t* dest, size_t dest_len) {
   LoadedImage r;
   Rd f{data, size};
-  if (size < 0x40 || data[0] != 'M' || data[1] != 'Z') return fail(r, "bad DOS magic");
+  if (!data || size < 0x40 || data[0] != 'M' || data[1] != 'Z') return fail(r, "bad DOS magic");
   uint32_t pe = f.u32(0x3c);
   if (!f.ok(pe, 24 + 112) || std::memcmp(data + pe, "PE\0\0", 4) != 0) return fail(r, "bad PE signature");
   uint64_t coff = pe + 4;
@@ -85,12 +85,13 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
     if (!m.ok(rrva, rsz)) return fail(r, "reloc directory out of range");
     int64_t delta = (int64_t)(r.actual_base - r.preferred_base);
     uint32_t off = 0;
-    while (off + 8 <= rsz) {
+    while (off < rsz) {
+      if (rsz-off < 8) return fail(r, "truncated reloc block");
       uint32_t page = m.u32(rrva + off), blk = m.u32(rrva + off + 4);
-      if (blk < 8 || off + blk > rsz) return fail(r, "bad reloc block");
+      if (blk < 8 || blk > rsz-off || (blk & 1)) return fail(r, "bad reloc block");
       for (uint32_t e = 8; e + 2 <= blk; e += 2) {
         uint16_t ent = m.u16(rrva + off + e);
-        uint16_t type = ent >> 12; uint32_t at = page + (ent & 0xfff);
+        uint16_t type = ent >> 12; uint64_t at = (uint64_t)page + (ent & 0xfff);
         if (type == 0) continue;
         if (type == 10) {
           if (!m.ok(at, 8)) return fail(r, "reloc target out of range");
@@ -108,21 +109,26 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
   // Imports (directory 1)
   uint32_t irva, isz; dir(1, irva, isz);
   if (isz) {
-    for (uint32_t d = irva;; d += 20) {
-      if (!m.ok(d, 20)) return fail(r, "import descriptor out of range");
+    if (!m.ok(irva,isz)) return fail(r, "import directory out of range");
+    uint64_t end=(uint64_t)irva+isz;
+    for (uint64_t d = irva;; d += 20) {
+      if (end-d < 20) return fail(r, "import descriptor outside directory");
       uint32_t oft = m.u32(d), nameRva = m.u32(d + 12), ft = m.u32(d + 16);
-      if (oft == 0 && nameRva == 0 && ft == 0) break;
+      if (oft == 0 && nameRva == 0 && ft == 0 && m.u32(d+4)==0 && m.u32(d+8)==0) break;
+      if (!nameRva || !ft) return fail(r, "incomplete import descriptor");
       std::string dll;
       if (!cstr(r.base, image_size, nameRva, dll)) return fail(r, "bad import dll name");
       uint32_t look = oft ? oft : ft;
-      for (uint32_t k = 0;; k++) {
-        uint32_t lp = look + k * 8, ip = ft + k * 8;
+      for (uint64_t k = 0;; k++) {
+        uint64_t lp = (uint64_t)look + k * 8, ip = (uint64_t)ft + k * 8;
         if (!m.ok(lp, 8) || !m.ok(ip, 8)) return fail(r, "import thunk out of range");
         uint64_t th = m.u64(lp);
         if (th == 0) break;
-        ImportRef ref{dll, "", 0, false, ip};
+        ImportRef ref{dll, "", 0, false, (uint32_t)ip};
         if (th >> 63) { ref.by_ordinal = true; ref.ordinal = (uint16_t)(th & 0xffff); }
-        else if (!cstr(r.base, image_size, (uint32_t)th + 2, ref.name)) return fail(r, "bad import name");
+        else {
+          if (th > UINT32_MAX || !m.ok(th,3) || !cstr(r.base, image_size, (uint32_t)(th+2), ref.name)) return fail(r, "bad import name");
+        }
         uint64_t addr = resolver ? resolver(dll, ref.name, ref.ordinal, ref.by_ordinal) : 0;
         if (!addr) {
           r.unresolved.push_back(dll + "!" + (ref.by_ordinal ? "#" + std::to_string(ref.ordinal) : ref.name));
@@ -166,7 +172,7 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
 
 namespace anyxbox {
 uint32_t pe_image_size(const uint8_t* d, size_t n) {
-  if (n < 0x40 || d[0] != 'M' || d[1] != 'Z') return 0;
+  if (!d || n < 0x40 || d[0] != 'M' || d[1] != 'Z') return 0;
   uint32_t pe; std::memcpy(&pe, d + 0x3c, 4);
   if ((uint64_t)pe + 24 + 112 > n || std::memcmp(d + pe, "PE\0\0", 4) != 0) return 0;
   uint32_t sz; std::memcpy(&sz, d + pe + 4 + 20 + 56, 4);
