@@ -33,10 +33,24 @@ struct Obj {
 };
 D3D11Runtime* G(void* self) { return ((Obj*)self)->rt; }
 MSABI int32_t stub_notimpl() { return E_NOTIMPL_; }
+// Interface identifiers from public mingw-w64 d3d11.h, not executable code.
+static const uint8_t iid_DeviceChild[16]={0xc8,0xe5,0x41,0x18,0xb0,0x16,0x9b,0x48,0xbc,0xc8,0x44,0xcf,0xb0,0xd5,0xde,0xae};
+static const uint8_t iid_Resource[16]={0xf3,0x63,0x8e,0xdc,0x2b,0xd1,0x52,0x49,0xb4,0x7b,0x5e,0x45,0x02,0x6a,0x86,0x2d};
+static const uint8_t iid_Buffer[16]={0x85,0x0b,0x57,0x48,0xee,0xd1,0xcd,0x4f,0xa2,0x50,0xeb,0x35,0x07,0x22,0xb0,0x37};
+static const uint8_t iid_Texture2D[16]={0xf2,0xaa,0x15,0x6f,0x08,0xd2,0x89,0x4e,0x9a,0xb4,0x48,0x95,0x35,0xd3,0x4f,0x9c};
+static const uint8_t iid_DeviceContext[16]={0x6c,0xa9,0xbf,0xc0,0x89,0xe0,0xfb,0x44,0x8e,0xaf,0x26,0xf8,0x79,0x61,0x90,0xda};
+static const uint8_t iid_Device[16]={0xdb,0x6d,0x6f,0xdb,0x77,0xac,0x88,0x4e,0x82,0x53,0x81,0x9d,0xf9,0xbb,0xf1,0x40};
 MSABI int32_t qi(void* self, const uint8_t* iid, void** out) {
   static const uint8_t unk[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0xC0, 0, 0, 0, 0, 0, 0, 0x46};
   if (!out) return E_INVALIDARG_;
-  if (iid && std::memcmp(iid, unk, 16) == 0) { ((Obj*)self)->refs++; *out = self; return S_OK_; }
+  auto* o=(Obj*)self;
+  auto is=[&](const uint8_t* value){return iid && std::memcmp(iid,value,16)==0;};
+  bool resource=o->kind==K_BUFFER || o->kind==K_TEXTURE || o->kind==K_DEPTH;
+  bool child=o->kind!=K_DEVICE && o->kind!=K_SWAPCHAIN && o->kind!=K_FACTORY;
+  bool supported=is(unk) || (o->kind==K_DEVICE && is(iid_Device)) || (o->kind==K_CONTEXT && is(iid_DeviceContext)) ||
+    (child && is(iid_DeviceChild)) || (resource && is(iid_Resource)) || (o->kind==K_BUFFER && is(iid_Buffer)) ||
+    ((o->kind==K_TEXTURE || o->kind==K_DEPTH) && is(iid_Texture2D));
+  if(supported){o->refs++;*out=self;return S_OK_;}
   *out = nullptr; return E_NOINTERFACE_;
 }
 MSABI uint32_t addref(void* self) { return ++((Obj*)self)->refs; }
@@ -51,7 +65,7 @@ MSABI uint32_t release(void* self) {
 
 struct D3D11Runtime::Impl {
   Obj device, context;
-  void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* sc_vt[20]; void* fac_vt[25];
+  void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* resource_vt[16]; void* sc_vt[20]; void* fac_vt[25];
   // bound state
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* swapchain = nullptr;
   Impl() {}
@@ -60,8 +74,12 @@ struct D3D11Runtime::Impl {
 namespace {
 Obj* make(D3D11Runtime* rt, Kind k, ResourceId id) {
   Obj* o = new Obj(); o->kind = k; o->rt = rt; o->id = id;
-  o->vtbl = (void**)rt->impl->child_vt; return o;
+  o->vtbl = (k==K_BUFFER || k==K_TEXTURE || k==K_DEPTH)?rt->impl->resource_vt:rt->impl->child_vt; return o;
 }
+MSABI void child_GetDevice(void* self,void** out){
+  if(out){auto* d=&G(self)->impl->device;d->refs++;*out=d;}
+}
+MSABI void resource_GetType(void* self,uint32_t* out){if(out)*out=((Obj*)self)->kind==K_BUFFER?1:3;}
 // ---- ID3D11Device ----
 struct BufDesc { uint32_t ByteWidth, Usage, BindFlags, CPUAccessFlags, MiscFlags, StructureByteStride; };
 struct SubData { const void* pSysMem; uint32_t pitch, slice; };
@@ -457,9 +475,12 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   for (auto& p : I.dev_vt) p = (void*)&stub_notimpl;
   for (auto& p : I.ctx_vt) p = (void*)&stub_notimpl;
   for (auto& p : I.child_vt) p = (void*)&stub_notimpl;
-  for (void** vt : {I.dev_vt, I.ctx_vt, I.child_vt}) { vt[0] = (void*)&qi; vt[1] = (void*)&addref; vt[2] = (void*)&release; }
+  for (auto& p : I.resource_vt) p=(void*)&stub_notimpl;
+  for (void** vt : {I.dev_vt, I.ctx_vt, I.child_vt,I.resource_vt}) { vt[0] = (void*)&qi; vt[1] = (void*)&addref; vt[2] = (void*)&release; }
   // slot numbers: ID3D11DeviceVtbl and ID3D11DeviceContextVtbl member order (mingw-w64 d3d11.h, cross-checked
   // against two public vtable listings; see docs/D3D11_VTABLES.md)
+  I.child_vt[3]=I.resource_vt[3]=I.ctx_vt[3]=(void*)&child_GetDevice;
+  I.resource_vt[7]=(void*)&resource_GetType;
   I.dev_vt[3] = (void*)&dev_CreateBuffer; I.dev_vt[5] = (void*)&dev_CreateTexture2D; I.dev_vt[9] = (void*)&dev_CreateRTV;
   I.dev_vt[7] = (void*)&dev_CreateSRV; I.dev_vt[23] = (void*)&dev_CreateSampler; I.dev_vt[10] = (void*)&dev_CreateDSV; I.dev_vt[20] = (void*)&dev_CreateBlendState; I.dev_vt[21] = (void*)&dev_CreateDepthStencilState;
   I.dev_vt[22] = (void*)&dev_CreateRasterizerState; I.dev_vt[11] = (void*)&dev_CreateInputLayout; I.dev_vt[12] = (void*)&dev_CreateVS; I.dev_vt[15] = (void*)&dev_CreatePS;
@@ -497,11 +518,11 @@ MSABI int32_t sc_Present(void* self, uint32_t /*sync*/, uint32_t /*flags*/) {
   if (rt->on_present) rt->on_present(rt->presented.data(), t->w, t->h);
   return S_OK_;
 }
-MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* /*iid*/, void** out) {
+MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* iid, void** out) {
   Obj* sc = (Obj*)self;
   if (!out) return E_INVALIDARG_;
   if (index != 0) { *out = nullptr; return E_INVALIDARG_; }
-  sc->backbuffer->refs++; *out = sc->backbuffer; return S_OK_;
+  return qi(sc->backbuffer,iid,out);
 }
 D3D11Runtime* g_rt = nullptr;   // one runtime per guest run; set by register_imports
 // DXGI_SWAP_CHAIN_DESC Width@0 Height@4 Format@16 SampleCount@28 BufferCount@40 (72 bytes); shared by CreateSwapChain and D3D11CreateDeviceAndSwapChain
