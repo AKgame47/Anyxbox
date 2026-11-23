@@ -235,3 +235,8 @@ cross-slot swap, rebind and unbind. Exact combined output, zero exit, two transl
 shaders, zero presents and empty error are required. Fresh and retained CI require
 the sampler marker. Partial replacement/range refusal/teardown remain unit evidence.
 Earlier provenance is historical; full capacity/validation/null defaults are not proved.
+
+Batch96 extends only the fresh public-header probe with input-layout/rasterizer/
+depth-stencil/blend binding caller release/rebind/unbind reference checks.
+Retained run293 bytes remain unchanged and lack this marker. Independent MinGW
+compilation/execution awaits CI. No additional scene or executable fixture.
