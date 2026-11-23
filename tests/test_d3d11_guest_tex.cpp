@@ -73,6 +73,7 @@ std::vector<uint8_t> build_guest() {
   a.on(CTX); a.load(2, VS); a.zero_r8(); a.zero_r9(); a.vcall(11);
   a.on(CTX); a.load(2, PS); a.zero_r8(); a.zero_r9(); a.vcall(9);
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, SMP); a.vcall(10);                           // PSSetSamplers(0, 1, &smp)
+  a.on(SMP);a.vcall(2); // caller sampler reference released after binding
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, SRVA); a.vcall(8);                           // PSSetShaderResources(0, 1, &srvA)
   a.on(SRVA);a.vcall(2);a.on(TEXA);a.vcall(2); // caller release after binding
   a.on(CTX); a.mov_edx(6); a.zero_r8(); a.zero_r9(); a.vcall(12);                                   // DrawIndexed(6, 0, 0)
