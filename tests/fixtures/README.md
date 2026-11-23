@@ -240,3 +240,13 @@ Batch96 extends only the fresh public-header probe with input-layout/rasterizer/
 depth-stencil/blend binding caller release/rebind/unbind reference checks.
 Retained run293 bytes remain unchanged and lack this marker. Independent MinGW
 compilation/execution awaits CI. No additional scene or executable fixture.
+
+Batch97 replaces the same resource_interfaces.run.exe with exact run301 output,
+source tip 802731c. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45290418094/job/138097404493
+512279 bytes; SHA256 ad03ee3dd7228b03084d05a4c632cb051868f9ffdc62fe5a560e0b73663447e9.
+It includes all ten completion markers, adding layout/rasterizer/depth/blend
+caller release/rebind/unbind. Exact combined output, zero exit, two translated
+shaders, zero presents and empty error are required. Fresh and retained CI require
+the copied-state marker. Replacement/teardown remain unit evidence. Earlier
+provenance is historical; ignored state parameters/full lifetime are not proved.
