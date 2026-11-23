@@ -47,7 +47,8 @@ int main() {
     generate(ctx,srv); // flags absent: must leave the existing mip contents alone
     CHECK(map(ctx,tex,2,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==44); unmap(ctx,tex,2);
     slot<uint32_t (MS *)(void*)>(srv,2)(srv);
-    view[2]=1; CHECK(srvfn(dev,tex,view,&srv)<0); rt.last_error.clear();
+    view[2]=1; CHECK(srvfn(dev,tex,view,&srv)==0); slot<uint32_t (MS *)(void*)>(srv,2)(srv);
+    view[2]=3; CHECK(srvfn(dev,tex,view,&srv)<0); view[2]=0; view[3]=0; CHECK(srvfn(dev,tex,view,&srv)<0); view[3]=~0u; rt.last_error.clear();
     slot<uint32_t (MS *)(void*)>(tex,2)(tex);
     desc[8]=0x28; desc[10]=1; CHECK((slot<int32_t (MS *)(void*,const uint32_t*,const Init*,void**)>(dev,5)(dev,desc,nullptr,&tex)==0));
     view[2]=0; CHECK(srvfn(dev,tex,view,&srv)==0);
@@ -58,8 +59,19 @@ int main() {
     std::memset(solid,80,sizeof solid); update(ctx,tex,0,nullptr,solid,16,0); generate(ctx,srv);
     CHECK(map(ctx,tex,1,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==80); unmap(ctx,tex,1);
     slot<uint32_t (MS *)(void*)>(srv,2)(srv); slot<uint32_t (MS *)(void*)>(tex,2)(tex);
+    // A restricted GenerateMips view starts at level 1 and stops at level 2, preserving level 0.
+    desc[0]=8; desc[1]=8; CHECK((slot<int32_t (MS *)(void*,const uint32_t*,const Init*,void**)>(dev,5)(dev,desc,nullptr,&tex)==0));
+    view[2]=1; view[3]=2; CHECK(srvfn(dev,tex,view,&srv)==0);
+    uint8_t base8[256],level1[64],last[4]={77,77,77,77}; std::memset(base8,10,sizeof base8); std::memset(level1,150,sizeof level1);
+    update(ctx,tex,0,nullptr,base8,32,0); update(ctx,tex,1,nullptr,level1,16,0); update(ctx,tex,3,nullptr,last,4,0);
+    generate(ctx,srv);
+    CHECK(map(ctx,tex,0,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==10); unmap(ctx,tex,0);
+    CHECK(map(ctx,tex,2,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==150); unmap(ctx,tex,2);
+    CHECK(map(ctx,tex,3,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==77); unmap(ctx,tex,3);
+    slot<uint32_t (MS *)(void*)>(srv,2)(srv); slot<uint32_t (MS *)(void*)>(tex,2)(tex);
+    std::puts("COM subset GenerateMips preserves levels outside the view");
     std::puts("COM GenerateMips flag gate and regeneration passed");
-    std::puts("COM mip initialization, row pitch, subresource update/map and SRV limits passed");
+    std::puts("COM mip initialization, row pitch, subresource update/map and SRV range checks passed");
   }
 
   auto vsb = dxb::vs_tex_pass();
@@ -142,8 +154,8 @@ int main() {
     }
     std::printf("%s: %d wrong\n", variant == 0 ? "unbound t0/t1 read zeros" : "t0 clamp + t2 wrap, two samplers", bad); CHECK(bad == 0);
   }
-  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<6;++mode) {
-    float lod = mode == 3 ? 1.5f : mode == 4 ? 0.f : mode == 5 ? 2.f : (float)mode;
+  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<8;++mode) {
+    float lod = mode == 3 ? 1.5f : mode == 4 ? 0.f : mode == 5 ? 2.f : mode == 6 ? 0.f : mode == 7 ? 4.f : (float)mode;
     auto pb = dxb::ps_sample(dxb::swz(0,1,2,3),lod,slotno,0,false);
     // Add declarations before sample instructions through the builder's normal list construction.
     if(slotno) {
@@ -160,13 +172,13 @@ int main() {
     }
     CHECK(!dev.UpdateTextureMip(tex,3,"",1)); CHECK(!dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,4));
     auto rt=dev.CreateTexture2D(W,H,d3d11::Format::R8G8B8A8_UNORM); auto rtv=dev.CreateRenderTargetView(rt);
-    CHECK(ctx.PSSetShaderResource(slotno,tex)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
+    CHECK(ctx.PSSetShaderResource(slotno,tex,mode>=6 ? 1 : 0,mode>=6 ? 1 : ~0u)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
     ctx.IASetInputLayout(lay); ctx.IASetPrimitiveTopology(d3d11::Topology::TriangleList); ctx.RSSetViewport({0,0,(float)W,(float)H}); ctx.OMSetRenderTarget(rtv);
     VT a{-1,1,0,1,1,1,1,1,0,0},b{1,1,0,1,1,1,1,1,1,0},c{-1,-1,0,1,1,1,1,1,0,1},d{1,-1,0,1,1,1,1,1,1,1}; std::vector<VT> q={a,b,c,b,d,c};
     ctx.IASetVertexBuffer(dev.CreateBuffer(q.data(),q.size()*sizeof(VT)),sizeof(VT),0); const float black[4]={0,0,0,1}; CHECK(ctx.ClearRenderTargetView(rtv,black));
     if(!ctx.Draw(6,0)) {std::printf("mip error %s\n",ctx.last_error().c_str());return 1;}
     std::vector<uint8_t> img; CHECK(dev.ReadTexture(rt,&img)); auto* p=&img[((size_t)10*W+9)*4];
-    int er=mode==5?100:mode==0?255:0,eg=mode==5?60:mode==1||mode==4?255:mode==3?128:0,eb=mode==2?255:mode==3?128:0;
+    int er=mode==5?100:mode==0?255:0,eg=mode>=6?255:mode==5?60:mode==1||mode==4?255:mode==3?128:0,eb=mode==2?255:mode==3?128:0;
     std::printf("mip t%u mode %d got %u %u %u\n",slotno,mode,p[0],p[1],p[2]); CHECK(std::abs(p[0]-er)<=1 && std::abs(p[1]-eg)<=1 && std::abs(p[2]-eb)<=1);
     if(std::getenv("ANYXBOX_MIP_PREVIEW") && mode==1) { FILE* f=std::fopen("/downloads/mip-green.ppm","wb");if(f){std::fprintf(f,"P6\n%d %d\n255\n",W,H);for(size_t k=0;k<img.size();k+=4) std::fwrite(img.data()+k,1,3,f);std::fclose(f);} }
   }
