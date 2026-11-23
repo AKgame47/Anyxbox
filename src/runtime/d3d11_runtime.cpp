@@ -77,9 +77,9 @@ struct D3D11Runtime::Impl {
   void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* resource_vt[16]; void* view_vt[16]; void* sc_vt[20]; void* fac_vt[25];
   // bound state
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr; Obj* swapchain = nullptr;
-  Obj* srvs[4] = {};
+  Obj* srvs[4] = {};Obj* vbs[16] = {};Obj* ib = nullptr;
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);}
 };
 
 namespace {
@@ -307,8 +307,14 @@ MSABI void ctx_IASetInputLayout(void* self, void* layout) {
 }
 MSABI void ctx_IASetVertexBuffers(void* self, uint32_t start, uint32_t n, void* const* bufs, const uint32_t* strides, const uint32_t* offsets) {
   D3D11Runtime* rt = G(self);
-  if (start >= 16 || n > 16 - start || !bufs || !strides || !offsets) { rt->last_error = "vertex buffer slots must lie within 0..15"; return; }
-  for (uint32_t i = 0; i < n; i++) { Obj* b = (Obj*)bufs[i]; rt->ctx->IASetVertexBufferSlot(start + i, b ? b->id : 0, strides[i], offsets[i]); }
+  if(start>16 || n>16-start || (n && (!strides || !offsets))){rt->last_error="vertex buffer slots must lie within 0..15 with strides/offsets";return;}
+  Obj* next[16]={};
+  for(uint32_t i=0;i<n;++i){next[i]=bufs?(Obj*)bufs[i]:nullptr;if(next[i])addref(next[i]);}
+  for(uint32_t i=0;i<n;++i){
+    auto* old=rt->impl->vbs[start+i];rt->impl->vbs[start+i]=next[i];
+    rt->ctx->IASetVertexBufferSlot(start+i,next[i]?next[i]->id:0,strides[i],offsets[i]);
+    if(old)release(old);
+  }
 }
 MSABI void ctx_IASetPrimitiveTopology(void* self, uint32_t t) {
   G(self)->ctx->IASetPrimitiveTopology(t == 4 ? Topology::TriangleList : Topology::Undefined);
@@ -373,7 +379,10 @@ MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const
 MSABI void ctx_IASetIndexBuffer(void* self, void* buf, uint32_t fmt, uint32_t offset) {
   Obj* b = (Obj*)buf;
   if (b && fmt != 57 && fmt != 42) { G(self)->last_error = "index buffer format must be R16_UINT or R32_UINT"; return; }
-  G(self)->ctx->IASetIndexBuffer(b ? b->id : 0, fmt == 42, offset);
+  auto* rt=G(self);
+  if(!rt->ctx->IASetIndexBuffer(b?b->id:0,fmt==42,offset)){rt->last_error=rt->ctx->last_error();return;}
+  if(b)addref(b);
+  auto* old=rt->impl->ib;rt->impl->ib=b;if(old)release(old);
 }
 MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t base) {
   D3D11Runtime* rt = G(self);
