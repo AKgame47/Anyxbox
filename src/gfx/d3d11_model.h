@@ -19,7 +19,7 @@ enum class Topology { Undefined, TriangleList };
 using ResourceId = uint32_t;  // 0 = invalid
 
 struct InputElement { std::string semantic; Format format; uint32_t offset; uint32_t slot = 0; };   // slot: vertex buffer slot 0..15 (per-vertex data only)
-struct Viewport { float x = 0, y = 0, width = 0, height = 0; };
+struct Viewport { float x = 0, y = 0, width = 0, height = 0; float min_depth = 0, max_depth = 1; };
 struct DrawStats { uint64_t triangles_in = 0, triangles_drawn = 0, pixels_written = 0; };
 
 // Fixed-function state (D3D11 semantics). Defaults match D3D11's defaults for a null state object.
