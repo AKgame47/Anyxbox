@@ -126,7 +126,7 @@ int main() {
     for (size_t n = 0; n < ok.size(); n++) CHECK(!dxbc_to_spirv(ok.data(), n).ok);
     for (size_t i = 0; i < ok.size(); i++) for (int bit = 0; bit < 8; bit++) { auto x = ok; x[i] ^= (uint8_t)(1u << bit); (void)dxbc_to_spirv(x.data(), x.size()); }
     d3d11::Device dv; d3d11::DeviceContext cx(dv); auto buf = dv.CreateBuffer("abcd", 4);
-    CHECK(!cx.VSSetConstantBuffer(1, buf)); CHECK(!cx.VSSetConstantBuffer(0, 999)); CHECK(cx.VSSetConstantBuffer(0, buf)); CHECK(cx.VSSetConstantBuffer(0, 0));
+    CHECK(cx.VSSetConstantBuffer(1, buf)); CHECK(!cx.VSSetConstantBuffer(14, buf)); CHECK(!cx.VSSetConstantBuffer(0, 999)); CHECK(cx.VSSetConstantBuffer(0, buf)); CHECK(cx.VSSetConstantBuffer(0, 0));
     std::printf("constant buffer rejection paths ok\n"); }
 
   // ---- texture translation rejection paths ----
