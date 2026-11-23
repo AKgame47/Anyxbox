@@ -87,6 +87,7 @@ struct FrameSurface {
 };
 
 struct MeshInput {
+  const VkViewport* viewport = nullptr;
   const VkRect2D* scissor = nullptr;
   const std::vector<float>* vertices = nullptr;
   uint32_t pos_floats = 2;
@@ -212,7 +213,7 @@ public:
                                const std::vector<uint32_t>* vertex_push = nullptr,
                                const std::vector<uint8_t>* frag_ubo = nullptr,
                                const std::vector<uint8_t>* vert_ubo = nullptr,
-                               const VkRect2D* scissor = nullptr);  // Anyxbox: 1..32 words, vertex stage
+                               const VkRect2D* scissor = nullptr, const VkViewport* viewport = nullptr);  // Anyxbox: 1..32 words, vertex stage
 
   // Destroys a FrameSurface's Vulkan objects and zeroes it (slice S13).
   void destroy_frame(FrameSurface& s);
@@ -257,7 +258,7 @@ public:
                                         const std::vector<uint8_t>* frag_ubo = nullptr,
                                const std::vector<uint8_t>* vert_ubo = nullptr,
                                const std::vector<TexInput>* extra_tex = nullptr,
-                               const VkRect2D* scissor = nullptr);
+                               const VkRect2D* scissor = nullptr, const VkViewport* viewport = nullptr);
 
   // Texture-array variant (slice S27): float4 clip position + float3 colour +
   // float3 (u, v, layer) per vertex (10 floats); the fragment shader samples a
@@ -369,4 +370,3 @@ private:
 };
 
 }  // namespace pnr::graphics
-
