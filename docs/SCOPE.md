@@ -133,3 +133,8 @@ API references for this backend:
 - Six model cases check edges, empty/default state, disabled scissor, negative bounds, an entirely off-target rectangle, and moving scissors across successive draws while preserving prior contents. They compared against local software Vulkan with zero pixel mismatches. A hand-built PE tests the COM state object and context call.
 - CI installs the software Vulkan driver before strict tests, rather than only for later fixture rendering. Check logs for actual device execution; physical GPU validation remains absent.
 - API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-rssetscissorrects and https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-getting-started
+
+## Batch 49: deterministic protection-test control
+- The writable-code control in test_protections returned without setting EAX. The child classified return codes starting with 0xC as faults, so an undefined return value could make this allowed-write control fail intermittently. It now explicitly returns zero.
+- Child results now log load/run state and exit code; fork and wait failures are fatal diagnostics rather than accidental passes. Existing read-only-code and non-executable-data assertions remain unchanged.
+- This identifies a test defect consistent with the prior local intermittent failure, not a captured reproduction proving its cause. The corrected test passed 200 consecutive local ASan/UBSan runs.
