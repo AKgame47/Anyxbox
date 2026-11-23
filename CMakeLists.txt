@@ -118,3 +118,7 @@ add_executable(test_d3d11_guest_tex tests/test_d3d11_guest_tex.cpp)
 target_include_directories(test_d3d11_guest_tex PRIVATE tests)
 target_link_libraries(test_d3d11_guest_tex anyxbox_d3d11_rt anyxbox_gfx)
 add_test(NAME d3d11_guest_tex COMMAND test_d3d11_guest_tex)
+
+add_executable(test_real_dxbc_tex tests/test_real_dxbc_tex.cpp)
+target_include_directories(test_real_dxbc_tex PRIVATE tests)
+target_link_libraries(test_real_dxbc_tex PRIVATE anyxbox_shader anyxbox_gfx)
