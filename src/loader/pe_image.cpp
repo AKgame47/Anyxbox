@@ -12,9 +12,9 @@ struct Rd {
 LoadedImage fail(LoadedImage r, const char* msg) { r.ok = false; r.error = msg; return r; }
 
 // Read a NUL-terminated string from the mapped image, bounded.
-bool cstr(const std::vector<uint8_t>& m, uint32_t rva, std::string& out) {
+bool cstr(const uint8_t* m, uint32_t msize, uint32_t rva, std::string& out) {
   out.clear();
-  for (uint32_t i = rva; i < m.size() && i - rva < 512; i++) {
+  for (uint32_t i = rva; i < msize && i - rva < 512; i++) {
     if (m[i] == 0) return true;
     out.push_back((char)m[i]);
   }
@@ -22,7 +22,7 @@ bool cstr(const std::vector<uint8_t>& m, uint32_t rva, std::string& out) {
 }
 }  // namespace
 
-LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver& resolver) {
+LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver& resolver, uint8_t* dest, size_t dest_len) {
   LoadedImage r;
   Rd f{data, size};
   if (size < 0x40 || data[0] != 'M' || data[1] != 'Z') return fail(r, "bad DOS magic");
@@ -50,8 +50,16 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
   uint64_t sects = opt + optsz;
   if (!f.ok(sects, (uint64_t)nsec * 40)) return fail(r, "section table out of range");
 
-  r.mem.assign(image_size, 0);
-  std::memcpy(r.mem.data(), data, hdr_size);
+  if (dest) {
+    if (dest_len < image_size) return fail(r, "destination buffer too small");
+    std::memset(dest, 0, image_size);
+    r.base = dest;
+  } else {
+    r.mem.assign(image_size, 0);
+    r.base = r.mem.data();
+  }
+  r.image_size = image_size;
+  std::memcpy(r.base, data, hdr_size);
   for (uint16_t i = 0; i < nsec; i++) {
     uint64_t s = sects + (uint64_t)i * 40;
     uint32_t vsize = f.u32(s + 8), va = f.u32(s + 12), rawsz = f.u32(s + 16), rawp = f.u32(s + 20);
@@ -59,10 +67,10 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
     if (copy == 0) continue;
     if (va > image_size || copy > image_size - va) return fail(r, "section exceeds image");
     if (!f.ok(rawp, copy)) return fail(r, "section raw data out of file");
-    std::memcpy(r.mem.data() + va, data + rawp, copy);
+    std::memcpy(r.base + va, data + rawp, copy);
   }
-  r.actual_base = (uint64_t)(uintptr_t)r.mem.data();
-  Rd m{r.mem.data(), r.mem.size()};
+  r.actual_base = (uint64_t)(uintptr_t)r.base;
+  Rd m{r.base, image_size};
   auto dir = [&](int idx, uint32_t& rva, uint32_t& sz) {
     rva = sz = 0;
     if ((uint32_t)idx < ndirs) { rva = f.u32(dirs + idx * 8); sz = f.u32(dirs + idx * 8 + 4); }
@@ -83,10 +91,10 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
         if (type == 0) continue;
         if (type == 10) {
           if (!m.ok(at, 8)) return fail(r, "reloc target out of range");
-          uint64_t v = m.u64(at) + (uint64_t)delta; std::memcpy(r.mem.data() + at, &v, 8);
+          uint64_t v = m.u64(at) + (uint64_t)delta; std::memcpy(r.base + at, &v, 8);
         } else if (type == 3) {
           if (!m.ok(at, 4)) return fail(r, "reloc target out of range");
-          uint32_t v = m.u32(at) + (uint32_t)delta; std::memcpy(r.mem.data() + at, &v, 4);
+          uint32_t v = m.u32(at) + (uint32_t)delta; std::memcpy(r.base + at, &v, 4);
         } else return fail(r, "unsupported reloc type");
         r.reloc_count++;
       }
@@ -102,7 +110,7 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
       uint32_t oft = m.u32(d), nameRva = m.u32(d + 12), ft = m.u32(d + 16);
       if (oft == 0 && nameRva == 0 && ft == 0) break;
       std::string dll;
-      if (!cstr(r.mem, nameRva, dll)) return fail(r, "bad import dll name");
+      if (!cstr(r.base, image_size, nameRva, dll)) return fail(r, "bad import dll name");
       uint32_t look = oft ? oft : ft;
       for (uint32_t k = 0;; k++) {
         uint32_t lp = look + k * 8, ip = ft + k * 8;
@@ -111,12 +119,12 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
         if (th == 0) break;
         ImportRef ref{dll, "", 0, false, ip};
         if (th >> 63) { ref.by_ordinal = true; ref.ordinal = (uint16_t)(th & 0xffff); }
-        else if (!cstr(r.mem, (uint32_t)th + 2, ref.name)) return fail(r, "bad import name");
+        else if (!cstr(r.base, image_size, (uint32_t)th + 2, ref.name)) return fail(r, "bad import name");
         uint64_t addr = resolver ? resolver(dll, ref.name, ref.ordinal, ref.by_ordinal) : 0;
         if (!addr) {
           r.unresolved.push_back(dll + "!" + (ref.by_ordinal ? "#" + std::to_string(ref.ordinal) : ref.name));
         }
-        std::memcpy(r.mem.data() + ip, &addr, 8);
+        std::memcpy(r.base + ip, &addr, 8);
         r.imports.push_back(ref);
       }
     }
@@ -126,3 +134,13 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
   return r;
 }
 }  // namespace anyxbox
+
+namespace anyxbox {
+uint32_t pe_image_size(const uint8_t* d, size_t n) {
+  if (n < 0x40 || d[0] != 'M' || d[1] != 'Z') return 0;
+  uint32_t pe; std::memcpy(&pe, d + 0x3c, 4);
+  if ((uint64_t)pe + 24 + 112 > n || std::memcmp(d + pe, "PE\0\0", 4) != 0) return 0;
+  uint32_t sz; std::memcpy(&sz, d + pe + 4 + 20 + 56, 4);
+  return sz > (1u << 30) ? 0 : sz;
+}
+}
