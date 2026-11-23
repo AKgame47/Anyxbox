@@ -60,7 +60,8 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   std::vector<uint32_t> vs(std::begin(clip_vert), std::end(clip_vert)), fs(std::begin(spin_frag), std::end(spin_frag));
   if (!vs_.empty() && !fs_.empty()) { vs = vs_; fs = fs_; }
   std::vector<uint32_t> push;
-  if (!cb0_.empty()) {
+  if (vs_ubo_ && cb0_.size() > 16384) { *err = "vulkan draw: vertex constants larger than 16384 bytes are not supported"; return false; }
+  if (!cb0_.empty() && !vs_ubo_) {
     if (cb0_.size() > 128) { *err = "vulkan draw: constant buffer 0 larger than 128 bytes is not supported yet"; return false; }
     push.assign((cb0_.size() + 3) / 4, 0); std::memcpy(push.data(), cb0_.data(), cb0_.size());
   }
@@ -81,8 +82,8 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 3 * fpv, kept.begin() + (first + n) * 3 * fpv);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
-    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_)
-      : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_);
+    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr)
+      : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr);
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
   }
