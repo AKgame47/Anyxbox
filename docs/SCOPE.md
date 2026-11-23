@@ -568,3 +568,32 @@ the retained probe does not newly establish them. Runtime lifetime is required
 for guest interface calls. Other binding/device ownership, model reclamation,
 thread safety and native host isolation remain incomplete. No physical-device,
 physical-input or Xbox-game compatibility claim follows from this step.
+
+## Batch86: retain supported output-merger views
+
+OMSetRenderTargets now retains its supported single RTV and optional DSV. Both
+new references are acquired before either old reference is released, so same-object
+rebinding is safe. Replacement, null unbind and runtime teardown release held
+references. Counts above one and a missing array with a nonzero count are explicitly
+refused before changing bindings, rather than silently selecting the first view.
+
+Existing interface unit checks exact reference deltas for bind/rebind/replacement,
+caller release, unbind and teardown, plus unchanged bindings on MRT refusal.
+Teardown accounting calls a saved static Release function only. Runtime-owned
+vtables remain invalid after runtime destruction; this is not permission for guest
+calls after that point. Existing hand-built guest draw now releases the caller RTV
+and texture references before Draw; reference and software-Vulkan paths compare
+4626 covered pixels with zero mismatches. All 41 local sanitizer programs pass
+after full relink. This is automated pixel evidence, not physical-device evidence.
+
+The existing public-header probe adds the caller-release/rebind/unbind checks and
+fresh CI requires the output-merger marker. Independent MinGW compilation and
+execution await CI. Retained run248 bytes remain shader/view regression only.
+No new scene, fixture slot, CMake target or release build is included.
+
+This settles only the supported RTV/DSV binding ownership edge. Multiple render
+targets, read/write hazard unbinding, other state/resource binding ownership,
+child/device lifetime, model allocation reclamation, thread safety and native host
+isolation remain incomplete. Allocation retention previously masked this missing
+COM ownership; this fix does not reclaim those allocations. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargets
