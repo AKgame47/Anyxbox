@@ -5,7 +5,9 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <functional>
 #include <vector>
+#include "syslayer/import_registry.h"
 namespace anyxbox {
 struct RunResult {
   bool loaded = false;
@@ -15,5 +17,8 @@ struct RunResult {
   std::string output;                  // captured stdout/stderr writes
   std::vector<std::string> unresolved; // imports the tiny set does not cover
 };
-RunResult run_pe(const uint8_t* data, size_t size, bool i_trust_this_binary);
+// extra_imports (optional) is called with the registry before the image is bound, so a caller can add
+// more host libraries (for example d3d11.dll). Anything it registers must outlive the call.
+RunResult run_pe(const uint8_t* data, size_t size, bool i_trust_this_binary,
+                 const std::function<void(ImportRegistry&)>& extra_imports = nullptr);
 }
