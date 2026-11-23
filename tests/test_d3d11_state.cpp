@@ -159,6 +159,12 @@ int main() {
     r.ctx.RSSetViewport({0,0,128,128,0.7f,0.9f}); r.tri(-1,-1,1,-1,-1,1,0.5f,RED);
     r.ctx.RSSetViewport({0,0,128,128,0,1}); r.tri(-1,-1,1,-1,-1,1,0.6f,GREEN);
   },[](const std::vector<uint8_t>& im) { return near_c(px(im,30,90),0,255,0); }});
+  cases.push_back({"host color replacement preserves depth",[&](Rig& r) {
+    r.tri(-1,-1,1,-1,-1,1,0.2f,RED);
+    std::vector<uint8_t> blue(W*H*4);for(size_t k=0;k<blue.size();k+=4){blue[k+2]=255;blue[k+3]=255;}
+    r.dev.UpdateTexture(r.tex,blue.data(),blue.size());
+    r.tri(-1,-1,1,-1,-1,1,0.8f,GREEN);
+  },[](const std::vector<uint8_t>& im){return near_c(px(im,30,90),0,0,255);}});
   // reference pass: exact expectations
   std::vector<std::vector<uint8_t>> ref;
   for (auto& c : cases) {
