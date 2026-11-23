@@ -248,6 +248,38 @@ int main(){
   }
   CHECK(samplerRelease(teardownSampler)==0); // static Release only, not post-runtime guest support
   puts("pixel samplers: caller release, swap, rebind, partial replacement, range refusal, unbind and teardown ok");
+  using MakeLayout=int32_t(MS*)(void*,const void*,uint32_t,const void*,size_t,void**);
+  struct Element{const char* name;uint32_t index,format,slot,offset,cls,step;};
+  Element element={"POSITION",0,2,0,0,0,0};
+  uint32_t rasterDesc[10]={3,1},depthDesc[13]={1,1,2},blendDesc[66]={};blendDesc[9]=15;
+  auto makeState=[&](void* device,unsigned kind,void** out){
+    if(kind==0)return ((MakeLayout)vt(device)[11])(device,&element,1,triangle_vs,sizeof(triangle_vs),out);
+    return ((State)vt(device)[kind==1?22:kind==2?21:20])(device,kind==1?(void*)rasterDesc:kind==2?(void*)depthDesc:(void*)blendDesc,out);
+  };
+  using BindOne=void(MS*)(void*,void*);using BindDepth=void(MS*)(void*,void*,uint32_t);
+  using BindBlend=void(MS*)(void*,void*,const float*,uint32_t);
+  auto bindState=[](void* context,unsigned kind,void* state){
+    if(kind==0)((BindOne)vt(context)[17])(context,state);
+    else if(kind==1)((BindOne)vt(context)[43])(context,state);
+    else if(kind==2)((BindDepth)vt(context)[36])(context,state,0);
+    else ((BindBlend)vt(context)[35])(context,state,nullptr,~0u);
+  };
+  for(unsigned kind=0;kind<4;++kind){
+    void* first=nullptr;void* second=nullptr;CHECK(makeState(dev,kind,&first)==0&&makeState(dev,kind,&second)==0);
+    bindState(ctx,kind,first);CHECK(refs(first)==2);bindState(ctx,kind,first);CHECK(refs(first)==2);
+    bindState(ctx,kind,second);CHECK(((R)vt(first)[2])(first)==0);
+    CHECK(((R)vt(second)[2])(second)==1);bindState(ctx,kind,second);CHECK(refs(second)==1);
+    CHECK(((R)vt(second)[1])(second)==2);bindState(ctx,kind,nullptr);CHECK(((R)vt(second)[2])(second)==0);
+  }
+  void* teardownStates[4]={};R stateRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    for(unsigned kind=0;kind<4;++kind){CHECK(makeState(d,kind,&teardownStates[kind])==0);bindState(c,kind,teardownStates[kind]);}
+    stateRelease=(R)vt(teardownStates[0])[2];
+  }
+  for(auto* state:teardownStates)CHECK(stateRelease(state)==0); // static Release only
+  puts("copied state bindings: layout/rasterizer/depth/blend caller release, rebind, replacement, unbind and teardown ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
