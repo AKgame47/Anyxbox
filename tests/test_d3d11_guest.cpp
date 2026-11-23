@@ -95,6 +95,8 @@ std::vector<uint8_t> build_guest() {
   // ctx->VSSetShader(vs, NULL, 0)                        slot 11 ; PSSetShader slot 9
   a.on(CTX); a.load(2, VS); a.zero_r8(); a.zero_r9(); a.vcall(11);
   a.on(CTX); a.load(2, PS); a.zero_r8(); a.zero_r9(); a.vcall(9);
+  // Caller releases its references after binding. Draw must use context-owned shaders.
+  a.on(VS);a.vcall(2);a.on(PS);a.vcall(2);
   // ctx->Draw(3, 0)                                      slot 13
   a.on(CTX); a.mov_edx(3); a.zero_r8(); a.vcall(13);
   a.b({0x31, 0xC0});               // eax = 0
