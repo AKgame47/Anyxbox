@@ -75,9 +75,19 @@ bool parse_operand(const uint32_t* w, size_t avail, Operand& o, size_t& used, st
   } else {
     for (uint32_t i = 0; i < o.index_dim; i++) {
       uint32_t rep = (t >> (22 + 3 * i)) & 7;
-      if (rep != 0) { err = "relative or 64-bit operand indices are not supported"; return false; }
-      if (p >= avail) { err = "operand index runs past the instruction"; return false; }
-      o.index[i] = w[p++];
+      if (rep == 1 || rep > 3) { err = "64-bit operand indices are not supported"; return false; }
+      if (rep == 0 || rep == 3) {
+        if (p >= avail) { err = "operand index runs past the instruction"; return false; }
+        o.index[i] = w[p++];
+      }
+      if (rep >= 2) {
+        if (i + 1 != o.index_dim) { err = "relative index on a non-final index dimension is not supported"; return false; }
+        Operand r; size_t ru = 0;
+        if (!parse_operand(w + p, avail - p, r, ru, err)) return false;
+        if (r.type != OT_TEMP || r.index_dim != 1 || r.has_rel) { err = "relative index must be a plain temporary register component"; return false; }
+        o.has_rel = true; o.rel_reg = r.index[0]; o.rel_comp = r.swizzle[0];
+        p += ru;
+      }
     }
   }
   used = p; return true;
