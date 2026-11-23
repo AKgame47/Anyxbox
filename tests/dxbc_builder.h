@@ -123,4 +123,29 @@ inline std::vector<uint8_t> ps_cb_tint(uint32_t declared = 2) {
      ins(OP_MAD, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 1), src_cb(0, 0), src_cb(0, 1)}, true),
      ins(OP_MOV, {dst(T_OUTPUT, 0, 0x8), imm1(1)}), ins(OP_RET, {})});
 }
+// textures: dcl_resource_texture2d (float,float,float,float) t<slot>, dcl_sampler s<slot>, sample / sample_l
+inline Words dcl_tex2d(uint32_t slot, uint32_t ret = 0x5555) {
+  return ins(88, {{2u | (1u << 2) | (swz(0, 1, 2, 3) << 4) | (7u << 12) | (1u << 20), slot}}, false, 3, {ret});
+}
+inline Words dcl_sampler(uint32_t slot, uint32_t mode = 0) { return ins(90, {{(6u << 12) | (1u << 20), slot}}, false, mode); }
+inline Words res_src(uint32_t slot, uint32_t sw = swz(0, 1, 2, 3)) { return {2u | (1u << 2) | (sw << 4) | (7u << 12) | (1u << 20), slot}; }
+inline Words smp_src(uint32_t slot) { return {(6u << 12) | (1u << 20), slot}; }
+// vs: o0 = v0; o1.xy = v2.xy
+inline std::vector<uint8_t> vs_tex_pass() {
+  return shader(1, {{"POSITION", 0, 0, 0, 0xF}, {"COLOR", 0, 0, 1, 0x7}, {"TEXCOORD", 0, 0, 2, 0x3}}, {{"SV_Position", 0, 1, 0, 0xF}, {"TEXCOORD", 0, 0, 1, 0xF}},
+    {ins(95, {dst(T_INPUT, 0, 0xF)}), ins(95, {dst(T_INPUT, 1, 0x7)}), ins(95, {dst(T_INPUT, 2, 0x3)}),
+     ins(103, {dst(T_OUTPUT, 0, 0xF)}, false, 0, {1}), ins(101, {dst(T_OUTPUT, 1, 0xF)}),
+     ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 0)}),
+     ins(OP_MOV, {dst(T_OUTPUT, 1, 0x3), src(T_INPUT, 2, swz(0, 1, 0, 0))}), ins(OP_RET, {})});
+}
+// ps: o0 = sample(t0, s0, v1.xy) with a texture swizzle; lod < 0 uses `sample`, otherwise sample_l with that constant lod
+inline std::vector<uint8_t> ps_sample(uint32_t tsw = swz(0, 1, 2, 3), float lod = -1.0f, uint32_t tslot = 0, uint32_t sslot = 0, bool declare = true) {
+  std::vector<Words> code = {ins(98, {dst(T_INPUT, 1, 0x3)}, false, 2), ins(101, {dst(T_OUTPUT, 0, 0xF)})};
+  if (declare) { code.push_back(dcl_tex2d(0)); code.push_back(dcl_sampler(0)); }
+  code.push_back(dcl_temps(1));
+  if (lod < 0) code.push_back(ins(69, {dst(T_TEMP, 0, 0xF), src(T_INPUT, 1, swz(0, 1, 0, 0)), res_src(tslot, tsw), smp_src(sslot)}));
+  else code.push_back(ins(72, {dst(T_TEMP, 0, 0xF), src(T_INPUT, 1, swz(0, 1, 0, 0)), res_src(tslot, tsw), smp_src(sslot), imm1(lod)}));
+  code.push_back(ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), src(T_TEMP, 0)})); code.push_back(ins(OP_RET, {}));
+  return shader(0, {{"TEXCOORD", 0, 0, 1, 0x3}}, {{"SV_Target", 0, 0, 0, 0xF}}, code);
+}
 }  // namespace dxb
