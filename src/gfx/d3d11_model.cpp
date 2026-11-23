@@ -265,11 +265,15 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
       if ((state_.rs.cull == Cull::Back && !front) || (state_.rs.cull == Cull::Front && front)) continue;
     }
     if (area < 0) { std::swap(fx[1], fx[2]); std::swap(fy[1], fy[2]); std::swap(v[1], v[2]); std::swap(iw[1], iw[2]); area = -area; }
-    // bounding box in pixels, clamped to target and viewport-independent (no scissor in this slice)
+    // Bounding box clamped to target and optional half-open scissor rectangle.
     int64_t minx = std::min({fx[0], fx[1], fx[2]}) >> 8, maxx = (std::max({fx[0], fx[1], fx[2]}) + 255) >> 8;
     int64_t miny = std::min({fy[0], fy[1], fy[2]}) >> 8, maxy = (std::max({fy[0], fy[1], fy[2]}) + 255) >> 8;
     minx = std::max<int64_t>(minx, 0); miny = std::max<int64_t>(miny, 0);
     maxx = std::min<int64_t>(maxx, rt->w); maxy = std::min<int64_t>(maxy, rt->h);
+    if (state_.rs.scissor_enable) {
+      minx = std::max<int64_t>(minx, state_.scissor.left); miny = std::max<int64_t>(miny, state_.scissor.top);
+      maxx = std::min<int64_t>(maxx, state_.scissor.right); maxy = std::min<int64_t>(maxy, state_.scissor.bottom);
+    }
     // edge i goes from vertex (i+1) to (i+2); weight for vertex i is the edge opposite it
     // (positive area = clockwise in y-down screen space after the swap above)
     bool topleft[3];
