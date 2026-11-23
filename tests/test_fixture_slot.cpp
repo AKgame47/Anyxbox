@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <dirent.h>
 #include <fstream>
+#include <filesystem>
+#include <unistd.h>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -56,7 +58,21 @@ int main(int argc, char** argv) {
         User32Context u; D3D11Runtime rt;
         auto r = run_pe(data.data(), data.size(), true, [&](ImportRegistry& reg) { user32_register(reg, u); rt.register_imports(reg); });
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
-        CHECK(r.ran && r.loaded && r.exit_code == 0);
+        if (n == "asset_read.run.exe") {
+          CHECK(r.ran && r.loaded && r.exit_code == 10 && r.output.empty());
+          char temp[]="/tmp/anyxbox-assets-XXXXXX";
+          char* root=::mkdtemp(temp);CHECK(root);
+          std::filesystem::create_directories(std::string(root)+"/data");
+          {std::ofstream asset(std::string(root)+"/data/message.txt",std::ios::binary);asset<<"Anyxbox rooted asset\n";CHECK(asset.good());}
+          RunOptions opts;opts.asset_root=root;
+          auto allowed=run_pe(data.data(),data.size(),true,nullptr,opts);
+          CHECK(allowed.loaded && allowed.ran && allowed.exit_code==0 && allowed.output=="Anyxbox rooted asset\n");
+          std::ifstream asset(std::string(root)+"/data/message.txt",std::ios::binary);
+          std::string contents((std::istreambuf_iterator<char>(asset)),{});
+          CHECK(contents=="Anyxbox rooted asset\n");
+          std::filesystem::remove_all(root);
+          std::puts("  rooted asset bytes verified; writes refused; default denied");
+        } else CHECK(r.ran && r.loaded && r.exit_code == 0);
         if (n.find("draw_copy.") == 0 || n.find("draw_region.") == 0 || n.find("draw_update.") == 0 || n.find("draw_map.") == 0) {
           CHECK(r.output.empty() && rt.presents == 2 && rt.shaders_translated == 4 && rt.last_error.empty());
         }
