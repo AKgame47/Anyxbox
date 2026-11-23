@@ -78,7 +78,7 @@ int main() {
   }
   // ---- Wine "relative addressing in constant buffers": cb0 = int index, cb1[8] = colors, dynamically indexed in the VS.
   // Two constant buffer slots in a vertex shader, so the translator uses the vertex uniform buffer with the packed layout
-  // (slot 0 = 1 register, then slot 1 = 8 registers). Indices 8 and 9 of the original test read past the declared 8
+  // (slot 0 = 1 register, then slot 1 = 8 registers); the context packs the two bound buffers. Indices 8 and 9 of the original test read past the declared 8
   // registers of cb1 (hardware reads them from the bound buffer); that is not supported here, so only 0..7 are checked.
   {
     auto cvs = shader::dxbc_to_spirv((const uint8_t*)wine_cbrel_vs, sizeof wine_cbrel_vs);
@@ -87,14 +87,15 @@ int main() {
     CHECK(cvs.vs_ubo && cvs.cb_layout.size() == 2 && cvs.cb_layout[0].first == 0 && cvs.cb_layout[0].second == 1 &&
           cvs.cb_layout[1].first == 1 && cvs.cb_layout[1].second == 8);
     be.SetShaders(cvs.words, cps.words, cvs.vs_ubo);
+    ctx.SetConstantLayout(cvs.cb_layout, cps.cb_layout);
     ctx.PSSetConstantBuffer(0, 0);
     const float colors[8][4] = {{0, 0, 0, 1}, {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 1, 0, 0}, {0, 1, 0, 1}, {0, 1, 1, 0}, {0, 1, 1, 1}, {1, 0, 0, 0}};
     const float white[4] = {1, 1, 1, 1};
     int bad2 = 0;
     for (int idx = 0; idx < 8; idx++) {
-      float packed[4 + 8 * 4] = {0}; uint32_t iv = (uint32_t)idx; std::memcpy(packed, &iv, 4);
-      std::memcpy(packed + 4, colors, sizeof colors);
-      ctx.VSSetConstantBuffer(0, dev.CreateBuffer(packed, sizeof packed));
+      uint32_t iv[4] = {(uint32_t)idx, 0, 0, 0};   // cb0 = int color_index, cb1 = colors[8]: two separate buffers, packed by the context
+      ctx.VSSetConstantBuffer(0, dev.CreateBuffer(iv, sizeof iv));
+      ctx.VSSetConstantBuffer(1, dev.CreateBuffer(colors, sizeof colors));
       ctx.ClearRenderTargetView(rtv, white);
       if (!ctx.Draw(6, 0)) { std::printf("cb-relative draw failed: %s\n", ctx.last_error().c_str()); return 1; }
       dev.ReadTexture(rt, &im);
