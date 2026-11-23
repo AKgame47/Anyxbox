@@ -110,7 +110,7 @@ Status VulkanBackend::render_textured_clip_mesh_rgba(
     const std::vector<uint32_t>& indices, bool depth, const TexInput& tex,
     const float clear[4], std::vector<uint8_t>* image, FrameSurface* shared_frame,
     bool depth_write, const BlendState* blend, int32_t cull_mode, int32_t front_face,
-    int32_t depth_compare) {
+    int32_t depth_compare, const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo) {
   if (!image) return Status::Fail(100, "vulkan", "textured clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 9 || vertices.size() / 9 > 65536)
     return Status::Fail(100, "vulkan", "textured clip mesh vertices must be float4 clip position + float3 colour + float2 uv (multiple of 9 floats, max 65536 vertices)");
@@ -123,8 +123,17 @@ Status VulkanBackend::render_textured_clip_mesh_rgba(
   m.vertices = &vertices; m.pos_floats = 4; m.extra_floats = 2; m.indices = &indices; m.depth = depth;
   m.tex = &tex; m.shared_frame = shared_frame; m.depth_write = depth_write; m.blend = blend;
   m.cull_mode = cull_mode; m.front_face = front_face; m.depth_compare = depth_compare;
+  if (frag_ubo && !frag_ubo->empty()) {
+    if (frag_ubo->size() > 16384) return Status::Fail(100, "vulkan", "fragment uniform buffer is limited to 16384 bytes");
+    m.frag_ubo = frag_ubo;
+  }
+  std::vector<std::vector<uint32_t>> push_frames;
+  if (vertex_push && !vertex_push->empty()) {
+    if (vertex_push->size() > 32) return Status::Fail(100, "vulkan", "vertex push constants are limited to 32 words");
+    push_frames.push_back(*vertex_push);
+  }
   std::vector<std::vector<uint8_t>> frames;
-  auto st = render_core(w, h, vs, fs, (uint32_t)indices.size(), &m, nullptr, clear, &frames);
+  auto st = render_core(w, h, vs, fs, (uint32_t)indices.size(), &m, push_frames.empty() ? nullptr : &push_frames, clear, &frames);
   if (!st) return st;
   if (frames.size() != 1) return Status::Fail(100, "vulkan", "textured clip mesh render produced an unexpected frame count");
   *image = std::move(frames[0]);
