@@ -96,6 +96,7 @@ MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* i
   if (d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;
   ResourceId id = rt->dev.CreateTexture2D(d->Width, d->Height, f, d->MipLevels);
   if (!id) return E_INVALIDARG_;
+  rt->dev.texture(id)->auto_mips = (d->BindFlags & 0x28) == 0x28 && (d->Misc & 1);
   if (init) {
     auto* tx = rt->dev.texture(id);
     for (uint32_t l=0;l<=tx->mips.size();++l) {
@@ -290,6 +291,12 @@ MSABI void ctx_OMSetDepthStencilState(void* self, void* st, uint32_t /*stencil_r
 MSABI void ctx_RSSetState(void* self, void* st) {
   Obj* o = (Obj*)st; G(self)->ctx->RSSetState(o ? o->rs : RasterizerDesc());
 }
+MSABI void ctx_GenerateMips(void* self, void* view) {
+  auto* rt = G(self); auto* o = (Obj*)view;
+  if (!o || o->kind != K_SRV) { rt->last_error = "GenerateMips: requires a shader resource view"; return; }
+  auto* tex = rt->dev.texture(o->id);
+  if (tex && tex->auto_mips && !rt->dev.GenerateMips(o->id)) rt->last_error = "GenerateMips: invalid texture";
+}
 MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void* const* srvs) {
   for (uint32_t i = 0; i < n; i++) {
     Obj* o = srvs ? (Obj*)srvs[i] : nullptr;
@@ -414,6 +421,7 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   I.ctx_vt[7] = (void*)&ctx_VSSetConstantBuffers; I.ctx_vt[9] = (void*)&ctx_PSSetShader; I.ctx_vt[11] = (void*)&ctx_VSSetShader;
   I.ctx_vt[13] = (void*)&ctx_Draw; I.ctx_vt[16] = (void*)&ctx_PSSetConstantBuffers; I.ctx_vt[17] = (void*)&ctx_IASetInputLayout;
   I.ctx_vt[18] = (void*)&ctx_IASetVertexBuffers; I.ctx_vt[24] = (void*)&ctx_IASetPrimitiveTopology;
+  I.ctx_vt[54] = (void*)&ctx_GenerateMips;
   I.ctx_vt[8] = (void*)&ctx_PSSetShaderResources; I.ctx_vt[10] = (void*)&ctx_PSSetSamplers; I.ctx_vt[12] = (void*)&ctx_DrawIndexed;
   I.ctx_vt[14] = (void*)&ctx_Map; I.ctx_vt[15] = (void*)&ctx_Unmap; I.ctx_vt[19] = (void*)&ctx_IASetIndexBuffer; I.ctx_vt[48] = (void*)&ctx_UpdateSubresource;
   I.ctx_vt[35] = (void*)&ctx_OMSetBlendState; I.ctx_vt[36] = (void*)&ctx_OMSetDepthStencilState; I.ctx_vt[43] = (void*)&ctx_RSSetState;
