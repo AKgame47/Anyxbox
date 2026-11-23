@@ -145,6 +145,14 @@ int main() {
     CHECK(px(rt.presented,83,64)[1] > 200 && px(rt.presented,45,96)[0] < 20);
     std::puts("guest COM scissor state and rectangle passed");
   }
+  { auto small = pe;
+    const float vp[6] = {20,30,60,50,0.7f,0.9f}; std::memcpy(small.data()+0x1200+VP,vp,sizeof vp);
+    D3D11Runtime rt; auto r = run_pe(small.data(),small.size(),true,[&](ImportRegistry& reg){rt.register_imports(reg);});
+    CHECK(r.ran && r.exit_code == 0 && rt.last_error.empty());
+    CHECK(px(rt.presented,19,40)[0] < 20 && px(rt.presented,80,40)[0] < 20);
+    CHECK(px(rt.presented,58,55)[1] > 200);
+    std::puts("guest COM viewport offset and reduced size passed");
+  }
   // Vulkan: same PE, compare with the reference-renderer run
   pnr::graphics::VulkanBackend vk;
   auto s = vk.open();
