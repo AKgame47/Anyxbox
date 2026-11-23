@@ -16,3 +16,9 @@ Context: OMSetBlendState 35, OMSetDepthStencilState 36, RSSetState 43, ClearDept
 IDXGISwapChain (https://reverseengineering.wiki/index.php/Fact:DXGI/enum/IDXGISwapChain_vtable_slots): Present 8, GetBuffer 9.
 Not supported (state creation returns E_NOTIMPL and sets last_error): stencil, alpha-to-coverage, partial write masks, BLEND_FACTOR /
 SRC_ALPHA_SAT / dual-source blend factors, wireframe fill, depth bias, scissor. The only depth format is D32_FLOAT (or R32_TYPELESS with the depth bind flag).
+
+## Textures, samplers, index buffers
+Device: CreateShaderResourceView 7, CreateSamplerState 23. Context: PSSetShaderResources 8, PSSetSamplers 10, DrawIndexed 12, Map 14, Unmap 15,
+IASetIndexBuffer 19, UpdateSubresource 48 (same listings as above; mingw-w64 d3d11.h order).
+Supported: SRV of a 2D texture at t0, a point or linear sampler at s0 with WRAP or CLAMP (U and V equal), 16 and 32 bit indices, buffers and RGBA8/BGRA8
+textures for UpdateSubresource and Map (all five map types use a staging copy that Unmap writes back). MipLevels 0 or 1 creates the base level only.
