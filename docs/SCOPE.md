@@ -113,3 +113,16 @@ import_gap and test_fixture_slot now register the same function sets as run_pe (
 ## Batch 46: committed thread TLS fixture
 - tls_thread.run.exe is the verified CI-built thread TLS fixture. test_fixture_slot checks its exact output and successful exit alongside its 60 resolved imports.
 - This checks normal thread return with the main thread waiting for both workers. Other shutdown paths remain outside the supported scope described above.
+
+## Batch 47: optional SDL2 controller input
+- run_exe --controller runtime-loads SDL2's GameController API, discovers up to four mapped controllers, and refreshes their state when XInputGetState or XInputGetCapabilities is called. No SDL headers or link-time SDL dependency are required.
+- Standard buttons map to XInput bits; thumbstick Y is inverted with saturation and trigger values scale to 0..255. Controller slots retain their instance IDs while connected, disconnect on removal, and reopen for new devices. Packet numbers change only when the reported state changes. XInputEnable(false) returns neutral button/axis state.
+- test_devices uses an SDL virtual controller to verify A/d-pad, stick axes, full trigger, unchanged packet, and disconnect through XInput entry points. This integration passed locally with SDL2. CI installs the SDL2 runtime; the test explicitly reports a skip if the runtime/virtual API is unavailable.
+- Limits: physical controller operation has not been tested. Rumble remains recorded only, not delivered to hardware; keystrokes and accurate battery status are not implemented. Only SDL-mapped game controllers are supported. This is opt-in; default runs leave pads disconnected. SDL and guest calls remain subject to SDL's host thread/event-loop constraints; cross-thread polling is not a proven path.
+
+API references for this backend:
+- https://wiki.libsdl.org/SDL2/SDL_GameControllerGetAxis
+- https://wiki.libsdl.org/SDL2/SDL_GameControllerAxis
+- https://wiki.libsdl.org/SDL2/SDL_GameControllerButton
+- https://wiki.libsdl.org/SDL2/SDL_GameControllerUpdate
+- https://wiki.libsdl.org/SDL2/SDL_JoystickAttachVirtual
