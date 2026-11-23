@@ -34,7 +34,14 @@ class VulkanDrawBackend : public DrawBackend {
  void set_vs_constants(const std::vector<uint8_t>& cb0) override { cb0_ = cb0; }
  // cb0 for the pixel shader is bound as a Vulkan uniform buffer (set 1, binding 0), up to 16384 bytes.
  void set_ps_constants(const std::vector<uint8_t>& cb0) override { ps_cb0_ = cb0; }
+ // Texture t0 + sampler s0 are bound as a combined image sampler at set 0, binding 0 (RGBA8, up to 256x256, single level).
+ // TEXCOORD (float2) travels as vertex attribute location 2. Needs custom shaders (SetShaders): the pass-through
+ // pair cannot sample, so drawing with a texture bound and no shaders is an error.
+ void set_ps_texture(const uint8_t* rgba, uint32_t w, uint32_t h, const SamplerDesc& s) override {
+   tex_.clear(); if (rgba) tex_.assign(rgba, rgba + (size_t)w * h * 4);
+   tex_w_ = w; tex_h_ = h; smp_ = s; }
  private:
+  std::vector<uint8_t> tex_; uint32_t tex_w_ = 0, tex_h_ = 0; SamplerDesc smp_;
   std::vector<uint8_t> ps_cb0_;
   std::vector<uint8_t> cb0_;
   std::vector<uint32_t> vs_, fs_;
