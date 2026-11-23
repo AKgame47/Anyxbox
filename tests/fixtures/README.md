@@ -123,3 +123,11 @@ Batch80 extends the fresh resource_interfaces.cpp build with GetDesc checks for
 buffer/color/depth/staging and resolved full-mip fields. The retained run212 binary
 is unchanged and checks only its original interface operations. New independent
 GetDesc compiler/run evidence is pending CI and must not be attributed to run212.
+
+The retained resource_interfaces.run.exe is now replaced by the verified run230 artifact,
+source tip1f6363d, not an additional fixture:
+https://github.com/AKgame47/Anyxbox/actions/runs/45270749667/job/138029577328
+503809 bytes; SHA256 `600e7883075d670c83b5864d8621d4f89c37cf9362542efb5fe2b309f06419c0`.
+It covers52 imports and includes the GetDesc completion marker. Fixture-slot requires
+both markers/exact output and zero graphics activity; CI requires GetDesc in fresh and
+retained paths. The earlier run212 notes above describe superseded binary provenance.
