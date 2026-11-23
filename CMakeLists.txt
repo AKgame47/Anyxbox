@@ -205,3 +205,5 @@ add_executable(test_seh tests/test_seh.cpp)
 target_include_directories(test_seh PRIVATE tests)
 target_link_libraries(test_seh PRIVATE anyxbox_runtime anyxbox_loader)
 add_test(NAME seh COMMAND test_seh)
+
+# batch 38: no new tests or src files (test_seh and test_protections changed; seh.cpp changed)
