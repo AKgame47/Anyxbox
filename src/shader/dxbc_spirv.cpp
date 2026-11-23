@@ -112,6 +112,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
   std::vector<uint32_t> iface;
   bool have_tex = false, have_smp = false;
   uint32_t ntemps = 0, cb_count = 0, cb_var = 0, t_uint = 0;
+  std::map<uint32_t, uint32_t> cb_regs, cb_off;   // slot -> declared registers / offset in the packed array (registers)
   // signature lookup helpers
   auto sig_for = [&](const std::vector<SigElement>& s, uint32_t reg) -> const SigElement* {
     for (auto& e : s) { if (e.reg == reg) return &e; }
@@ -157,15 +158,18 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
       case OP_DCL_GLOBAL_FLAGS: break;
       case OP_DCL_CONSTANT_BUFFER: {
         if (o->type != OT_CBUFFER || o->index_dim != 2) return fail("unsupported constant buffer declaration");
-        if (o->index[0] != 0) return fail("only constant buffer slot 0 is supported");
-        if (cb_count) return fail("constant buffer 0 declared twice");
-        if (I.control & 1) return fail("dynamically indexed constant buffers are not supported yet");
-        const uint32_t cb_max = pixel ? 1024 : 8;
-        if (o->index[1] == 0 || o->index[1] > cb_max) return fail(pixel ? "constant buffer 0 must have 1 to 1024 registers" : "constant buffer 0 must have 1 to 8 registers (128 byte push-constant limit)");
-        cb_count = o->index[1]; break; }
+        if (o->index[0] >= 14) return fail("constant buffer slot out of range (0..13)");
+        if (cb_regs.count(o->index[0])) return fail("constant buffer slot declared twice");
+        if (o->index[1] == 0 || o->index[1] > 1024) return fail("constant buffer must have 1 to 1024 registers (a size of 0, meaning unbounded, is not supported)");
+        cb_regs[o->index[0]] = o->index[1]; break; }
       default: break;
     }
   }
+  for (auto& kv : cb_regs) { cb_off[kv.first] = cb_count; cb_count += kv.second; if (cb_count > 1024) return fail("constant buffers together exceed 1024 registers"); R.cb_layout.push_back({kv.first, kv.second}); }
+  { const bool simple = cb_regs.size() == 1 && cb_regs.count(0) && cb_count <= 8;
+    bool dyn = false; for (auto& I : p.instructions) for (auto& op : I.ops) if (op.has_rel) dyn = true;
+    R.vs_ubo = !pixel && cb_count && !(simple && !dyn); }
+  const bool cb_ubo = pixel || R.vs_ubo;
   std::sort(user_in_regs.begin(), user_in_regs.end()); std::sort(user_out_regs.begin(), user_out_regs.end());
   // create variables
   for (auto& kv : in) {
@@ -191,10 +195,10 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
     uint32_t len = b.id(); b.put(b.globals, sOpConstant, {t_uint, len, cb_count});
     uint32_t arr = b.id(); b.put(b.globals, sOpTypeArray, {arr, b.T(4), len});
     uint32_t st = b.id(); b.put(b.globals, sOpTypeStruct, {st, arr});
-    const uint32_t csc = pixel ? 2 : 9;   // Uniform (set 1, binding 0) for pixel shaders, PushConstant for vertex shaders
+    const uint32_t csc = cb_ubo ? 2 : 9;   // Uniform (set 1, binding 0 for pixel, 1 for vertex) or PushConstant (small static vertex cb0)
     uint32_t pp = b.id(); b.put(b.globals, sOpTypePointer, {pp, csc, st});
     cb_var = b.id(); b.put(b.globals, sOpVariable, {pp, cb_var, csc});
-    if (pixel) { b.put(b.decor, sOpDecorate, {cb_var, 34, 1}); b.put(b.decor, sOpDecorate, {cb_var, 33, 0}); }
+    if (cb_ubo) { b.put(b.decor, sOpDecorate, {cb_var, 34, 1}); b.put(b.decor, sOpDecorate, {cb_var, 33, pixel ? 0u : 1u}); }
     b.put(b.decor, sOpDecorate, {arr, 6, 16});
     b.put(b.decor, sOpDecorate, {st, 2});
     b.put(b.decor, sOpMemberDecorate, {st, 0, 35, 0});
@@ -232,10 +236,21 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
       }
     }
     else if (o.type == OT_CBUFFER) {
-      if (!cb_count || o.index_dim != 2 || o.index[0] != 0) { err = "read of an undeclared constant buffer"; return false; }
-      if (o.index[1] >= cb_count) { err = "constant buffer read past the declared size"; return false; }
-      uint32_t ic = b.id(); b.put(b.globals, sOpConstant, {t_uint, ic, o.index[1]});
-      uint32_t ch = b.id(); b.put(b.body, sOpAccessChain, {b.P(pixel ? 2 : 9, 4), ch, cb_var, b.id_zero_uint(t_uint), ic});
+      if (!cb_count || o.index_dim != 2 || !cb_regs.count(o.index[0])) { err = "read of an undeclared constant buffer"; return false; }
+      const uint32_t slot_regs = cb_regs[o.index[0]], slot_off = cb_off[o.index[0]];
+      uint32_t ic = 0;
+      if (!o.has_rel) {
+        if (o.index[1] >= slot_regs) { err = "constant buffer read past the declared size"; return false; }
+        ic = b.UC(slot_off + o.index[1]);
+      } else {
+        auto it = tmp.find(o.rel_reg); if (it == tmp.end()) { err = "relative constant buffer index uses an undeclared temporary"; return false; }
+        uint32_t tv = b.load(4, it->second.var), raw = b.extract(tv, o.rel_comp), u = b.cast(t_uint, raw);
+        uint32_t sum = b.id(); b.put(b.body, sOpIAdd, {t_uint, sum, u, b.UC(slot_off + o.index[1])});
+        uint32_t lim = b.UC(cb_count - 1), lt = b.id();   // clamp to the packed array (no out-of-bounds reads)
+        b.put(b.body, 176, {b.BOOL1(), lt, sum, lim});               // OpULessThan
+        ic = b.id(); b.put(b.body, sOpSelect, {t_uint, ic, lt, sum, lim});
+      }
+      uint32_t ch = b.id(); b.put(b.body, sOpAccessChain, {b.P(cb_ubo ? 2 : 9, 4), ch, cb_var, b.id_zero_uint(t_uint), ic});
       base = b.load(4, ch);
     }
     else if (o.type == OT_OUTPUT) { auto it = out.find(o.index[0]); if (o.index_dim != 1 || it == out.end()) { err = "read of an undeclared output"; return false; } base = b.load(4, it->second.var); }
