@@ -76,11 +76,35 @@ int main() {
       CHECK(std::abs(p[0] - k.r) <= 2 && std::abs(p[1] - k.g) <= 2 && std::abs(p[2] - k.b) <= 2);
     }
   }
-  // ---- Wine "relative addressing in constant buffers": uses cb0 plus a dynamically indexed cb1 in the vertex shader.
-  // Known gap, reported rather than hidden: the translator supports one constant buffer (cb0) only.
+  // ---- Wine "relative addressing in constant buffers": cb0 = int index, cb1[8] = colors, dynamically indexed in the VS.
+  // Two constant buffer slots in a vertex shader, so the translator uses the vertex uniform buffer with the packed layout
+  // (slot 0 = 1 register, then slot 1 = 8 registers). Indices 8 and 9 of the original test read past the declared 8
+  // registers of cb1 (hardware reads them from the bound buffer); that is not supported here, so only 0..7 are checked.
   {
     auto cvs = shader::dxbc_to_spirv((const uint8_t*)wine_cbrel_vs, sizeof wine_cbrel_vs);
-    std::printf("real cb-relative-addressing vs: %s\n", cvs.ok ? "translated" : ("not supported yet: " + cvs.error).c_str());
+    auto cps = shader::dxbc_to_spirv((const uint8_t*)wine_cbrel_ps, sizeof wine_cbrel_ps);
+    if (!cvs.ok || !cps.ok) { std::printf("real cb-relative translate failed: vs '%s' ps '%s'\n", cvs.error.c_str(), cps.error.c_str()); return 1; }
+    CHECK(cvs.vs_ubo && cvs.cb_layout.size() == 2 && cvs.cb_layout[0].first == 0 && cvs.cb_layout[0].second == 1 &&
+          cvs.cb_layout[1].first == 1 && cvs.cb_layout[1].second == 8);
+    be.SetShaders(cvs.words, cps.words, cvs.vs_ubo);
+    ctx.PSSetConstantBuffer(0, 0);
+    const float colors[8][4] = {{0, 0, 0, 1}, {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 1, 0, 0}, {0, 1, 0, 1}, {0, 1, 1, 0}, {0, 1, 1, 1}, {1, 0, 0, 0}};
+    const float white[4] = {1, 1, 1, 1};
+    int bad2 = 0;
+    for (int idx = 0; idx < 8; idx++) {
+      float packed[4 + 8 * 4] = {0}; uint32_t iv = (uint32_t)idx; std::memcpy(packed, &iv, 4);
+      std::memcpy(packed + 4, colors, sizeof colors);
+      ctx.VSSetConstantBuffer(0, dev.CreateBuffer(packed, sizeof packed));
+      ctx.ClearRenderTargetView(rtv, white);
+      if (!ctx.Draw(6, 0)) { std::printf("cb-relative draw failed: %s\n", ctx.last_error().c_str()); return 1; }
+      dev.ReadTexture(rt, &im);
+      const uint8_t* p = &im[((size_t)239 * W + 319) * 4];
+      int er = (int)(colors[idx][0] * 255), eg = (int)(colors[idx][1] * 255), eb = (int)(colors[idx][2] * 255);
+      if (std::abs(p[0] - er) > 2 || std::abs(p[1] - eg) > 2 || std::abs(p[2] - eb) > 2) {
+        std::printf("cb-relative index %d: got %d %d %d expected %d %d %d\n", idx, p[0], p[1], p[2], er, eg, eb); bad2++; }
+    }
+    std::printf("real cb-relative-addressing shaders through Vulkan: indices 0..7, %d wrong\n", bad2);
+    CHECK(bad2 == 0);
   }
   std::printf("real dxbc tex: all ok\n");
   return 0;
