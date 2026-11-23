@@ -97,6 +97,8 @@ std::vector<uint8_t> build_guest() {
   a.on(CTX); a.load(2, PS); a.zero_r8(); a.zero_r9(); a.vcall(9);
   // Caller releases its references after binding. Draw must use context-owned shaders.
   a.on(VS);a.vcall(2);a.on(PS);a.vcall(2);
+  // Release caller target/resource references. Context must hold the view and its resource.
+  a.on(RTV);a.vcall(2);a.on(TEX);a.vcall(2);
   // ctx->Draw(3, 0)                                      slot 13
   a.on(CTX); a.mov_edx(3); a.zero_r8(); a.vcall(13);
   a.b({0x31, 0xC0});               // eax = 0
