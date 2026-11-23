@@ -22,6 +22,11 @@ jobs:
             -o triangle.exe tests/fixtures/triangle.c -lkernel32 -luser32 -ld3d11
           ls -l triangle.exe
           x86_64-w64-mingw32-objdump -p triangle.exe | sed -n '/DLL Name/p;/Entry point/p' || true
+      - name: Build the C runtime fixture (default MinGW startup)
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -o hello_crt.exe tests/fixtures/hello_crt.c
+          ls -l hello_crt.exe
+          x86_64-w64-mingw32-objdump -p hello_crt.exe | sed -n '/DLL Name/p'
       - name: Build the Anyxbox tools (Linux)
         run: |
           mkdir -p obj
@@ -33,9 +38,15 @@ jobs:
           g++ -std=c++17 -O1 -Isrc tools/run_exe.cpp obj/*.o -ldl -lpthread -o run_exe
       - name: Import coverage of the real exe
         run: ./import_gap triangle.exe || true
+      - name: Import coverage of the C runtime fixture
+        run: ./import_gap hello_crt.exe || true
+      - name: Run the C runtime fixture
+        run: ./run_exe --i-built-this hello_crt.exe || true
       - name: Run the exe headless through Anyxbox
         run: ./run_exe --i-built-this triangle.exe || true
       - uses: actions/upload-artifact@v4
         with:
-          name: triangle-exe
-          path: triangle.exe
+          name: fixture-exes
+          path: |
+            triangle.exe
+            hello_crt.exe
