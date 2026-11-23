@@ -51,7 +51,7 @@ Status VulkanBackend::render_clip_mesh_rgba(
     const std::vector<uint32_t>& indices, bool depth, const float clear[4],
     std::vector<uint8_t>* image, FrameSurface* shared_frame, bool depth_write,
     const BlendState* blend, int32_t cull_mode, int32_t front_face, int32_t depth_compare,
-    const std::vector<uint32_t>* vertex_push) {
+    const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo) {
   if (!image) return Status::Fail(100, "vulkan", "clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 7 || vertices.size() / 7 > 65536)
     return Status::Fail(100, "vulkan", "clip mesh vertices must be float4 clip position + float3 colour (multiple of 7 floats, max 65536 vertices)");
@@ -64,6 +64,10 @@ Status VulkanBackend::render_clip_mesh_rgba(
   m.vertices = &vertices; m.pos_floats = 4; m.indices = &indices; m.depth = depth;
   m.shared_frame = shared_frame; m.depth_write = depth_write; m.blend = blend;
   m.cull_mode = cull_mode; m.front_face = front_face; m.depth_compare = depth_compare;
+  if (frag_ubo && !frag_ubo->empty()) {
+    if (frag_ubo->size() > 16384) return Status::Fail(100, "vulkan", "fragment uniform buffer is limited to 16384 bytes");
+    m.frag_ubo = frag_ubo;
+  }
   std::vector<std::vector<uint8_t>> frames;
   std::vector<std::vector<uint32_t>> push_frames;
   if (vertex_push && !vertex_push->empty()) {
@@ -700,6 +704,49 @@ Status VulkanBackend::render_core(
         vkUpdateDescriptorSets)(device_, 1, &tw, 0, nullptr);
   }
 
+  // --- Anyxbox: optional fragment uniform buffer (set 1, binding 0) ---
+  VkDescriptorSetLayout ulayout = 0, elayout = 0;
+  VkDescriptorSet uset = 0;
+  VkBuffer ubuf = 0;
+  if (mesh && mesh->frag_ubo) {
+    std::vector<uint8_t> padded = *mesh->frag_ubo;
+    padded.resize((padded.size() + 15) & ~(size_t)15, 0);
+    if (Status s = host_buffer(padded.data(), padded.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, "uniform", &ubuf); !s.ok) return s;
+    auto make_layout = [&](uint32_t nb, const VkDescriptorSetLayoutBinding* b, VkDescriptorSetLayout* out, const char* what) -> Status {
+      VkDescriptorSetLayoutCreateInfo d{};
+      d.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO; d.bindingCount = nb; d.pBindings = b;
+      VkResult rr = fn<VkResult (*)(VkDevice, const VkDescriptorSetLayoutCreateInfo*, void*, VkDescriptorSetLayout*)>(
+          vkCreateDescriptorSetLayout)(device_, &d, nullptr, out);
+      if (rr != VK_SUCCESS) return vkfail(std::string("vkCreateDescriptorSetLayout (") + what + ")", rr);
+      VkDescriptorSetLayout l = *out;
+      undo.push_back([&, l] { fn<void (*)(VkDevice, VkDescriptorSetLayout, void*)>(vkDestroyDescriptorSetLayout)(device_, l, nullptr); });
+      return Status::Ok();
+    };
+    VkDescriptorSetLayoutBinding ub{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    if (Status s = make_layout(1, &ub, &ulayout, "uniform"); !s.ok) return s;
+    if (!tex) if (Status s = make_layout(0, nullptr, &elayout, "empty set 0"); !s.ok) return s;
+    VkDescriptorPoolSize dps{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+    VkDescriptorPoolCreateInfo dpci{};
+    dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    dpci.maxSets = 1; dpci.poolSizeCount = 1; dpci.pPoolSizes = &dps;
+    VkDescriptorPool dpool = 0;
+    r = fn<VkResult (*)(VkDevice, const VkDescriptorPoolCreateInfo*, void*, VkDescriptorPool*)>(
+        vkCreateDescriptorPool)(device_, &dpci, nullptr, &dpool);
+    if (r != VK_SUCCESS) return vkfail("vkCreateDescriptorPool (uniform)", r);
+    undo.push_back([&, dpool] { fn<void (*)(VkDevice, VkDescriptorPool, void*)>(vkDestroyDescriptorPool)(device_, dpool, nullptr); });
+    VkDescriptorSetAllocateInfo dai{};
+    dai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dai.descriptorPool = dpool; dai.descriptorSetCount = 1; dai.pSetLayouts = &ulayout;
+    r = fn<VkResult (*)(VkDevice, const VkDescriptorSetAllocateInfo*, VkDescriptorSet*)>(vkAllocateDescriptorSets)(device_, &dai, &uset);
+    if (r != VK_SUCCESS) return vkfail("vkAllocateDescriptorSets (uniform)", r);
+    VkDescriptorBufferInfo dbi{ubuf, 0, (VkDeviceSize)padded.size()};
+    VkWriteDescriptorSet uw{};
+    uw.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    uw.dstSet = uset; uw.dstBinding = 0; uw.descriptorCount = 1;
+    uw.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; uw.pBufferInfo = &dbi;
+    fn<void (*)(VkDevice, uint32_t, const VkWriteDescriptorSet*, uint32_t, void*)>(vkUpdateDescriptorSets)(device_, 1, &uw, 0, nullptr);
+  }
+
   // --- render pass: clear on load, store, end in TRANSFER_SRC ---
   VkAttachmentDescription att[2]{};
   att[0].format = VK_FORMAT_R8G8B8A8_UNORM; att[0].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -775,7 +822,9 @@ Status VulkanBackend::render_core(
   plci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   VkPushConstantRange prange{VK_SHADER_STAGE_VERTEX_BIT, 0, push_words * 4};
   if (push_words) { plci.pushConstantRangeCount = 1; plci.pPushConstantRanges = &prange; }
-  if (tex) { plci.setLayoutCount = 1; plci.pSetLayouts = &dlayout; }
+  VkDescriptorSetLayout set_layouts[2] = {tex ? dlayout : elayout, ulayout};
+  if (ulayout) { plci.setLayoutCount = 2; plci.pSetLayouts = set_layouts; }
+  else if (tex) { plci.setLayoutCount = 1; plci.pSetLayouts = &dlayout; }
   VkPipelineLayout pl = 0;
   r = fn<VkResult (*)(VkDevice, const VkPipelineLayoutCreateInfo*, void*, VkPipelineLayout*)>(
       vkCreatePipelineLayout)(device_, &plci, nullptr, &pl);
@@ -888,6 +937,9 @@ Status VulkanBackend::render_core(
     if (tset)
       fn<void (*)(VkCommandBuffer, int32_t, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet*, uint32_t, const uint32_t*)>(
           vkCmdBindDescriptorSets)(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 0, 1, &tset, 0, nullptr);
+    if (uset)
+      fn<void (*)(VkCommandBuffer, int32_t, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet*, uint32_t, const uint32_t*)>(
+          vkCmdBindDescriptorSets)(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 1, 1, &uset, 0, nullptr);
     if (vbuf) {
       VkDeviceSize off = 0;
       fn<void (*)(VkCommandBuffer, uint32_t, uint32_t, const VkBuffer*, const VkDeviceSize*)>(
