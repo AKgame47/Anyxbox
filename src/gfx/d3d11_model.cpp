@@ -57,11 +57,21 @@ ResourceId Device::CreateBuffer(const void* data, size_t bytes) {
   Buffer b; b.data.assign((const uint8_t*)data, (const uint8_t*)data + bytes);
   buffers_.push_back(std::move(b)); return (ResourceId)buffers_.size();
 }
-ResourceId Device::CreateTexture2D(uint32_t w, uint32_t h, Format f) {
+ResourceId Device::CreateTexture2D(uint32_t w, uint32_t h, Format f, uint32_t levels) {
   if (w == 0 || h == 0 || w > 16384 || h > 16384) return 0;
   if (f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) return 0;
-  Texture t; t.w = w; t.h = h; t.f = f; t.px.assign((size_t)w * h * 4, 0);
+  uint32_t full = 1; for (uint32_t n = std::max(w,h); n > 1; n >>= 1) ++full;
+  if (!levels) levels = full;
+  if (levels > full) return 0;
+  Texture t; for (uint32_t l=1;l<levels;++l) t.mips.emplace_back((size_t)std::max(1u,w>>l)*std::max(1u,h>>l)*4,0);
+  t.w = w; t.h = h; t.f = f; t.px.assign((size_t)w * h * 4, 0);
   textures_.push_back(std::move(t)); return (ResourceId)textures_.size();
+}
+bool Device::UpdateTextureMip(ResourceId id, uint32_t level, const void* data, size_t bytes) {
+  auto* t = texture(id); if (!t || level > t->mips.size() || !data) return false;
+  auto& dst = level ? t->mips[level-1] : t->px;
+  if (bytes != dst.size()) return false;
+  std::memcpy(dst.data(),data,bytes); return true;
 }
 bool Device::UpdateBuffer(ResourceId id, const void* data, size_t bytes) {
   if (id == 0 || id > buffers_.size() || !data || bytes != buffers_[id - 1].data.size()) return false;
@@ -244,6 +254,12 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
       if (!tx && (int)ts <= top_used) { rgba.assign(4, 0); tw = th = 1; }   // an unbound slot that the shader (or a higher slot) needs reads as zeros, like D3D
       const uint8_t* data = rgba.empty() ? nullptr : rgba.data();
       if (ts == 0) backend_->set_ps_texture(data, tw, th, smp); else backend_->set_ps_texture_slot(ts, data, tw, th, smp);
+      std::vector<uint8_t> chain = rgba;
+      if (tx) for (auto mip : tx->mips) {
+        if (tx->f == Format::B8G8R8A8_UNORM) for(size_t k=0;k<mip.size();k+=4) std::swap(mip[k],mip[k+2]);
+        chain.insert(chain.end(),mip.begin(),mip.end());
+      }
+      backend_->set_ps_mip_chain(ts,chain,tx ? (uint32_t)tx->mips.size()+1 : 1);
     }
     if (!backend_->draw(dev_, dev_.rtv_texture(rtv_), vp_, cv, &stats_, &err_)) { if (err_.empty()) err_ = "draw: backend failed"; return false; }
     return true;
