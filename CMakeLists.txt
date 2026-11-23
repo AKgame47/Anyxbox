@@ -72,3 +72,11 @@ target_link_libraries(anyxbox_d3d11_vulkan PUBLIC anyxbox_d3d11 anyxbox_vulkan)
 add_executable(test_d3d11_vulkan tests/test_d3d11_vulkan.cpp)
 target_link_libraries(test_d3d11_vulkan anyxbox_d3d11_vulkan)
 add_test(NAME d3d11_vulkan COMMAND test_d3d11_vulkan)
+
+add_library(anyxbox_shader src/shader/dxbc.cpp src/shader/dxbc_spirv.cpp)
+target_include_directories(anyxbox_shader PUBLIC src)
+# link test_dxbc against anyxbox_shader plus the gfx library (d3d11_model, d3d11_vulkan, vulkan, render) as test_d3d11_vulkan is
+add_executable(test_dxbc tests/test_dxbc.cpp)
+target_include_directories(test_dxbc PRIVATE tests)
+target_link_libraries(test_dxbc anyxbox_shader anyxbox_gfx)
+add_test(NAME dxbc COMMAND test_dxbc)
