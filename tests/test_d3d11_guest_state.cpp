@@ -91,6 +91,9 @@ std::vector<uint8_t> finish_pe(std::vector<uint8_t> pe, const std::vector<V>& ve
   put32(data, DSDESC + 0, 1); put32(data, DSDESC + 4, 1); put32(data, DSDESC + 8, 2);
   // blend: RT0 disabled, defaults, write mask 0xF
   put32(data, BLDESC + 8 + 4, 2); put32(data, BLDESC + 8 + 16, 2); data[BLDESC + 8 + 28] = 0x0F;
+  // A real IID is now required rather than the old all-zero placeholder.
+  const uint8_t texture_iid[16]={0xf2,0xaa,0x15,0x6f,0x08,0xd2,0x89,0x4e,0x9a,0xb4,0x48,0x95,0x35,0xd3,0x4f,0x9c};
+  std::memcpy(&data[IID],texture_iid,16);
   const float vp[6] = {0, 0, (float)W, (float)H, 0, 1}; std::memcpy(&data[VP], vp, sizeof vp);
   const float clr[4] = {0.02f, 0.03f, 0.2f, 1}; std::memcpy(&data[CLR], clr, sizeof clr);
   const float one = 1.f; std::memcpy(&data[ONE], &one, 4);
