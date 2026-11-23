@@ -366,3 +366,25 @@ TLS callback executable-section validation is not added by this slice. Arbitrary
 native instructions remain host-privileged. Full metadata validation, overlaps,
 timeouts, partial mapping on failure, COM ownership and thread safety remain open.
 Layout reference: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+
+## Batch 76: validate all TLS callback launch locations
+
+The same declared-executable-section policy now applies to every TLS callback address
+before any callback or entry instruction runs. The entire callback list is validated
+up front. A valid early callback cannot execute before an invalid later list member is
+found. The validated list is also the list copied into thread attach/detach handling.
+The mapper still checks callback pointers are in-image; the runner adds launch policy.
+
+Existing test_tls now rejects header/data/exact-section-end/rounded-page-tail callback
+locations. A two-member list begins with a valid-address UD2 callback and ends with a
+data pointer: the run is rejected before execution, proving whole-list prevalidation.
+A positive check trims the code section to exactly contain the callback's instructions.
+After relinking, all 41 local ASan/UBSan programs pass, including sixteen retained
+independent binaries and existing TLS/thread fixtures. No new fixture/target/CMake
+change or graphics claim. Exact-tip CI evidence remains pending publication.
+
+This checks callback start addresses only, not instruction spans, runtime self-changes,
+function signatures or termination. A guest can still execute arbitrary host-privileged
+native instructions. General metadata validation, overlaps, partial mapping on failure,
+timeouts, COM ownership/lifetime and thread safety remain incomplete. No sandbox claim.
+PE TLS layout reference: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
