@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <new>
 namespace anyxbox { namespace d3d11 {
 namespace {
 uint32_t fmt_floats(Format f) {
@@ -63,9 +64,14 @@ ResourceId Device::CreateTexture2D(uint32_t w, uint32_t h, Format f, uint32_t le
   uint32_t full = 1; for (uint32_t n = std::max(w,h); n > 1; n >>= 1) ++full;
   if (!levels) levels = full;
   if (levels > full) return 0;
+  size_t total=0;
+  for(uint32_t l=0;l<levels;++l) total+=(size_t)std::max(1u,w>>l)*std::max(1u,h>>l)*4;
+  if(total>64u*1024u*1024u) return 0;
+  try {
   Texture t; for (uint32_t l=1;l<levels;++l) t.mips.emplace_back((size_t)std::max(1u,w>>l)*std::max(1u,h>>l)*4,0);
   t.w = w; t.h = h; t.f = f; t.px.assign((size_t)w * h * 4, 0);
   textures_.push_back(std::move(t)); return (ResourceId)textures_.size();
+  } catch(const std::bad_alloc&) { return 0; }
 }
 bool Device::GenerateMips(ResourceId id, uint32_t first, uint32_t levels) {
   auto* t = texture(id); if (!t) return false;
