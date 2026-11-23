@@ -1,9 +1,10 @@
 // Anyxbox input and audio devices: XInput pads and an XAudio2 engine that plays into nothing. GPL-2.0.
-// Windows x64 calling convention, Linux x86-64 hosts only. No real controller or sound card is touched yet:
-// pads are fed by the host (tests, later SDL), and XAudio2 voices consume submitted buffers without producing sound.
+// Windows x64 calling convention, Linux x86-64 hosts only. Sound output is not implemented:
+// pads are fed by the host or the optional SDL2 backend, and XAudio2 voices consume submitted buffers without producing sound.
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <mutex>
 #include <vector>
 #include "syslayer/import_registry.h"
@@ -17,10 +18,19 @@ struct XInputPad {
 struct XInputContext {
   XInputPad pads[4];
   bool enabled = true;
+  std::function<void()> poll; // optional host refresh, called before state/capability reads
   std::mutex m;
-  // Host side: change a pad and bump its packet number.
+  // Host side: change a pad and bump its packet number only when its state changes.
   void set_pad(int i, bool connected, uint16_t buttons, uint8_t lt = 0, uint8_t rt = 0, int16_t lx = 0, int16_t ly = 0, int16_t rx = 0, int16_t ry = 0);
 };
+class HostControllers {
+ public:
+  virtual ~HostControllers() = default;
+  virtual void update(XInputContext& ctx) = 0;
+};
+// Optional SDL2 controller backend, runtime-loaded without a build-time SDL dependency.
+// Caller must keep this object alive while using it in XInputContext::poll.
+std::unique_ptr<HostControllers> make_sdl_controllers();
 struct XAudioVoice;
 struct XAudio2Context {
   std::mutex m;
