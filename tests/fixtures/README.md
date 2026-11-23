@@ -220,3 +220,8 @@ release/swap/rebind/unbind. Exact combined output, zero exit, two translated
 shaders, zero presents and empty D3D11 error are required. Fresh and retained CI
 require this marker. Partial replacement/range refusal/teardown remain unit
 evidence. Earlier binary provenance is historical. No rendering claim is added.
+
+Batch94 extends only the fresh public-header probe with pixel-sampler caller
+release/cross-slot swap/rebind/unbind checks. Retained run284 bytes are unchanged
+and lack this marker. Independent MinGW compilation/execution awaits CI. No new
+scene or executable fixture is added.
