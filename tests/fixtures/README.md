@@ -195,3 +195,13 @@ Batch90 extends only the fresh public-header probe with input-buffer binding
 checks: vertex caller release/cross-slot swap/rebind and index retain/unbind.
 Retained run266 bytes remain unchanged and lack this marker. Fresh independent
 MinGW compilation/execution awaits CI. No additional fixture or scene is added.
+
+Batch91 replaces the same resource_interfaces.run.exe with exact run275 output,
+source tip 9bdbde5. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45284189590/job/138076095997
+509207 bytes; SHA256 b3facf087822b217e98b5d3a85bbcbbb7985586bc90eddd1ca8395898d886523.
+It includes all seven completion markers, adding vertex caller release/swap/rebind
+and index retain/unbind. Exact combined output, zero exit, two translated shaders,
+zero presents and empty D3D11 error are required. Fresh and retained CI require
+the input-buffer marker. Partial/index replacement, refusal and teardown remain
+unit evidence, not independent guest evidence. Older provenance is historical.
