@@ -5,7 +5,7 @@
 namespace anyxbox { namespace shader {
 namespace {
 enum { sOpExtInst = 12, sOpExtInstImport = 11, sOpMemoryModel = 14, sOpEntryPoint = 15, sOpExecutionMode = 16, sOpCapability = 17,
-       sOpTypeVoid = 19, sOpTypeInt = 21, sOpTypeFloat = 22, sOpTypeArray = 28, sOpTypeStruct = 30, sOpAccessChain = 65, sOpMemberDecorate = 72, sOpTypeVector = 23, sOpTypePointer = 32, sOpTypeFunction = 33,
+       sOpTypeVoid = 19, sOpTypeInt = 21, sOpTypeImage = 25, sOpTypeSampledImage = 27, sOpImageSampleImplicitLod = 87, sOpImageSampleExplicitLod = 88, sOpTypeFloat = 22, sOpTypeArray = 28, sOpTypeStruct = 30, sOpAccessChain = 65, sOpMemberDecorate = 72, sOpTypeVector = 23, sOpTypePointer = 32, sOpTypeFunction = 33,
        sOpConstant = 43, sOpConstantComposite = 44, sOpFunction = 54, sOpFunctionEnd = 56, sOpVariable = 59,
        sOpLoad = 61, sOpStore = 62, sOpDecorate = 71, sOpVectorShuffle = 79, sOpCompositeConstruct = 80,
        sOpCompositeExtract = 81, sOpFNegate = 127, sOpFAdd = 129, sOpFMul = 133, sOpFDiv = 136, sOpDot = 148,
@@ -94,6 +94,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
 
   std::map<uint32_t, Reg> in, out, tmp;
   std::vector<uint32_t> iface;
+  bool have_tex = false, have_smp = false;
   uint32_t ntemps = 0, cb_count = 0, cb_var = 0, t_uint = 0;
   // signature lookup helpers
   auto sig_for = [&](const std::vector<SigElement>& s, uint32_t reg) -> const SigElement* {
@@ -111,7 +112,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
         const SigElement* se = sig_for(c.inputs, reg);
         bool sv = se && se->sysval != 0;
         if (sv) return fail("unsupported system-value input (use dcl_input_ps_siv/sgv forms are not handled)");
-        int w = 4; if (se) { w = 1; for (int k = 0; k < 4; k++) if (se->mask & (1 << k)) w = k + 1; }
+        int w = 4; if (se && !pixel) { w = 1; for (int k = 0; k < 4; k++) if (se->mask & (1 << k)) w = k + 1; }
         r.width = w; in[reg] = r; user_in_regs.push_back(reg); break; }
       case OP_DCL_INPUT_PS_SIV: case OP_DCL_INPUT_SIV: {
         // SV_POSITION in a pixel shader is system value 1
@@ -123,6 +124,20 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
       case OP_DCL_OUTPUT_SIV: {
         if (pixel || I.value != 1 || o->index_dim != 1) return fail("unsupported system-value output (only vertex SV_POSITION)");
         Reg r; r.builtin = true; r.width = 4; out[o->index[0]] = r; break; }
+      case OP_DCL_RESOURCE: {
+        if (!pixel) return fail("texture sampling in vertex shaders is not supported yet");
+        if (o->type != OT_RESOURCE || o->index_dim != 1) return fail("unsupported resource declaration");
+        if ((I.control & 0x1F) != 3) return fail("only Texture2D resources are supported");
+        if (o->index[0] != 0) return fail("only texture slot t0 is supported");
+        if (I.value != 0x5555) return fail("only float4 texture return types are supported");
+        if (have_tex) return fail("texture t0 declared twice");
+        have_tex = true; break; }
+      case OP_DCL_SAMPLER: {
+        if (!pixel) return fail("samplers in vertex shaders are not supported yet");
+        if (o->type != OT_SAMPLER || o->index_dim != 1) return fail("unsupported sampler declaration");
+        if (o->index[0] != 0) return fail("only sampler slot s0 is supported");
+        if (I.control & 0xF) return fail("only default-mode samplers are supported (no comparison samplers)");
+        have_smp = true; break; }
       case OP_DCL_GLOBAL_FLAGS: break;
       case OP_DCL_CONSTANT_BUFFER: {
         if (o->type != OT_CBUFFER || o->index_dim != 2) return fail("unsupported constant buffer declaration");
@@ -167,6 +182,15 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
     b.put(b.decor, sOpDecorate, {arr, 6, 16});
     b.put(b.decor, sOpDecorate, {st, 2});
     b.put(b.decor, sOpMemberDecorate, {st, 0, 35, 0});
+  }
+  uint32_t tex_var = 0, t_simg = 0;
+  if (have_tex != have_smp) return fail("texture t0 and sampler s0 must be declared together");
+  if (have_tex) {
+    uint32_t img = b.id(); b.put(b.globals, sOpTypeImage, {img, b.t_float, 1, 0, 0, 0, 1, 0});
+    t_simg = b.id(); b.put(b.globals, sOpTypeSampledImage, {t_simg, img});
+    uint32_t pt = b.id(); b.put(b.globals, sOpTypePointer, {pt, 0, t_simg});
+    tex_var = b.id(); b.put(b.globals, sOpVariable, {pt, tex_var, 0});
+    b.put(b.decor, sOpDecorate, {tex_var, 34, 0}); b.put(b.decor, sOpDecorate, {tex_var, 33, 0});
   }
   // temps live in the function (declared at the start of the entry block below)
   uint32_t main_id = b.id(), label = b.id();
@@ -225,9 +249,32 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
   bool seen_ret = false;
   for (size_t ii = 0; ii < p.instructions.size(); ii++) {
     const Instruction& I = p.instructions[ii];
-    if (I.opcode >= OP_DCL_CONSTANT_BUFFER && I.opcode <= OP_DCL_GLOBAL_FLAGS) continue;   // declarations handled above
+    if ((I.opcode >= OP_DCL_CONSTANT_BUFFER && I.opcode <= OP_DCL_GLOBAL_FLAGS) || I.opcode == OP_DCL_RESOURCE) continue;   // declarations handled above
     if (seen_ret) return fail("instructions after ret (control flow) are not supported");
     if (I.opcode == OP_RET) { seen_ret = true; continue; }
+    if (I.opcode == OP_SAMPLE || I.opcode == OP_SAMPLE_L) {
+      if (!have_tex) return fail("sample without a declared texture");
+      const Operand& rs = I.ops[2]; const Operand& sp = I.ops[3];
+      if (rs.type != OT_RESOURCE || rs.index_dim != 1 || rs.index[0] != 0) return fail("sample: only texture t0 is supported");
+      if (sp.type != OT_SAMPLER || sp.index_dim != 1 || sp.index[0] != 0) return fail("sample: only sampler s0 is supported");
+      uint32_t addr = 0, lod = 0;
+      if (!load_src(I.ops[1], addr)) return fail(err + " (sample address)");
+      if (I.opcode == OP_SAMPLE_L) {
+        uint32_t lv = 0; if (!load_src(I.ops[4], lv)) return fail(err + " (sample lod)");
+        lod = b.extract(lv, I.ops[4].swizzle[0]);
+      }
+      uint32_t uv = b.shuffle(2, addr, addr, {0, 1});
+      uint32_t si = b.id(); b.put(b.body, sOpLoad, {t_simg, si, tex_var});
+      uint32_t res = b.id();
+      if (I.opcode == OP_SAMPLE) b.put(b.body, sOpImageSampleImplicitLod, {b.T(4), res, si, uv});
+      else b.put(b.body, sOpImageSampleExplicitLod, {b.T(4), res, si, uv, 2u, lod});
+      bool ident = rs.swizzle[0] == 0 && rs.swizzle[1] == 1 && rs.swizzle[2] == 2 && rs.swizzle[3] == 3;
+      if (rs.ncomp == 2 && rs.selmode != SEL_MASK && !ident) res = b.shuffle(4, res, res, {rs.swizzle[0], rs.swizzle[1], rs.swizzle[2], rs.swizzle[3]});
+      if (I.saturate) { const uint32_t z4[4] = {0, 0, 0, 0}, o4[4] = {fbits(1), fbits(1), fbits(1), fbits(1)};
+        uint32_t cz = b.C4(z4), co = b.C4(o4); res = b.gl(4, GL_FClamp, {res, cz, co}); }
+      if (!store_dst(I.ops[0], res)) return fail(err + " (sample)");
+      continue;
+    }
     std::vector<uint32_t> s(I.ops.size());
     for (size_t k = 1; k < I.ops.size(); k++) if (!load_src(I.ops[k], s[k])) return fail(err + " (opcode " + std::to_string(I.opcode) + ")");
     uint32_t r = 0;
