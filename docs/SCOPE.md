@@ -726,3 +726,19 @@ child/device lifetime, model reclamation, thread safety or native host isolation
 References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vssetconstantbuffers
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetconstantbuffers
+
+## Batch93: retain verified independent constant-buffer regression
+
+Replaces the same resource probe with exact run284 bytes from source d64f396.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports;
+direct execution passes all eight markers, zero exit, two translated shaders,
+zero presents and empty error. Fixture-slot requires exact combined output and
+retained CI requires the constant-buffer marker. All 41 local sanitizer programs
+pass. No production/CMake/new-target/scene/release change.
+
+Retained independent constant-buffer checks cover VS/PS caller release, cross-slot
+swap, rebind and unbind. Partial replacement/range refusal/teardown remain unit
+evidence. Fourteen slots per stage, binding references only; full validation and
+D3D11.1 offset binding remain incomplete. Other state/device lifetime, reclamation,
+thread safety and host isolation remain incomplete. Runtime lifetime required.
+No new rendering, physical-device/input or Xbox-game evidence is added.
