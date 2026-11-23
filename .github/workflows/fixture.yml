@@ -120,6 +120,7 @@ jobs:
         run: |
           ./import_gap draw_copy.exe
           ./tbin/test_fixture_draw_copy draw_copy.exe --require-vulkan draw-copy-frame
+          ./tbin/test_fixture_draw_copy tests/fixtures/draw_copy.run.exe --require-vulkan committed-draw-copy-frame
       - name: Run separately compiled texture-copy fixture (strict)
         run: |
           ./import_gap texture_copy.exe
@@ -149,6 +150,7 @@ jobs:
           path: |
             draw_copy.exe
             draw-copy-frame*.ppm
+            committed-draw-copy-frame*.ppm
             texture_copy.exe
             triangle.exe
             hello_crt.exe
