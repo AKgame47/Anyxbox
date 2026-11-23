@@ -1,6 +1,7 @@
 #include "runtime/kernel32.h"
 #include "runtime/teb.h"
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -66,7 +67,43 @@ MSABI uint32_t k_GetFileSize(uint64_t h, uint32_t* hi) {
   if (hi) *hi = (uint32_t)(sz >> 32);
   return (uint32_t)sz;
 }
-MSABI uint64_t k_GetModuleHandleA(const char* name) { return name ? 0 : C->image_base; }
+// Module handles for the registered DLL sets. Fake addresses, never dereferenced by well-behaved callers.
+const uint64_t kModBase = 0x7FF800000000ull, kModStep = 0x10000;
+std::string norm_dll(std::string n) {
+  size_t sl = n.find_last_of("/\\"); if (sl != std::string::npos) n = n.substr(sl + 1);
+  for (auto& c : n) c = (char)std::tolower((unsigned char)c);
+  if (n.find('.') == std::string::npos) n += ".dll";
+  return n;
+}
+uint64_t module_for(const std::string& raw) {
+  if (raw.empty() || !C->registry) { t_last_error = 126; return 0; }
+  std::string n = norm_dll(raw);
+  if (!C->registry->has_dll(n)) { t_last_error = 126; return 0; }   // ERROR_MOD_NOT_FOUND
+  std::lock_guard<std::mutex> l(C->mod_mutex);
+  for (size_t i = 0; i < C->modules.size(); i++) if (C->modules[i] == n) return kModBase + i * kModStep;
+  C->modules.push_back(n);
+  return kModBase + (C->modules.size() - 1) * kModStep;
+}
+std::string narrow16(const uint16_t* w) { std::string s; for (; w && *w && s.size() < 260; w++) s.push_back(*w < 128 ? (char)*w : '?'); return s; }
+MSABI uint64_t k_GetModuleHandleA(const char* name) { if (!name) return C->image_base; return module_for(name); }
+MSABI uint64_t k_GetModuleHandleW(const uint16_t* name) { if (!name) return C->image_base; return module_for(narrow16(name)); }
+MSABI uint64_t k_LoadLibraryA(const char* name) { return name ? module_for(name) : (t_last_error = 87, 0); }
+MSABI uint64_t k_LoadLibraryW(const uint16_t* name) { return name ? module_for(narrow16(name)) : (t_last_error = 87, 0); }
+MSABI uint32_t k_FreeLibrary(uint64_t h) {
+  std::lock_guard<std::mutex> l(C->mod_mutex);
+  if (h >= kModBase && (h - kModBase) % kModStep == 0 && (h - kModBase) / kModStep < C->modules.size()) return 1;
+  t_last_error = 6; return 0;
+}
+MSABI uint64_t k_GetProcAddress(uint64_t h, const char* name) {
+  std::string dll;
+  { std::lock_guard<std::mutex> l(C->mod_mutex);
+    if (h < kModBase || (h - kModBase) % kModStep != 0 || (h - kModBase) / kModStep >= C->modules.size()) { t_last_error = 126; return 0; }
+    dll = C->modules[(h - kModBase) / kModStep]; }
+  if (!name || !C->registry) { t_last_error = 127; return 0; }
+  uint64_t a = (uintptr_t)name < 0x10000 ? C->registry->resolve(dll, "", (uint16_t)(uintptr_t)name, true) : C->registry->resolve(dll, name, 0, false);
+  if (!a) t_last_error = 127;                                          // ERROR_PROC_NOT_FOUND
+  return a;
+}
 MSABI void* k_VirtualAlloc(void* addr, uint64_t size, uint32_t, uint32_t) { return addr ? nullptr : C->vm.alloc((size_t)size); }
 MSABI uint32_t k_VirtualFree(void* addr, uint64_t size, uint32_t type) {
   if (type != 0x8000 || size != 0) return 0;   // MEM_RELEASE only
@@ -257,6 +294,7 @@ MSABI uint32_t k_VirtualProtect(uint64_t addr, uint64_t size, uint32_t np, uint3
 
 bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
   C = &ctx;
+  ctx.registry = &r;
   auto A = [](auto* f) { return (uint64_t)(uintptr_t)f; };
   const char* K = "kernel32.dll";
   r.add(K, "GetStdHandle", A(&k_GetStdHandle));
@@ -267,6 +305,11 @@ bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
   r.add(K, "SetFilePointer", A(&k_SetFilePointer));
   r.add(K, "GetFileSize", A(&k_GetFileSize));
   r.add(K, "GetModuleHandleA", A(&k_GetModuleHandleA));
+  r.add(K, "GetModuleHandleW", A(&k_GetModuleHandleW));
+  r.add(K, "LoadLibraryA", A(&k_LoadLibraryA));
+  r.add(K, "LoadLibraryW", A(&k_LoadLibraryW));
+  r.add(K, "FreeLibrary", A(&k_FreeLibrary));
+  r.add(K, "GetProcAddress", A(&k_GetProcAddress));
   r.add(K, "VirtualAlloc", A(&k_VirtualAlloc));
   r.add(K, "VirtualFree", A(&k_VirtualFree));
   r.add(K, "CreateThread", A(&k_CreateThread));
