@@ -82,11 +82,15 @@ int main(int argc,char** argv) {
   // A directory invocation covers both source calls and the retained independent PE.
   std::string dir=argc>1?argv[1]:"tests/fixtures";
   if(dir.size()>=4 && dir.substr(dir.size()-4)==".exe") return 0;
-#ifdef DRAW_COPY_METHOD
-  // Retained variants are added only after the independent CI artifacts pass.
-  return 0;
-#endif
+#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 1
+  std::string exe=dir+"/draw_region.run.exe";
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 2
+  std::string exe=dir+"/draw_update.run.exe";
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+  std::string exe=dir+"/draw_map.run.exe";
+#else
   std::string exe=dir+"/draw_copy.run.exe";
+#endif
   std::vector<char> path(exe.begin(),exe.end()); path.push_back(0);
   char* args[]={argv[0],path.data()};
   return run_case(2,args);
