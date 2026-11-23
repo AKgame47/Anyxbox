@@ -210,3 +210,13 @@ Batch92 extends only the fresh public-header probe with VS/PS constant-buffer
 caller release, cross-slot swap, rebind and unbind reference checks. Retained
 run275 bytes remain unchanged and lack this marker. Independent MinGW compile
 and execution await CI. This is reference accounting, not a new rendered scene.
+
+Batch93 replaces the same resource_interfaces.run.exe with exact run284 output,
+source tip d64f396. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45286445973/job/138083890353
+509719 bytes; SHA256 7fe9e1feb8df806872e86b6ac1d9aa756132f170232762b0935dd974ca7859a4.
+It includes all eight completion markers, adding VS/PS constant-buffer caller
+release/swap/rebind/unbind. Exact combined output, zero exit, two translated
+shaders, zero presents and empty D3D11 error are required. Fresh and retained CI
+require this marker. Partial replacement/range refusal/teardown remain unit
+evidence. Earlier binary provenance is historical. No rendering claim is added.
