@@ -77,8 +77,9 @@ struct D3D11Runtime::Impl {
   void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* resource_vt[16]; void* view_vt[16]; void* sc_vt[20]; void* fac_vt[25];
   // bound state
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr; Obj* swapchain = nullptr;
+  Obj* srvs[4] = {};
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);}
 };
 
 namespace {
@@ -350,10 +351,16 @@ MSABI void ctx_GenerateMips(void* self, void* view) {
   if (tex && tex->auto_mips && !rt->dev.GenerateMips(o->id,o->first_mip,o->mip_count)) rt->last_error = "GenerateMips: invalid texture";
 }
 MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void* const* srvs) {
-  for (uint32_t i = 0; i < n; i++) {
-    Obj* o = srvs ? (Obj*)srvs[i] : nullptr;
-    if (start + i >= 4) { if (o) G(self)->last_error = "only shader resource slots t0..t3 are supported"; continue; }
-    G(self)->ctx->PSSetShaderResource(start + i, o ? o->id : 0, o ? o->first_mip : 0, o ? o->mip_count : ~0u);
+  auto* rt=G(self);
+  if(start>4 || n>4-start){rt->last_error="PSSetShaderResources: slots must lie within t0..t3";return;}
+  Obj* next[4]={};
+  // Capture and retain the entire batch first. Cross-slot swaps may otherwise free
+  // an object before its later incoming slot has acquired a reference.
+  for(uint32_t i=0;i<n;++i){next[i]=srvs?(Obj*)srvs[i]:nullptr;if(next[i])addref(next[i]);}
+  for(uint32_t i=0;i<n;++i){
+    auto* o=next[i];auto* old=rt->impl->srvs[start+i];rt->impl->srvs[start+i]=o;
+    rt->ctx->PSSetShaderResource(start+i,o?o->id:0,o?o->first_mip:0,o?o->mip_count:~0u);
+    if(old)release(old);
   }
 }
 MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const* smps) {
