@@ -2,6 +2,7 @@
 #include <d3d11.h>
 #include <cstdio>
 #include <cstring>
+#include "triangle_shaders.h"
 #define CHECK(c) do{if(!(c)){std::printf("resource interfaces failed line %d\n",__LINE__);return 3;}}while(0)
 int main(){
   ID3D11Device* dev=nullptr;ID3D11DeviceContext* ctx=nullptr;
@@ -58,6 +59,16 @@ int main(){
     returned->Release();
   }
   std::puts("view GetResource: RTV/SRV/DSV identity and retained resource lifetime ok");
+  ID3D11VertexShader* vs=nullptr;ID3D11PixelShader* ps=nullptr;
+  CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&vs)));
+  CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&ps)));
+  ctx->VSSetShader(vs,nullptr,0);ctx->PSSetShader(ps,nullptr,0);
+  CHECK(vs->Release()==1&&ps->Release()==1);
+  ctx->VSSetShader(vs,nullptr,0);ctx->PSSetShader(ps,nullptr,0); // same bound object still alive
+  CHECK(vs->AddRef()==2&&ps->AddRef()==2);
+  ctx->VSSetShader(nullptr,nullptr,0);ctx->PSSetShader(nullptr,nullptr,0);
+  CHECK(vs->Release()==0&&ps->Release()==0);
+  std::puts("shader bindings: caller release, same-object rebind and unbind references ok");
   depth->Release();texture->Release();buffer->Release();ctx->Release();dev->Release();
   std::puts("resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok");return 0;
 }
