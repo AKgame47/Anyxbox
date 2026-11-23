@@ -80,8 +80,9 @@ struct D3D11Runtime::Impl {
   Obj* srvs[4] = {};Obj* vbs[16] = {};Obj* ib = nullptr;
   Obj* vs_cbs[14] = {};Obj* ps_cbs[14] = {};
   Obj* samplers[4] = {};
+  Obj* layout=nullptr;Obj* rasterizer=nullptr;Obj* depth_state=nullptr;Obj* blend_state=nullptr;
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);for(auto* cb:vs_cbs)if(cb)release(cb);for(auto* cb:ps_cbs)if(cb)release(cb);for(auto* sampler:samplers)if(sampler)release(sampler);}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);for(auto* cb:vs_cbs)if(cb)release(cb);for(auto* cb:ps_cbs)if(cb)release(cb);for(auto* sampler:samplers)if(sampler)release(sampler);if(layout)release(layout);if(rasterizer)release(rasterizer);if(depth_state)release(depth_state);if(blend_state)release(blend_state);}
 };
 
 namespace {
@@ -303,8 +304,13 @@ MSABI void ctx_PSSetShader(void* self, void* shader, void* const*, uint32_t) {
   if(next)addref(next);
   auto* old=bound;bound=next;if(old)release(old);
 }
+void retain_binding(Obj*& bound,Obj* next){
+  if(next)addref(next);
+  auto* old=bound;bound=next;if(old)release(old);
+}
 MSABI void ctx_IASetInputLayout(void* self, void* layout) {
   Obj* l = (Obj*)layout;
+  retain_binding(G(self)->impl->layout,l);
   G(self)->ctx->IASetInputLayout(l ? l->layout : std::vector<InputElement>());
 }
 MSABI void ctx_IASetVertexBuffers(void* self, uint32_t start, uint32_t n, void* const* bufs, const uint32_t* strides, const uint32_t* offsets) {
@@ -344,13 +350,13 @@ MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, voi
   if(oldd)release(oldd);
 }
 MSABI void ctx_OMSetBlendState(void* self, void* st, const float* /*factor*/, uint32_t /*mask*/) {
-  Obj* o = (Obj*)st; G(self)->ctx->OMSetBlendState(o ? o->bl : BlendDesc());
+  Obj* o = (Obj*)st;retain_binding(G(self)->impl->blend_state,o); G(self)->ctx->OMSetBlendState(o ? o->bl : BlendDesc());
 }
 MSABI void ctx_OMSetDepthStencilState(void* self, void* st, uint32_t /*stencil_ref*/) {
-  Obj* o = (Obj*)st; G(self)->ctx->OMSetDepthStencilState(o ? o->ds : DepthStencilDesc());
+  Obj* o = (Obj*)st;retain_binding(G(self)->impl->depth_state,o); G(self)->ctx->OMSetDepthStencilState(o ? o->ds : DepthStencilDesc());
 }
 MSABI void ctx_RSSetState(void* self, void* st) {
-  Obj* o = (Obj*)st; G(self)->ctx->RSSetState(o ? o->rs : RasterizerDesc());
+  Obj* o = (Obj*)st;retain_binding(G(self)->impl->rasterizer,o); G(self)->ctx->RSSetState(o ? o->rs : RasterizerDesc());
 }
 MSABI void ctx_GenerateMips(void* self, void* view) {
   auto* rt = G(self); auto* o = (Obj*)view;
