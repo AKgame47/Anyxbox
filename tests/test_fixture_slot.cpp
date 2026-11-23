@@ -56,6 +56,7 @@ int main(int argc, char** argv) {
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
         CHECK(r.ran && r.loaded && r.exit_code == 0);
         if (n.find("hello_crt") == 0) CHECK(r.output == "hello from a MinGW program, argc=1\n");
+        if (n.find("tls_crt") == 0) CHECK(r.output == "tls=42 zero=0\n");
         if (n.find("scene") == 0) {
           CHECK(rt.presents == 2 && rt.presented_w == 320 && rt.presented_h == 240 && rt.last_error.empty() && rt.shaders_translated == 4);
           // pixels need the translated shaders: run again on the Vulkan backend (software driver) when one exists
