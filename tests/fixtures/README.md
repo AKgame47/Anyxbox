@@ -136,3 +136,10 @@ Batch82 extends fresh resource_interfaces.cpp with concrete/base view identity a
 GetResource checks for RTV/SRV/DSV, including resource use after releasing the original
 caller reference and view. Retained run230 is unchanged; new independent evidence
 awaits CI and must not be attributed to that older binary.
+
+Retained resource_interfaces.run.exe is now exact run239 output, source tipb0b4965:
+https://github.com/AKgame47/Anyxbox/actions/runs/45273708342/job/138039881731
+505041 bytes; SHA256 `80ad590dd7ac29ce67a061dc72d107b5d34ef8d375ca0b9afe8d8b951abc7d13`.
+This replaces run230 in the same fixture slot. It includes all three descriptor/view/
+interface markers. Earlier binary provenance remains historical. Fresh and retained
+CI paths require the view marker; fixture-slot requires exact combined output.
