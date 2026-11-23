@@ -27,11 +27,12 @@ enum class Cull { None, Front, Back };
 enum class Compare { Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always };
 enum class BlendFactor { Zero, One, SrcColor, InvSrcColor, SrcAlpha, InvSrcAlpha, DestAlpha, InvDestAlpha, DestColor, InvDestColor };
 enum class BlendOp { Add, Subtract, RevSubtract, Min, Max };
-struct RasterizerDesc { Cull cull = Cull::Back; bool front_ccw = false; };   // front = clockwise on screen by default
+struct ScissorRect { int32_t left = 0, top = 0, right = 0, bottom = 0; };
+struct RasterizerDesc { Cull cull = Cull::Back; bool front_ccw = false; bool scissor_enable = false; };   // front = clockwise on screen by default
 struct DepthStencilDesc { bool depth_enable = true; bool depth_write = true; Compare func = Compare::Less; };
 struct BlendDesc { bool enable = false; BlendFactor src = BlendFactor::One, dst = BlendFactor::Zero; BlendOp op = BlendOp::Add;
                    BlendFactor src_a = BlendFactor::One, dst_a = BlendFactor::Zero; BlendOp op_a = BlendOp::Add; };
-struct PipelineState { RasterizerDesc rs; DepthStencilDesc ds; BlendDesc blend; bool depth_bound = false; };
+struct PipelineState { RasterizerDesc rs; DepthStencilDesc ds; BlendDesc blend; bool depth_bound = false; ScissorRect scissor; };
 
 struct ClipVertex { float x, y, z, w; float r, g, b, a; float u = 0, v = 0; };  // D3D clip space (y up)
 
@@ -112,6 +113,7 @@ class DeviceContext {
   // Which sampler slot each texture slot is sampled with (SpirvResult::tex_sampler; -1 or never called = same number).
   void SetTexturePairing(const int pair[4]) { for (int i = 0; i < 4; i++) tex_pair_[i] = pair[i]; }
   void OMSetRenderTarget(ResourceId rtv, ResourceId dsv = 0) { rtv_ = rtv; dsv_ = dsv; }
+  void RSSetScissorRect(const ScissorRect& r) { state_.scissor = r; }
   void RSSetState(const RasterizerDesc& d) { state_.rs = d; }
   void OMSetDepthStencilState(const DepthStencilDesc& d) { state_.ds = d; }
   void OMSetBlendState(const BlendDesc& d) { state_.blend = d; }
