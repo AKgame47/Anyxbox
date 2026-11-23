@@ -77,6 +77,7 @@ struct BlendState {
 // reloaded (LOAD_OP_LOAD) afterwards. Owned by the caller; destroy with
 // destroy_frame(). Single-frame renders only.
 struct FrameSurface {
+  const std::vector<uint8_t>* upload_rgba = nullptr; // optional color replacement for next draw; caller owns bytes
   VkImage color_image = 0;
   VkDeviceMemory color_memory = 0;
   VkImageView color_view = 0;
@@ -370,4 +371,3 @@ private:
 };
 
 }  // namespace pnr::graphics
-
