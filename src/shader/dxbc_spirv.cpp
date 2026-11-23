@@ -110,7 +110,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
 
   std::map<uint32_t, Reg> in, out, tmp;
   std::vector<uint32_t> iface;
-  bool have_tex = false, have_smp = false;
+  bool have_smp = false; std::map<uint32_t, bool> tex_decl, smp_decl;   // declared texture slots
   uint32_t ntemps = 0, cb_count = 0, cb_var = 0, t_uint = 0;
   std::map<uint32_t, uint32_t> cb_regs, cb_off;   // slot -> declared registers / offset in the packed array (registers)
   // signature lookup helpers
@@ -145,16 +145,16 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
         if (!pixel) return fail("texture sampling in vertex shaders is not supported yet");
         if (o->type != OT_RESOURCE || o->index_dim != 1) return fail("unsupported resource declaration");
         if ((I.control & 0x1F) != 3) return fail("only Texture2D resources are supported");
-        if (o->index[0] != 0) return fail("only texture slot t0 is supported");
+        if (o->index[0] > 3) return fail("only texture slots t0..t3 are supported");
         if (I.value != 0x5555) return fail("only float4 texture return types are supported");
-        if (have_tex) return fail("texture t0 declared twice");
-        have_tex = true; break; }
+        if (tex_decl.count(o->index[0])) return fail("texture declared twice");
+        tex_decl[o->index[0]] = true; break; }
       case OP_DCL_SAMPLER: {
         if (!pixel) return fail("samplers in vertex shaders are not supported yet");
         if (o->type != OT_SAMPLER || o->index_dim != 1) return fail("unsupported sampler declaration");
-        if (o->index[0] != 0) return fail("only sampler slot s0 is supported");
+        if (o->index[0] > 3) return fail("only sampler slots s0..s3 are supported");
         if (I.control & 0xF) return fail("only default-mode samplers are supported (no comparison samplers)");
-        have_smp = true; break; }
+        have_smp = true; smp_decl[o->index[0]] = true; break; }
       case OP_DCL_GLOBAL_FLAGS: break;
       case OP_DCL_CONSTANT_BUFFER: {
         if (o->type != OT_CBUFFER || o->index_dim != 2) return fail("unsupported constant buffer declaration");
@@ -203,14 +203,17 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
     b.put(b.decor, sOpDecorate, {st, 2});
     b.put(b.decor, sOpMemberDecorate, {st, 0, 35, 0});
   }
-  uint32_t tex_var = 0, t_simg = 0;
-  if (have_tex != have_smp) return fail("texture t0 and sampler s0 must be declared together");
+  uint32_t tex_var[4] = {0, 0, 0, 0}, t_simg = 0;
+  const bool have_tex = !tex_decl.empty();
+  if (have_tex != have_smp) return fail("textures and samplers must be declared together");
   if (have_tex) {
     uint32_t img = b.id(); b.put(b.globals, sOpTypeImage, {img, b.t_float, 1, 0, 0, 0, 1, 0});
     t_simg = b.id(); b.put(b.globals, sOpTypeSampledImage, {t_simg, img});
     uint32_t pt = b.id(); b.put(b.globals, sOpTypePointer, {pt, 0, t_simg});
-    tex_var = b.id(); b.put(b.globals, sOpVariable, {pt, tex_var, 0});
-    b.put(b.decor, sOpDecorate, {tex_var, 34, 0}); b.put(b.decor, sOpDecorate, {tex_var, 33, 0});
+    for (auto& kv : tex_decl) {
+      tex_var[kv.first] = b.id(); b.put(b.globals, sOpVariable, {pt, tex_var[kv.first], 0});
+      b.put(b.decor, sOpDecorate, {tex_var[kv.first], 34, 0}); b.put(b.decor, sOpDecorate, {tex_var[kv.first], 33, kv.first});   // set 0, binding N
+    }
   }
   // temps live in the function (declared at the start of the entry block below)
   uint32_t main_id = b.id(), label = b.id();
@@ -355,8 +358,11 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
     if (I.opcode == OP_SAMPLE || I.opcode == OP_SAMPLE_L) {
       if (!have_tex) return fail("sample without a declared texture");
       const Operand& rs = I.ops[2]; const Operand& sp = I.ops[3];
-      if (rs.type != OT_RESOURCE || rs.index_dim != 1 || rs.index[0] != 0) return fail("sample: only texture t0 is supported");
-      if (sp.type != OT_SAMPLER || sp.index_dim != 1 || sp.index[0] != 0) return fail("sample: only sampler s0 is supported");
+      if (rs.type != OT_RESOURCE || rs.index_dim != 1 || !tex_decl.count(rs.index[0])) return fail("sample: texture must be a declared t0..t3");
+      if (sp.type != OT_SAMPLER || sp.index_dim != 1 || sp.index[0] > 3) return fail("sample: sampler must be s0..s3");
+      if (R.tex_sampler[rs.index[0]] >= 0 && R.tex_sampler[rs.index[0]] != (int)sp.index[0]) return fail("sample: a texture sampled with two different samplers is not supported");
+      if (!smp_decl.count(sp.index[0])) return fail("sample: sampler is not declared");
+      R.tex_sampler[rs.index[0]] = (int)sp.index[0];
       uint32_t addr = 0, lod = 0;
       if (!load_src(I.ops[1], addr)) return fail(err + " (sample address)");
       if (I.opcode == OP_SAMPLE_L) {
@@ -364,7 +370,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
         lod = b.extract(lv, I.ops[4].swizzle[0]);
       }
       uint32_t uv = b.shuffle(2, addr, addr, {0, 1});
-      uint32_t si = b.id(); b.put(b.body, sOpLoad, {t_simg, si, tex_var});
+      uint32_t si = b.id(); b.put(b.body, sOpLoad, {t_simg, si, tex_var[rs.index[0]]});
       uint32_t res = b.id();
       if (I.opcode == OP_SAMPLE) b.put(b.body, sOpImageSampleImplicitLod, {b.T(4), res, si, uv});
       else b.put(b.body, sOpImageSampleExplicitLod, {b.T(4), res, si, uv, 2u, lod});
