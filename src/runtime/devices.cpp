@@ -1,6 +1,8 @@
 #include "runtime/devices.h"
 #include <cstring>
+#include <algorithm>
 #if defined(__linux__) && defined(__x86_64__)
+#include <dlfcn.h>
 #define MSABI __attribute__((ms_abi))
 namespace anyxbox {
 namespace {
@@ -10,9 +12,11 @@ const uint32_t ERROR_DEVICE_NOT_CONNECTED = 1167, ERROR_EMPTY = 4306, ERROR_BAD_
 // ---- XInput ----
 MSABI uint32_t x_GetState(uint32_t i, uint8_t* st) {
   if (i >= 4 || !st) return i >= 4 ? ERROR_DEVICE_NOT_CONNECTED : ERROR_BAD_ARGUMENTS;
+  if (XI->poll) XI->poll();
   std::lock_guard<std::mutex> l(XI->m);
-  const XInputPad& p = XI->pads[i];
+  XInputPad p = XI->pads[i];
   if (!p.connected) return ERROR_DEVICE_NOT_CONNECTED;
+  if (!XI->enabled) { p.buttons = 0; p.lt = p.rt = 0; p.lx = p.ly = p.rx = p.ry = 0; }
   std::memset(st, 0, 16);
   std::memcpy(st, &p.packet, 4); std::memcpy(st + 4, &p.buttons, 2); st[6] = p.lt; st[7] = p.rt;
   std::memcpy(st + 8, &p.lx, 2); std::memcpy(st + 10, &p.ly, 2); std::memcpy(st + 12, &p.rx, 2); std::memcpy(st + 14, &p.ry, 2);
@@ -29,6 +33,7 @@ MSABI uint32_t x_SetState(uint32_t i, const uint8_t* v) {
 MSABI uint32_t x_GetCapabilities(uint32_t i, uint32_t, uint8_t* caps) {
   if (i >= 4) return ERROR_DEVICE_NOT_CONNECTED;
   if (!caps) return ERROR_BAD_ARGUMENTS;
+  if (XI->poll) XI->poll();
   std::lock_guard<std::mutex> l(XI->m);
   if (!XI->pads[i].connected) return ERROR_DEVICE_NOT_CONNECTED;
   std::memset(caps, 0, 20);
@@ -155,7 +160,75 @@ XAudio2Context::~XAudio2Context() { for (void* e : engines) delete (Engine*)e; f
 void XInputContext::set_pad(int i, bool c, uint16_t b, uint8_t l, uint8_t r, int16_t a, int16_t bb, int16_t cc, int16_t d) {
   if (i < 0 || i >= 4) return;
   std::lock_guard<std::mutex> lk(m);
-  XInputPad& p = pads[i]; p.connected = c; p.buttons = b; p.lt = l; p.rt = r; p.lx = a; p.ly = bb; p.rx = cc; p.ry = d; p.packet++;
+  XInputPad& p = pads[i];
+  if (p.connected == c && p.buttons == b && p.lt == l && p.rt == r && p.lx == a && p.ly == bb && p.rx == cc && p.ry == d) return;
+  p.connected = c; p.buttons = b; p.lt = l; p.rt = r; p.lx = a; p.ly = bb; p.rx = cc; p.ry = d; p.packet++;
+}
+namespace {
+class SdlControllers : public HostControllers {
+  void* lib = nullptr;
+  void* pad[4] = {};
+  int32_t ids[4] = {-1,-1,-1,-1};
+  bool initialized = false;
+  std::mutex mutex;
+  int (*InitSubSystem)(uint32_t) = nullptr;
+  void (*QuitSubSystem)(uint32_t) = nullptr;
+  int (*NumJoysticks)() = nullptr;
+  int (*IsGameController)(int) = nullptr;
+  int32_t (*JoystickGetDeviceInstanceID)(int) = nullptr;
+  void* (*GameControllerOpen)(int) = nullptr;
+  void (*GameControllerClose)(void*) = nullptr;
+  int (*GameControllerGetAttached)(void*) = nullptr;
+  int16_t (*GameControllerGetAxis)(void*, int) = nullptr;
+  uint8_t (*GameControllerGetButton)(void*, int) = nullptr;
+  void (*GameControllerUpdate)() = nullptr;
+ public:
+  bool open() {
+    lib = dlopen("libSDL2-2.0.so.0", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) lib = dlopen("libSDL2.so", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) return false;
+#define SDL_LOAD(f) f = (decltype(f))dlsym(lib, "SDL_" #f); if (!f) return false;
+    SDL_LOAD(InitSubSystem) SDL_LOAD(QuitSubSystem) SDL_LOAD(NumJoysticks) SDL_LOAD(IsGameController)
+    SDL_LOAD(JoystickGetDeviceInstanceID) SDL_LOAD(GameControllerOpen) SDL_LOAD(GameControllerClose)
+    SDL_LOAD(GameControllerGetAttached) SDL_LOAD(GameControllerGetAxis) SDL_LOAD(GameControllerGetButton) SDL_LOAD(GameControllerUpdate)
+#undef SDL_LOAD
+    initialized = InitSubSystem(0x2000) == 0; // SDL_INIT_GAMECONTROLLER
+    return initialized;
+  }
+  ~SdlControllers() override {
+    for (auto p : pad) if (p) GameControllerClose(p);
+    if (initialized) QuitSubSystem(0x2000);
+    if (lib) dlclose(lib);
+  }
+  void update(XInputContext& ctx) override {
+    std::lock_guard<std::mutex> lock(mutex);
+    GameControllerUpdate();
+    for (int i = 0; i < 4; ++i) if (pad[i] && !GameControllerGetAttached(pad[i])) {
+      GameControllerClose(pad[i]); pad[i] = nullptr; ids[i] = -1;
+    }
+    for (int j = 0, n = NumJoysticks(); j < n; ++j) {
+      if (!IsGameController(j)) continue;
+      int32_t id = JoystickGetDeviceInstanceID(j);
+      if (id < 0 || std::find(ids, ids+4, id) != ids+4) continue;
+      for (int i = 0; i < 4; ++i) if (!pad[i]) {
+        pad[i] = GameControllerOpen(j); if (pad[i]) ids[i] = id;
+        break;
+      }
+    }
+    static const uint16_t buttons[] = {0x1000,0x2000,0x4000,0x8000,0x20,0,0x10,0x40,0x80,0x100,0x200,1,2,4,8};
+    auto flip = [](int16_t v) { return (int16_t)(v == -32768 ? 32767 : -v); };
+    auto trigger = [](int16_t v) { return (uint8_t)(std::max(0, (int)v) * 255 / 32767); };
+    for (int i = 0; i < 4; ++i) {
+      if (!pad[i]) { ctx.set_pad(i, false, 0); continue; }
+      uint16_t b = 0; for (int k = 0; k < 15; ++k) if (GameControllerGetButton(pad[i], k)) b |= buttons[k];
+      ctx.set_pad(i, true, b, trigger(GameControllerGetAxis(pad[i],4)), trigger(GameControllerGetAxis(pad[i],5)),
+        GameControllerGetAxis(pad[i],0), flip(GameControllerGetAxis(pad[i],1)), GameControllerGetAxis(pad[i],2), flip(GameControllerGetAxis(pad[i],3)));
+    }
+  }
+};
+}
+std::unique_ptr<HostControllers> make_sdl_controllers() {
+  auto p = std::make_unique<SdlControllers>(); if (!p->open()) return nullptr; return p;
 }
 bool xinput_register(ImportRegistry& r, XInputContext& ctx) {
   XI = &ctx;
@@ -177,6 +250,7 @@ bool xaudio2_register(ImportRegistry& r, XAudio2Context& ctx) {
 namespace anyxbox {
 XAudio2Context::~XAudio2Context() {}
 void XInputContext::set_pad(int, bool, uint16_t, uint8_t, uint8_t, int16_t, int16_t, int16_t, int16_t) {}
+std::unique_ptr<HostControllers> make_sdl_controllers() { return nullptr; }
 bool xinput_register(ImportRegistry&, XInputContext&) { return false; }
 bool xaudio2_register(ImportRegistry&, XAudio2Context&) { return false; }
 }
