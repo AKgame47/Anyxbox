@@ -129,6 +129,40 @@ int main(){
   // Static Release only, not guest calls through runtime-owned vtables after teardown.
   for(auto* view:teardownViews)CHECK(viewRelease(view)==0);
   puts("output merger: RTV/DSV retain, rebind, replacement, caller release, unbind, teardown and MRT refusal ok");
+  using BindResources=void(MS*)(void*,uint32_t,uint32_t,void* const*);
+  auto bindResources=(BindResources)vt(ctx)[8];void* srvs[2]={};
+  for(auto& srv:srvs){
+    td[4]=28;td[8]=8;void* resource=nullptr;
+    CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&resource)==0);
+    CHECK(((CB)vt(dev)[7])(dev,(const uint32_t*)resource,nullptr,&srv)==0);
+    CHECK(((R)vt(resource)[2])(resource)==1);
+  }
+  bindResources(ctx,0,2,srvs);
+  for(auto* srv:srvs)CHECK(((R)vt(srv)[2])(srv)==1); // only context owns each view
+  void* swapped[]={srvs[1],srvs[0]};bindResources(ctx,0,2,swapped);
+  for(auto* srv:srvs)CHECK(refs(srv)==1);
+  bindResources(ctx,0,2,swapped);for(auto* srv:srvs)CHECK(refs(srv)==1);
+  bindResources(ctx,3,2,swapped);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  bindResources(ctx,0xffffffffu,2,swapped);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  for(auto* srv:srvs)CHECK(refs(srv)==1); // invalid range has no effects
+  for(auto* srv:srvs)CHECK(((R)vt(srv)[1])(srv)==2);
+  bindResources(ctx,1,1,nullptr);CHECK(refs(srvs[0])==1&&refs(srvs[1])==2);
+  bindResources(ctx,3,1,&srvs[0]);CHECK(refs(srvs[0])==2); // high supported slot
+  bindResources(ctx,0,1,&srvs[0]);CHECK(refs(srvs[1])==1&&refs(srvs[0])==3);
+  bindResources(ctx,0,4,nullptr);
+  for(auto* srv:srvs)CHECK(((R)vt(srv)[2])(srv)==0);
+  void* teardownSRV=nullptr;R srvRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    td[4]=28;td[8]=8;void* resource=nullptr;
+    CHECK(((CB)vt(d)[5])(d,td,nullptr,&resource)==0);
+    CHECK(((CB)vt(d)[7])(d,(const uint32_t*)resource,nullptr,&teardownSRV)==0);
+    ((R)vt(resource)[2])(resource);srvRelease=(R)vt(teardownSRV)[2];
+    void* repeat[]={teardownSRV,teardownSRV};((BindResources)vt(c)[8])(c,2,2,repeat);
+  }
+  CHECK(srvRelease(teardownSRV)==0); // static Release only, runtime-owned vtable no longer valid
+  puts("pixel SRV bindings: caller release, swap, rebind, partial replacement, unbind, range refusal and teardown ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
