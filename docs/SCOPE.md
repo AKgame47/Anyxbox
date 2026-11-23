@@ -109,3 +109,7 @@ import_gap and test_fixture_slot now register the same function sets as run_pe (
 - Callbacks run in list order. The completion handle becomes signaled after detach callbacks finish. tests/test_teb checks two workers, callback ordering, exit status, fresh raw/zero-fill TLS, and isolation from the main thread's modified TLS.
 - New CI-built source tls_thread.c checks callbacks and per-thread data through actual MinGW startup and CreateThread. Its binary has not yet been verified or committed.
 - Remaining limits: only normal thread-entry return gets detach callbacks. ExitThread, abrupt termination, process-wide shutdown of still-running workers, callback serialization with process startup, and multi-module TLS remain unsupported. Guests must join their workers before returning from the main entry. No new claim of Xbox game compatibility.
+
+## Batch 46: committed thread TLS fixture
+- tls_thread.run.exe is the verified CI-built thread TLS fixture. test_fixture_slot checks its exact output and successful exit alongside its 60 resolved imports.
+- This checks normal thread return with the main thread waiting for both workers. Other shutdown paths remain outside the supported scope described above.
