@@ -152,6 +152,12 @@ int main(){
   ctx->VSSetShader(nullptr,nullptr,0);ctx->PSSetShader(nullptr,nullptr,0);
   CHECK(vs->Release()==0&&ps->Release()==0);
   std::puts("shader bindings: caller release, same-object rebind and unbind references ok");
+  ID3D11Buffer* clearBuffer=nullptr;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+  CHECK(SUCCEEDED(dev->CreateBuffer(&bd,nullptr,&clearBuffer)));
+  ctx->VSSetConstantBuffers(13,1,&clearBuffer);ctx->PSSetConstantBuffers(13,1,&clearBuffer);
+  CHECK(clearBuffer->Release()==2);CHECK(clearBuffer->AddRef()==3);
+  ctx->ClearState();ctx->ClearState();CHECK(clearBuffer->Release()==0);
+  std::puts("ClearState: shared VS/PS buffer references released and repeated clear safe");
   depth->Release();texture->Release();buffer->Release();ctx->Release();dev->Release();
   std::puts("resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok");return 0;
 }
