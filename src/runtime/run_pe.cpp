@@ -6,6 +6,7 @@
 #include "runtime/kernel32.h"
 #include "runtime/msvcrt.h"
 #include "runtime/devices.h"
+#include "runtime/seh.h"
 #include "runtime/teb.h"
 #if defined(__linux__) && defined(__x86_64__)
 #include <sys/mman.h>
@@ -52,6 +53,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   crt.out = &out;
   crt.exit_fn = [](uint32_t c) { host_ExitProcess(c); };
   msvcrt_register(reg, crt);
+  seh_register(reg);
   XInputContext xi; xinput_register(reg, xi);       // no pad connected unless the host connects one
   XAudio2Context xa; xaudio2_register(reg, xa);     // plays into nothing
   if (extra_imports) extra_imports(reg);
@@ -82,6 +84,8 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   g_exit = &jb; g_exit_code = 0;
   EntryFn fn = (EntryFn)(uintptr_t)(img.actual_base + img.entry_rva);
   volatile bool exited = false;
+  seh_register_image(img.actual_base, len > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)len, img.pdata_rva, img.pdata_size);
+  seh_set_unhandled([](uint32_t code) { host_ExitProcess(code); });   // no guest handler took the exception: the program ends with its code
   if (img.tls.present) teb_set_tls_template((const uint8_t*)(uintptr_t)img.tls.start_va, (uint32_t)(img.tls.end_va - img.tls.start_va), img.tls.zero_fill);
   teb_install(img.actual_base);
   if (setjmp(jb) == 0) {
@@ -92,6 +96,8 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   (void)exited;
   teb_restore();
   teb_set_tls_template(nullptr, 0, 0);
+  seh_set_unhandled(nullptr);
+  seh_unregister_image(img.actual_base);
   g_exit = nullptr;
   res.ran = true; res.output = out;
   munmap(mem, len);
