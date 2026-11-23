@@ -62,3 +62,9 @@ Build with the rooted-asset step in fixture.yml. Create `data/message.txt` under
 with the exact text `Anyxbox rooted asset` and a newline. Run `run_exe --i-built-this asset_read.exe --asset-root ROOT`.
 The program reads/verifies the text, rejects an attempted truncating write and parent traversal, prints the text and exits zero.
 Without an asset root it must exit 10. Independent compilation and execution await CI; not yet a retained binary.
+
+`asset_read.run.exe` is the exact run-173 MinGW artifact at source commit 0bc862a:
+https://github.com/AKgame47/Anyxbox/actions/runs/45243811043/job/137935175917
+7617 bytes; SHA-256 `f5e5e87a83bad67ec17d4e0bb08989fdea1761d7f4840a42789219680922c10a`.
+The fixture-slot test creates its own temporary asset root, checks exact guest output and unchanged asset contents,
+and separately checks default denial. CI repeats actual-CLI checks for fresh and retained binaries.
