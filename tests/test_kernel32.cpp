@@ -21,7 +21,7 @@ int main() {
   ctx.image_base = 0x1234000;
   std::string out; ctx.out = &out;
   CHECK(kernel32_register(reg, ctx));
-  CHECK(reg.size() == 25);
+  CHECK(reg.size() == 44);
 
   CHECK(fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")(nullptr) == 0x1234000);
   CHECK(fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")("user32.dll") == 0);
