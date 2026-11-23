@@ -12,6 +12,15 @@ struct ImportRef { std::string dll; std::string name; uint16_t ordinal; bool by_
 // Returns the host address for an import, or 0 if unknown.
 using ImportResolver = std::function<uint64_t(const std::string& dll, const std::string& name, uint16_t ordinal, bool by_ordinal)>;
 
+// IMAGE_TLS_DIRECTORY64 (data directory 9), addresses already relocated. start/end are virtual addresses of the raw
+// template; zero_fill bytes follow it. The loader stores index 0 at index_va.
+struct TlsInfo {
+  bool present = false;
+  uint64_t start_va = 0, end_va = 0, index_va = 0;
+  uint32_t zero_fill = 0;
+  std::vector<uint64_t> callbacks;  // callback addresses, null terminator dropped
+};
+
 struct SectionInfo { uint32_t rva; uint32_t size; uint32_t flags; };  // flags = IMAGE_SCN_* characteristics
 
 struct LoadedImage {
@@ -26,6 +35,7 @@ struct LoadedImage {
   uint32_t reloc_count = 0;
   std::vector<SectionInfo> sections;
   std::vector<ImportRef> imports;
+  TlsInfo tls;
   std::vector<std::string> unresolved;  // "dll!name" entries the resolver rejected
 };
 
