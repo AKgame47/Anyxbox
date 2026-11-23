@@ -151,13 +151,21 @@ int main() {
     r.ctx.RSSetScissorRect({0,0,64,128}); quad(RED);
     r.ctx.RSSetScissorRect({64,0,128,128}); quad(GREEN);
   },[](const std::vector<uint8_t>& im) { return near_c(px(im,30,40),255,0,0) && near_c(px(im,90,40),0,255,0); }});
+  cases.push_back({"viewport offset and reduced size",[&](Rig& r) {
+    no_depth(r); r.ctx.RSSetViewport({20,30,60,50});
+    r.tri(-1,-1,1,-1,-1,1,0.5f,RED); r.tri(-1,1,1,-1,1,1,0.5f,RED);
+  },[](const std::vector<uint8_t>& im) { return near_c(px(im,25,40),255,0,0) && near_c(px(im,75,75),255,0,0) && near_c(px(im,19,40),0,0,0) && near_c(px(im,80,70),0,0,0); }});
+  cases.push_back({"viewport depth range transforms stored depth",[&](Rig& r) {
+    r.ctx.RSSetViewport({0,0,128,128,0.7f,0.9f}); r.tri(-1,-1,1,-1,-1,1,0.5f,RED);
+    r.ctx.RSSetViewport({0,0,128,128,0,1}); r.tri(-1,-1,1,-1,-1,1,0.6f,GREEN);
+  },[](const std::vector<uint8_t>& im) { return near_c(px(im,30,90),0,255,0); }});
   // reference pass: exact expectations
   std::vector<std::vector<uint8_t>> ref;
   for (auto& c : cases) {
     Rig r(nullptr, {}, {}); c.run(r);
     if (!r.ctx.last_error().empty()) { std::printf("FAIL %s: %s\n", c.name, r.ctx.last_error().c_str()); return 1; }
     ref.push_back(r.image());
-    if (std::getenv("ANYXBOX_SCISSOR_PREVIEW") && std::string(c.name) == "scissor half-open edges") {
+    if (std::getenv("ANYXBOX_SCISSOR_PREVIEW") && (std::string(c.name) == "scissor half-open edges" || std::string(c.name) == "viewport offset and reduced size")) {
       FILE* f = std::fopen("/downloads/scissor-reference.ppm", "wb");
       if (f) { std::fprintf(f,"P6\n%d %d\n255\n",W,H); for (size_t i=0;i<ref.back().size();i+=4) std::fwrite(ref.back().data()+i,1,3,f); std::fclose(f); }
     }
@@ -182,7 +190,7 @@ int main() {
     Rig r(&vk, vs.words, ps.words); cases[i].run(r);
     if (!r.ctx.last_error().empty()) { std::printf("FAIL vulkan %s: %s\n", cases[i].name, r.ctx.last_error().c_str()); return 1; }
     auto img = r.image();
-    if (std::getenv("ANYXBOX_SCISSOR_PREVIEW") && std::string(cases[i].name) == "scissor half-open edges") {
+    if (std::getenv("ANYXBOX_SCISSOR_PREVIEW") && (std::string(cases[i].name) == "scissor half-open edges" || std::string(cases[i].name) == "viewport offset and reduced size")) {
       FILE* f = std::fopen("/downloads/scissor-vulkan.ppm","wb"); if (f) { std::fprintf(f,"P6\n%d %d\n255\n",W,H); for(size_t k=0;k<img.size();k+=4) std::fwrite(img.data()+k,1,3,f); std::fclose(f); }
     }
     int bad = mismatches(img, ref[i]);
