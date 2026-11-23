@@ -55,3 +55,10 @@ https://github.com/AKgame47/Anyxbox/actions/runs/45239239109/job/137919083466
 - draw_map.run.exe: 15062 bytes, SHA-256 `2f4782134501d53a7c3b1138a5a3aabbbd48d77d9776cb54a780ac7eeabbdf1a`.
 Directory-mode tests cover source calls and retained variants. CI also explicitly requires Vulkan
 for each freshly built and retained variant and keeps all captured frames. No physical-GPU coverage is implied.
+
+## asset_read.c
+Self-written freestanding MinGW fixture for explicit read-only launcher asset access.
+Build with the rooted-asset step in fixture.yml. Create `data/message.txt` under a temporary test root
+with the exact text `Anyxbox rooted asset` and a newline. Run `run_exe --i-built-this asset_read.exe --asset-root ROOT`.
+The program reads/verifies the text, rejects an attempted truncating write and parent traversal, prints the text and exits zero.
+Without an asset root it must exit 10. Independent compilation and execution await CI; not yet a retained binary.
