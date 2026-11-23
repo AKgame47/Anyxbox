@@ -78,8 +78,9 @@ struct D3D11Runtime::Impl {
   // bound state
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr; Obj* swapchain = nullptr;
   Obj* srvs[4] = {};Obj* vbs[16] = {};Obj* ib = nullptr;
+  Obj* vs_cbs[14] = {};Obj* ps_cbs[14] = {};
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);for(auto* cb:vs_cbs)if(cb)release(cb);for(auto* cb:ps_cbs)if(cb)release(cb);}
 };
 
 namespace {
@@ -484,12 +485,20 @@ MSABI void ctx_ClearDepthStencilView(void* self, void* dsv, uint32_t flags, floa
   Obj* d = (Obj*)dsv;
   if (d && (flags & 1)) { if (!G(self)->ctx->ClearDepthStencilView(d->id, depth)) G(self)->last_error = G(self)->ctx->last_error(); }
 }
-MSABI void ctx_VSSetConstantBuffers(void* self, uint32_t start, uint32_t n, void* const* bufs) {
-  for (uint32_t i = 0; i < n; i++) { Obj* b = bufs ? (Obj*)bufs[i] : nullptr; G(self)->ctx->VSSetConstantBuffer(start + i, b ? b->id : 0); }
+void bind_constants(void* self,uint32_t start,uint32_t n,void* const* bufs,bool pixel){
+  auto* rt=G(self);
+  if(start>14 || n>14-start){rt->last_error="constant buffer slots must lie within 0..13";return;}
+  auto* bound=pixel?rt->impl->ps_cbs:rt->impl->vs_cbs;Obj* next[14]={};
+  for(uint32_t i=0;i<n;++i){next[i]=bufs?(Obj*)bufs[i]:nullptr;if(next[i])addref(next[i]);}
+  for(uint32_t i=0;i<n;++i){
+    auto* old=bound[start+i];bound[start+i]=next[i];auto id=next[i]?next[i]->id:0;
+    if(pixel)rt->ctx->PSSetConstantBuffer(start+i,id);else rt->ctx->VSSetConstantBuffer(start+i,id);
+    if(old)release(old);
+  }
 }
-MSABI void ctx_PSSetConstantBuffers(void* self, uint32_t start, uint32_t n, void* const* bufs) {
-  for (uint32_t i = 0; i < n; i++) { Obj* b = bufs ? (Obj*)bufs[i] : nullptr; G(self)->ctx->PSSetConstantBuffer(start + i, b ? b->id : 0); }
-}
+MSABI void ctx_VSSetConstantBuffers(void* self,uint32_t start,uint32_t n,void* const* bufs){bind_constants(self,start,n,bufs,false);}
+MSABI void ctx_PSSetConstantBuffers(void* self,uint32_t start,uint32_t n,void* const* bufs){bind_constants(self,start,n,bufs,true);}
+
 MSABI void ctx_ClearRenderTargetView(void* self, void* rtv, const float* rgba) {
   Obj* r = (Obj*)rtv; if (r && rgba) G(self)->ctx->ClearRenderTargetView(r->id, rgba);
 }
