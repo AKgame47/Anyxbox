@@ -117,5 +117,39 @@ int main() {
     std::vector<Vtx> big = {{-1e9f, 0, 0, 1,1,1,1}, {1e9f, 1, 0, 1,1,1,1}, {0, NAN, 0, 1,1,1,1}};
     c5.IASetVertexBuffer(d5.CreateBuffer(big.data(), big.size() * sizeof(Vtx)), sizeof(Vtx), 0);
     CHECK(c5.Draw(3, 0) && c5.stats().pixels_written == 0); }
+  // ---- indexed drawing: same image as the expanded vertex list; 16 and 32 bit; start index; base vertex; bounds ----
+  {
+    struct V4 { float x, y, z, w, r, g, b, a; };
+    const std::vector<InputElement> lay = {{"POSITION", Format::R32G32B32A32_FLOAT, 0}, {"COLOR", Format::R32G32B32A32_FLOAT, 16}};
+    V4 quad[4] = {{-0.8f, 0.8f, 0, 1, 1, 0, 0, 1}, {0.8f, 0.8f, 0, 1, 0, 1, 0, 1}, {-0.8f, -0.8f, 0, 1, 0, 0, 1, 1}, {0.8f, -0.8f, 0, 1, 1, 1, 0, 1}};
+    auto mk = [&](Device& d, DeviceContext& c, ResourceId& tex) {
+      tex = d.CreateTexture2D(64, 64, Format::R8G8B8A8_UNORM); c.IASetInputLayout(lay); c.IASetPrimitiveTopology(Topology::TriangleList);
+      c.RSSetViewport({0, 0, 64, 64}); c.OMSetRenderTarget(d.CreateRenderTargetView(tex));
+      RasterizerDesc rd; rd.cull = Cull::None; c.RSSetState(rd); };
+    Device da, db, dc, dd; DeviceContext ca(da), cb(db), cc(dc), cd(dd); ResourceId ta, tb, tc, td;
+    mk(da, ca, ta); mk(db, cb, tb); mk(dc, cc, tc); mk(dd, cd, td);
+    V4 expanded[6] = {quad[0], quad[1], quad[2], quad[1], quad[3], quad[2]};
+    ca.IASetVertexBuffer(da.CreateBuffer(expanded, sizeof expanded), sizeof(V4), 0); CHECK(ca.Draw(6, 0));
+    cb.IASetVertexBuffer(db.CreateBuffer(quad, sizeof quad), sizeof(V4), 0);
+    uint16_t i16[6] = {0, 1, 2, 1, 3, 2};
+    cb.IASetIndexBuffer(db.CreateBuffer(i16, sizeof i16), false, 0); CHECK(cb.DrawIndexed(6, 0, 0));
+    // 32-bit indices with a base vertex: vertices stored at offset +2, indices relative to it; start index 2 skips the padding
+    V4 shifted[6] = {{9, 9, 0, 1, 0, 0, 0, 1}, {9, 9, 0, 1, 0, 0, 0, 1}, quad[0], quad[1], quad[2], quad[3]};
+    uint32_t j32[8] = {7, 7, 0, 1, 2, 1, 3, 2};
+    cc.IASetVertexBuffer(dc.CreateBuffer(shifted, sizeof shifted), sizeof(V4), 0);
+    cc.IASetIndexBuffer(dc.CreateBuffer(j32, sizeof j32), true, 0); CHECK(cc.DrawIndexed(6, 2, 2));
+    std::vector<uint8_t> ia, ib, ic; da.ReadTexture(ta, &ia); db.ReadTexture(tb, &ib); dc.ReadTexture(tc, &ic);
+    CHECK(ia == ib); CHECK(ia == ic);
+    int lit = 0; for (size_t i = 0; i < ia.size(); i += 4) if (ia[i] + ia[i + 1] + ia[i + 2] > 0) lit++;
+    CHECK(lit > 1500);
+    // bounds: no index buffer, range past the buffer, index past the vertex buffer, negative base vertex
+    CHECK(!cd.DrawIndexed(6, 0, 0));
+    cd.IASetVertexBuffer(dd.CreateBuffer(quad, sizeof quad), sizeof(V4), 0);
+    cd.IASetIndexBuffer(dd.CreateBuffer(i16, sizeof i16), false, 0);
+    CHECK(!cd.DrawIndexed(6, 3, 0));        // 3 + 6 indices > 6 stored
+    CHECK(!cd.DrawIndexed(6, 0, 1));        // index 3 + base 1 = vertex 4, past 4 vertices
+    CHECK(!cd.DrawIndexed(6, 0, -1));       // index 0 + base -1 = vertex -1
+    CHECK(!cd.IASetIndexBuffer(99, false, 0));
+    std::puts("indexed drawing ok"); }
   std::puts("ok"); return 0;
 }
