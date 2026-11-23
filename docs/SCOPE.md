@@ -76,3 +76,7 @@ Not done: hardware faults (access violation, divide by zero, illegal instruction
 
 A SIGSEGV/SIGBUS (access violation 0xC0000005 with read/write flag and address), SIGFPE (integer divide by zero 0xC0000094, others) or SIGILL (0xC000001D) whose instruction pointer is inside a loaded guest image becomes a guest exception: a CONTEXT and EXCEPTION_RECORD are built on the guest stack and the thread resumes in the dispatcher, so the same handlers, filters and __finally blocks run. Faults anywhere else go to the previous signal handler. Not done: stack overflow (no alternate stack), faults in the middle of a host function called by the guest, and flags beyond the common registers in the CONTEXT.
 tests/fixtures/eh.cpp is a MinGW C++ throw/catch program built statically in CI. It has not run yet: CI decides whether libgcc's unwinder works on top of the Rtl* functions.
+
+## Batch 39: registry reconciliation, five more msvcrt functions
+
+import_gap and test_fixture_slot now register the same function sets as run_pe (including the exception functions), so a coverage report matches what run_exe can resolve. Added msvcrt memchr, fputs, _write, _read, _close (descriptors 0, 1 and 2 only: stdin is always at end of file, output is captured). Whether eh.exe runs is still decided by CI.
