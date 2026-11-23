@@ -9,3 +9,7 @@ Out of scope, permanently:
 - Contacting Microsoft services in unofficial ways.
 
 Testing uses small programs compiled from source in this repo (a console triangle, a textured quad, an input/audio demo).
+
+## Real-shader validation (open gaps)
+Real fxc blobs from Wine's tests (LGPL-2.1+, sources in tests/real_dxbc_wine_tex.h) validate: sample, dcl_resource/sampler, mul immediate, SV_POSITION input, ieq/if_nz/endif with a PS cbuffer.
+Not yet supported: relative (dynamically indexed) cbuffer operands and a second constant buffer (Wine "relative addressing in constant buffers" VS fails with a clear error, checked in test_real_dxbc_tex).
