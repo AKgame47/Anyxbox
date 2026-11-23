@@ -207,3 +207,5 @@ target_link_libraries(test_seh PRIVATE anyxbox_runtime anyxbox_loader)
 add_test(NAME seh COMMAND test_seh)
 
 # batch 38: no new tests or src files (test_seh and test_protections changed; seh.cpp changed)
+
+# batch 39: no new tests or src files. import_gap and test_fixture_slot now include runtime/seh.h (already linked through anyxbox_runtime).
