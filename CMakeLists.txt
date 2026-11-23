@@ -188,3 +188,5 @@ target_link_libraries(test_tls PRIVATE anyxbox_runtime anyxbox_loader)
 add_test(NAME tls COMMAND test_tls)
 
 # batch 34: no new tests or src files (test_kernel32 changed; registry count now 54)
+
+# batch 35: no new tests or src files (test_kernel32 registry count now 59)
