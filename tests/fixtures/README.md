@@ -175,3 +175,8 @@ zero presents and empty D3D11 error. Fresh and retained CI require the new marke
 The output-merger probe covers caller release/rebind/unbind, not replacement,
 teardown or MRT refusal. Those remain interface-unit coverage. Earlier binary
 provenance is historical. Runtime lifetime and other ownership limits still apply.
+
+Batch88 extends only the fresh public-header probe with pixel SRV binding checks:
+caller release, cross-slot swap of solely context-owned views, same-object rebind
+and unbind. Retained run257 stays unchanged and lacks this marker. Fresh independent
+MinGW compilation/execution awaits CI. No new scene or executable fixture is added.
