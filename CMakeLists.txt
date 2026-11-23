@@ -144,7 +144,7 @@ add_executable(test_user32 tests/test_user32.cpp)
 target_link_libraries(test_user32 anyxbox_user32)
 add_test(NAME user32 COMMAND test_user32)
 add_executable(test_fixture_slot tests/test_fixture_slot.cpp)
-target_link_libraries(test_fixture_slot anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_loader)
+target_link_libraries(test_fixture_slot anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
 add_test(NAME fixture_slot COMMAND test_fixture_slot ${CMAKE_SOURCE_DIR}/tests/fixtures)
 add_executable(import_gap tools/import_gap.cpp)
 target_link_libraries(import_gap anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_loader)
@@ -178,3 +178,5 @@ target_include_directories(test_fixture_scene PRIVATE tests tests/fixtures)
 target_link_libraries(test_fixture_scene PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
 add_test(NAME fixture_scene COMMAND test_fixture_scene)
 # tools/run_exe.cpp now includes gfx/d3d11_vulkan.h: if run_exe is a CMake target, add anyxbox_d3d11_vulkan anyxbox_vulkan to its link libs.
+
+# batch 32: no new tests or targets. test_fixture_slot now includes gfx/d3d11_vulkan.h: add anyxbox_d3d11_vulkan anyxbox_vulkan to its link libs if not already present.
