@@ -224,6 +224,30 @@ int main(){
   }
   CHECK(cbRelease(teardownCB)==0); // static Release only, not a post-runtime guest call
   puts("constant buffers: VS/PS caller release, swap, rebind, partial replacement, range refusal, unbind and teardown ok");
+  using State=int32_t(MS*)(void*,const void*,void**);
+  uint32_t samplerDesc[13]={0,3,3,3};auto bindSampler=(BindResources)vt(ctx)[10];void* samplers[2]={};
+  for(auto& sampler:samplers)CHECK(((State)vt(dev)[23])(dev,samplerDesc,&sampler)==0);
+  bindSampler(ctx,0,2,samplers);for(auto* sampler:samplers)CHECK(((R)vt(sampler)[2])(sampler)==1);
+  void* reversedSamplers[]={samplers[1],samplers[0]};
+  bindSampler(ctx,0,2,reversedSamplers);bindSampler(ctx,0,2,reversedSamplers);
+  for(auto* sampler:samplers)CHECK(refs(sampler)==1);
+  bindSampler(ctx,3,2,reversedSamplers);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  bindSampler(ctx,0xffffffffu,2,reversedSamplers);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  for(auto* sampler:samplers)CHECK(refs(sampler)==1);
+  for(auto* sampler:samplers)CHECK(((R)vt(sampler)[1])(sampler)==2);
+  bindSampler(ctx,1,1,nullptr);CHECK(refs(samplers[0])==1&&refs(samplers[1])==2);
+  bindSampler(ctx,3,1,&samplers[0]);CHECK(refs(samplers[0])==2);
+  bindSampler(ctx,0,1,&samplers[0]);CHECK(refs(samplers[0])==3&&refs(samplers[1])==1);
+  bindSampler(ctx,0,4,nullptr);for(auto* sampler:samplers)CHECK(((R)vt(sampler)[2])(sampler)==0);
+  void* teardownSampler=nullptr;R samplerRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    CHECK(((State)vt(d)[23])(d,samplerDesc,&teardownSampler)==0);samplerRelease=(R)vt(teardownSampler)[2];
+    void* repeat[]={teardownSampler,teardownSampler};((BindResources)vt(c)[10])(c,2,2,repeat);
+  }
+  CHECK(samplerRelease(teardownSampler)==0); // static Release only, not post-runtime guest support
+  puts("pixel samplers: caller release, swap, rebind, partial replacement, range refusal, unbind and teardown ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
