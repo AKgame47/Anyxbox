@@ -5,6 +5,7 @@
 #include "syslayer/import_registry.h"
 #include "runtime/kernel32.h"
 #include "runtime/msvcrt.h"
+#include "runtime/devices.h"
 #include "runtime/teb.h"
 #if defined(__linux__) && defined(__x86_64__)
 #include <sys/mman.h>
@@ -51,6 +52,8 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   crt.out = &out;
   crt.exit_fn = [](uint32_t c) { host_ExitProcess(c); };
   msvcrt_register(reg, crt);
+  XInputContext xi; xinput_register(reg, xi);       // no pad connected unless the host connects one
+  XAudio2Context xa; xaudio2_register(reg, xa);     // plays into nothing
   if (extra_imports) extra_imports(reg);
   reg.add("kernel32.dll", "ExitProcess", (uint64_t)(uintptr_t)&host_ExitProcess);
   auto img = load_pe_image(data, size, [&](const std::string& d, const std::string& n, uint16_t o, bool b) {
