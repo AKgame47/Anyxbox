@@ -64,6 +64,9 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
     uint64_t s = sects + (uint64_t)i * 40;
     uint32_t vsize = f.u32(s + 8), va = f.u32(s + 12), rawsz = f.u32(s + 16), rawp = f.u32(s + 20);
     uint32_t copy = rawsz < vsize || vsize == 0 ? rawsz : vsize;
+    uint32_t extent = vsize ? vsize : rawsz;
+    if (va > image_size || extent > image_size - va) return fail(r, "section exceeds image");
+    r.sections.push_back({va, extent, f.u32(s + 36)});
     if (copy == 0) continue;
     if (va > image_size || copy > image_size - va) return fail(r, "section exceeds image");
     if (!f.ok(rawp, copy)) return fail(r, "section raw data out of file");
