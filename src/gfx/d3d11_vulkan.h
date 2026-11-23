@@ -63,7 +63,7 @@ class VulkanDrawBackend : public DrawBackend {
   std::vector<uint8_t> ps_cb0_;
   std::vector<uint8_t> cb0_;
   std::vector<uint32_t> vs_, fs_; bool vs_ubo_ = false;
-  struct Target { pnr::graphics::FrameSurface surf; bool has_surface = false; float clear[4] = {0, 0, 0, 0}; };
+  struct Target { std::vector<uint8_t> last_pixels; pnr::graphics::FrameSurface surf; bool has_surface = false; float clear[4] = {0, 0, 0, 0}; };
   pnr::graphics::VulkanBackend& vk_;
   std::map<ResourceId, Target> targets_;
 };
