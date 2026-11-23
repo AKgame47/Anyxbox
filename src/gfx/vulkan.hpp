@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "core/runtime.hpp"
-#include "graphics/vulkan_shim.h"
+#include "core/status.hpp"
+#include "gfx/vulkan_shim.h"
 
 namespace pnr::graphics {
 
@@ -354,3 +354,4 @@ private:
 };
 
 }  // namespace pnr::graphics
+
