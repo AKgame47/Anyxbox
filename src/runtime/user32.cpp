@@ -148,6 +148,40 @@ MSABI int64_t u_GetWindowLongPtrA(uint64_t h, int idx) {
   auto it = C->windows.find(h); if (it == C->windows.end() || idx != -21) return 0;
   return (int64_t)it->second.userdata;
 }
+
+// ---- wide-character entry points: text is narrowed (ASCII only, other characters become '?') and the A function is used ----
+std::string narrow(const uint16_t* w) {
+  std::string o; if (!w) return o;
+  for (size_t i = 0; w[i] && i < 1024; i++) o.push_back(w[i] < 0x80 ? (char)w[i] : '?');
+  return o;
+}
+MSABI uint32_t u_RegisterClassExW(const uint8_t* wc) {
+  if (!wc) return 0;
+  uint8_t c[80]; std::memcpy(c, wc, 80);
+  uint64_t name; std::memcpy(&name, wc + 64, 8);
+  if (name < 0x10000) return 0;
+  static thread_local std::string keep; keep = narrow((const uint16_t*)name);
+  uint64_t np = (uint64_t)(uintptr_t)keep.c_str(); std::memcpy(c + 64, &np, 8);
+  return u_RegisterClassExA(c);
+}
+MSABI uint64_t u_CreateWindowExW(uint32_t ex, const uint16_t* cls, const uint16_t* title, uint32_t st, int x, int y, int w, int h,
+                                 uint64_t p, uint64_t m, uint64_t i, void* par) {
+  if (!cls || (uint64_t)(uintptr_t)cls < 0x10000) return 0;
+  std::string c = narrow(cls), t = narrow(title);
+  return u_CreateWindowExA(ex, c.c_str(), t.c_str(), st, x, y, w, h, p, m, i, par);
+}
+MSABI int64_t u_DefWindowProcW(uint64_t h, uint32_t m, uint64_t w, uint64_t l) { return u_DefWindowProcA(h, m, w, l); }
+MSABI uint32_t u_PeekMessageW(MSG64* m, uint64_t h, uint32_t a, uint32_t b, uint32_t r) { return u_PeekMessageA(m, h, a, b, r); }
+MSABI int32_t u_GetMessageW(MSG64* m, uint64_t h, uint32_t a, uint32_t b) { return u_GetMessageA(m, h, a, b); }
+MSABI int64_t u_DispatchMessageW(const MSG64* m) { return u_DispatchMessageA(m); }
+MSABI uint32_t u_PostMessageW(uint64_t h, uint32_t m, uint64_t w, uint64_t l) { return u_PostMessageA(h, m, w, l); }
+MSABI int64_t u_SendMessageW(uint64_t h, uint32_t m, uint64_t w, uint64_t l) { return u_SendMessageA(h, m, w, l); }
+MSABI uint32_t u_SetWindowTextW(uint64_t h, const uint16_t* t) { std::string s = narrow(t); return u_SetWindowTextA(h, s.c_str()); }
+MSABI uint64_t u_LoadCursorW(uint64_t, const uint16_t*) { return 0x7001; }
+MSABI uint64_t u_LoadIconW(uint64_t, const uint16_t*) { return 0x7002; }
+MSABI int32_t u_MessageBoxW(uint64_t h, const uint16_t* t, const uint16_t* c, uint32_t f) { std::string a = narrow(t), b = narrow(c); return u_MessageBoxA(h, a.c_str(), b.c_str(), f); }
+MSABI int64_t u_SetWindowLongPtrW(uint64_t h, int i, int64_t v) { return u_SetWindowLongPtrA(h, i, v); }
+MSABI int64_t u_GetWindowLongPtrW(uint64_t h, int i) { return u_GetWindowLongPtrA(h, i); }
 }
 void User32Context::pump_host() {
   if (!host) return;
@@ -160,6 +194,8 @@ bool user32_register(ImportRegistry& reg, User32Context& ctx) {
   A(RegisterClassExA); A(RegisterClassA); A(CreateWindowExA); A(DestroyWindow); A(ShowWindow); A(UpdateWindow);
   A(PeekMessageA); A(GetMessageA); A(TranslateMessage); A(DispatchMessageA); A(DefWindowProcA); A(PostQuitMessage);
   A(PostMessageA); A(SendMessageA); A(GetClientRect); A(AdjustWindowRect); A(SetWindowTextA); A(LoadCursorA);
+  A(RegisterClassExW); A(CreateWindowExW); A(DefWindowProcW); A(PeekMessageW); A(GetMessageW); A(DispatchMessageW);
+  A(PostMessageW); A(SendMessageW); A(SetWindowTextW); A(LoadCursorW); A(LoadIconW); A(MessageBoxW); A(SetWindowLongPtrW); A(GetWindowLongPtrW);
   A(LoadIconA); A(MessageBoxA); A(GetAsyncKeyState); A(IsWindow); A(SetWindowLongPtrA); A(GetWindowLongPtrA);
 #undef A
   return true;
