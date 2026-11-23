@@ -494,3 +494,4 @@ typedef struct VkPresentInfoKHR {
 }  // extern "C"
 #endif  // PNR_USE_SYSTEM_VULKAN
 #endif  // PNR_GRAPHICS_VULKAN_SHIM_H
+
