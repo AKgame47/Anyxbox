@@ -145,3 +145,11 @@ API references for this backend:
 - Model tests compare offset/reduced-size drawing and a depth-range-dependent visibility result against local software Vulkan, with zero mismatches. A hand-assembled guest PE checks viewport placement through COM.
 - One viewport only; geometry-stage viewport selection, full clipping, physical GPU validation, and all device-specific viewport-limit edge cases remain outside this slice.
 - API grounding: the viewport scale/depth equations in https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-getting-started
+
+## Batch 51: texture mip storage and Vulkan t0 sampling
+- RGBA8/BGRA8 texture resources keep separate mip levels, including a full chain for MipLevels=0. COM texture initialization reads one pitched subresource per level. UpdateSubresource and Map/Unmap address mip indices; the mapped mip is tracked to avoid writing a different subresource on Unmap.
+- Full-chain shader-resource views are accepted; subset views and nonzero-mip render-target views fail explicitly. Sampler mip filtering and MinLOD/MaxLOD feed the Vulkan sampler. Nonzero LOD bias remains rejected.
+- The t0 Vulkan path packs and uploads the chain. Higher texture slots still reject mip chains explicitly. The reference renderer does not interpret sampled shader code, so sampling validation uses translated DXBC SampleLevel on local software Vulkan with distinct solid colors at each mip.
+- Five checks prove explicit levels 0/1/2, fractional linear mip filtering (green-blue midpoint), and MinLOD clamping. COM tests verify pitched initialization, Map per level, subresource update, and unsupported subset-view rejection. All 32 test programs pass under local ASan/UBSan after a full rebuild.
+- Limits: t0 only for multi-level sampling; no automatic GenerateMips, subset SRVs, arrays, compressed formats, nonzero-mip rendering or physical GPU validation. Vulkan upload retains the 256x256 texture limit. No real game compatibility claim.
+- API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_texture2d_desc , https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_tex2d_srv , https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_sampler_desc
