@@ -163,6 +163,41 @@ int main(){
   }
   CHECK(srvRelease(teardownSRV)==0); // static Release only, runtime-owned vtable no longer valid
   puts("pixel SRV bindings: caller release, swap, rebind, partial replacement, unbind, range refusal and teardown ok");
+  using BindVB=void(MS*)(void*,uint32_t,uint32_t,void* const*,const uint32_t*,const uint32_t*);
+  using BindIB=void(MS*)(void*,void*,uint32_t,uint32_t);
+  auto bindVB=(BindVB)vt(ctx)[18];auto bindIB=(BindIB)vt(ctx)[19];
+  void* inputs[2]={};uint32_t strides[]={16,16},offsets[]={0,0};bd[2]=3;
+  for(auto& input:inputs)CHECK(((CB)vt(dev)[3])(dev,bd,nullptr,&input)==0);
+  bindVB(ctx,0,2,inputs,strides,offsets);
+  for(auto* input:inputs)CHECK(((R)vt(input)[2])(input)==1);
+  void* reversed[]={inputs[1],inputs[0]};
+  bindVB(ctx,0,2,reversed,strides,offsets);bindVB(ctx,0,2,reversed,strides,offsets);
+  for(auto* input:inputs)CHECK(refs(input)==1);
+  bindVB(ctx,15,2,reversed,strides,offsets);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  bindVB(ctx,0xffffffffu,2,reversed,strides,offsets);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  for(auto* input:inputs)CHECK(refs(input)==1);
+  for(auto* input:inputs)CHECK(((R)vt(input)[1])(input)==2);
+  bindVB(ctx,1,1,nullptr,strides,offsets);CHECK(refs(inputs[0])==1&&refs(inputs[1])==2);
+  bindVB(ctx,15,1,&inputs[0],strides,offsets);CHECK(refs(inputs[0])==2);
+  bindVB(ctx,0,1,nullptr,strides,offsets);CHECK(refs(inputs[1])==1);
+  bindVB(ctx,15,1,nullptr,strides,offsets);CHECK(refs(inputs[0])==1);
+  bindIB(ctx,inputs[0],57,0);bindIB(ctx,inputs[0],57,0);CHECK(refs(inputs[0])==2);
+  bindIB(ctx,inputs[1],28,0);CHECK(!rt.last_error.empty());rt.last_error.clear();
+  CHECK(refs(inputs[0])==2&&refs(inputs[1])==1);
+  bindIB(ctx,inputs[1],42,0);CHECK(refs(inputs[0])==1&&refs(inputs[1])==2);
+  CHECK(((R)vt(inputs[1])[2])(inputs[1])==1);bindIB(ctx,inputs[1],42,0);
+  CHECK(((R)vt(inputs[1])[1])(inputs[1])==2);bindIB(ctx,nullptr,57,0);
+  for(auto* input:inputs)CHECK(((R)vt(input)[2])(input)==0);
+  void* teardownBuffer=nullptr;R bufferRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    CHECK(((CB)vt(d)[3])(d,bd,nullptr,&teardownBuffer)==0);bufferRelease=(R)vt(teardownBuffer)[2];
+    void* repeat[]={teardownBuffer,teardownBuffer};
+    ((BindVB)vt(c)[18])(c,14,2,repeat,strides,offsets);((BindIB)vt(c)[19])(c,teardownBuffer,57,0);
+  }
+  CHECK(bufferRelease(teardownBuffer)==0); // static Release only after runtime destruction
+  puts("input buffers: caller release, vertex swap, rebind, partial replacement, index replacement, refusal, unbind and teardown ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
