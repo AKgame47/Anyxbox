@@ -267,3 +267,8 @@ Input references: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf
 - Retained run-202 keyboard_scene.exe exactly, with source/build/hash provenance. Local independent PE execution passes scripted movement/release/focus pixel checks and all four frames match decoded CI image bytes.
 - Directory-mode test runs source calls and retained binary. Required-Vulkan CI checks fresh and retained independent programs. Fixture-slot covers fifteen programs including keyboard-scene default-root denial and successful rooted execution.
 - No production changes. This remains scripted host-event evidence, not physical-keyboard, native-GPU or game compatibility validation. No release build.
+
+## Batch 71: real SDL event route for the existing keyboard scene
+- Added a test wrapper around the existing scene/verifier, not another guest scene. A real SDL window opens/presents all four frames. SDL_PushEvent sends synthetic right-down/up/focus-loss through production SDL_PollEvent translation and user32 polling, then the existing movement/stopped-frame pixel assertions run.
+- Runs source calls and retained independent PE; strict CI additionally runs freshly compiled and retained executables with Xvfb and required Vulkan/SDL. Test clears unrelated Xvfb events between presents before injecting its sequence.
+- No production changes. This is synthetic SDL event-route coverage with software Vulkan, not physical keyboard or uncontrolled desktop-focus behavior. Frame capture verifies rendered pixels, not screenshot parity of the SDL window.
