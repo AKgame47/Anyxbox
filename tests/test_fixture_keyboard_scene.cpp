@@ -9,6 +9,9 @@
 #include "fixtures/keyboard_scene.c"
 #include <filesystem>
 #include <unistd.h>
+#ifdef ANYXBOX_SDL_INPUT_TEST
+#include <dlfcn.h>
+#endif
 #include "gfx/d3d11_vulkan.h"
 #include "runtime/kernel32.h"
 #include "runtime/d3d11_runtime.h"
@@ -40,6 +43,34 @@ static int run_case(int argc,char** argv) {
   }
   // Reject oversized model storage before allocating, and reject insufficient upload bytes.
   {d3d11::Device model;CHECK(!model.CreateTexture2D(16384,16384,d3d11::Format::R8G8B8A8_UNORM));}
+#ifdef ANYXBOX_SDL_INPUT_TEST
+  struct SdlHost:HostWindow {
+    std::unique_ptr<HostWindow> window=make_sdl_window();
+    void* lib=dlopen("libSDL2-2.0.so.0",RTLD_NOW|RTLD_LOCAL);
+    int (*push)(void*)=lib?(int(*)(void*))dlsym(lib,"SDL_PushEvent"):nullptr;
+    void (*flush)(uint32_t,uint32_t)=lib?(void(*)(uint32_t,uint32_t))dlsym(lib,"SDL_FlushEvents"):nullptr;
+    bool injected=true;int opens=0,presents=0;
+    ~SdlHost(){if(window)window->close();if(lib)dlclose(lib);}
+    bool open(uint32_t w,uint32_t h,const char* title)override{
+      bool ok=window && window->open(w,h,title);if(ok)++opens;return ok;
+    }
+    void present(const uint8_t* p,uint32_t w,uint32_t h)override{++presents;window->present(p,w,h);}
+    bool poll(HostEvent& e)override{return window->poll(e);}
+    void close()override{if(window)window->close();}
+    void begin_injection(){flush(0,0xffff);}
+    void add(HostEvent::Type t,int key=0){
+      alignas(8) uint8_t event[64]={};
+      uint32_t type=t==HostEvent::FocusLost?0x200:t==HostEvent::KeyDown?0x300:0x301;
+      std::memcpy(event,&type,4);
+      if(t==HostEvent::FocusLost)event[12]=13;
+      else {int32_t sym=key==0x27?0x4000004f:key;std::memcpy(event+20,&sym,4);event[12]=t==HostEvent::KeyDown?1:0;}
+      if(push(event)!=1)injected=false;
+    }
+  } host;
+  if(!host.window || !host.push || !host.flush || !std::getenv("DISPLAY")){
+    CHECK(!required);std::puts("SKIP SDL injected keyboard scene: SDL/display unavailable");return 0;
+  }
+#else
   struct ScriptHost:HostWindow {
     std::vector<HostEvent> events;size_t at=0;
     bool open(uint32_t,uint32_t,const char*)override{return true;}
@@ -48,10 +79,15 @@ static int run_case(int argc,char** argv) {
     void close()override{}
     void add(HostEvent::Type t,int key=0){events.push_back({t,key});}
   } host;
+#endif
   D3D11Runtime rt; User32Context u;u.host=&host; d3d11::VulkanDrawBackend be(vk); rt.ctx->SetDrawBackend(&be);
   rt.on_shaders_ubo=[&](const std::vector<uint32_t>& v,const std::vector<uint32_t>& p,bool b) { be.SetShaders(v,p,b); };
   std::vector<std::vector<uint8_t>> frames;
   rt.on_present=[&](const uint8_t* p,uint32_t w,uint32_t h) { if(w==320 && h==240) frames.emplace_back(p,p+w*h*4);
+#ifdef ANYXBOX_SDL_INPUT_TEST
+    host.present(p,w,h); // same real SDL window path used by attach_window_present/run_exe --window
+    host.begin_injection(); // remove unrelated Xvfb startup/focus events before deterministic synthetic events
+#endif
     if(frames.size()==1)host.add(HostEvent::KeyDown,0x27);
     if(frames.size()==2)host.add(HostEvent::KeyUp,0x27);
     if(frames.size()==3){host.add(HostEvent::KeyDown,0x27);host.add(HostEvent::FocusLost);}
@@ -66,6 +102,10 @@ static int run_case(int argc,char** argv) {
     CHECK(r.loaded && r.ran && r.exit_code==0 && r.output.empty());
   }
   std::printf("state presents=%d shaders=%u frames=%zu error=%s\n",rt.presents,rt.shaders_translated,frames.size(),rt.last_error.c_str());
+#ifdef ANYXBOX_SDL_INPUT_TEST
+  CHECK(host.opens==1 && host.presents==4 && host.injected);
+  std::puts("SDL_PushEvent -> SDL_PollEvent -> user32 -> independent/source keyboard scene; real SDL window presented four frames");
+#endif
   CHECK(rt.last_error.empty() && rt.presents==4 && rt.shaders_translated==4 && frames.size()==4);
   if(argc>3) for(size_t i=0;i<frames.size();++i) {
     std::ofstream out(std::string(argv[3])+std::to_string(i)+".ppm",std::ios::binary);
