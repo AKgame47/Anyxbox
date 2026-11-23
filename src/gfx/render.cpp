@@ -50,7 +50,8 @@ Status VulkanBackend::render_clip_mesh_rgba(
     const std::vector<uint32_t>& fs, const std::vector<float>& vertices,
     const std::vector<uint32_t>& indices, bool depth, const float clear[4],
     std::vector<uint8_t>* image, FrameSurface* shared_frame, bool depth_write,
-    const BlendState* blend, int32_t cull_mode, int32_t front_face, int32_t depth_compare) {
+    const BlendState* blend, int32_t cull_mode, int32_t front_face, int32_t depth_compare,
+    const std::vector<uint32_t>* vertex_push) {
   if (!image) return Status::Fail(100, "vulkan", "clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 7 || vertices.size() / 7 > 65536)
     return Status::Fail(100, "vulkan", "clip mesh vertices must be float4 clip position + float3 colour (multiple of 7 floats, max 65536 vertices)");
@@ -64,7 +65,12 @@ Status VulkanBackend::render_clip_mesh_rgba(
   m.shared_frame = shared_frame; m.depth_write = depth_write; m.blend = blend;
   m.cull_mode = cull_mode; m.front_face = front_face; m.depth_compare = depth_compare;
   std::vector<std::vector<uint8_t>> frames;
-  auto st = render_core(w, h, vs, fs, (uint32_t)indices.size(), &m, nullptr, clear, &frames);
+  std::vector<std::vector<uint32_t>> push_frames;
+  if (vertex_push && !vertex_push->empty()) {
+    if (vertex_push->size() > 32) return Status::Fail(100, "vulkan", "vertex push constants are limited to 32 words");
+    push_frames.push_back(*vertex_push);
+  }
+  auto st = render_core(w, h, vs, fs, (uint32_t)indices.size(), &m, push_frames.empty() ? nullptr : &push_frames, clear, &frames);
   if (!st) return st;
   if (frames.size() != 1) return Status::Fail(100, "vulkan", "clip mesh render produced an unexpected frame count");
   *image = std::move(frames[0]);
