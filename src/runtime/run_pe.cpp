@@ -31,14 +31,19 @@ typedef void (MSABI *TlsCallback)(void*, uint32_t, void*);
 }  // namespace
 #endif
 
-RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::function<void(ImportRegistry&)>& extra_imports) {
+RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::function<void(ImportRegistry&)>& extra_imports, const RunOptions& options) {
   RunResult res;
 #if !ANYXBOX_CAN_RUN
-  (void)data; (void)size; (void)trust;
+  (void)data; (void)size; (void)trust; (void)options;
   res.error = "running programs is only supported on Linux x86-64 hosts for now";
   return res;
 #else
   if (!trust) { res.error = "refusing to run: binary not marked as trusted"; return res; }
+  std::unique_ptr<MappedFolder> assets;
+  if(!options.asset_root.empty()) {
+    assets=std::make_unique<MappedFolder>(options.asset_root,true);
+    if(!assets->valid()) {res.error="asset root must be an existing non-symlink directory";return res;}
+  }
   uint32_t isz = pe_image_size(data, size);
   if (!isz) { res.error = "invalid PE headers"; return res; }
   size_t len = ((size_t)isz + 4095) & ~size_t(4095);
@@ -48,6 +53,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   Kernel32Context k32;
   std::string out;
   k32.out = &out;
+  k32.folder=std::move(assets);
   kernel32_register(reg, k32);
   MsvcrtContext crt;
   crt.out = &out;
