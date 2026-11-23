@@ -15,6 +15,7 @@
 #include <vector>
 #include "gfx/d3d11_vulkan.h"
 #include "runtime/run_pe.h"
+#include "run_exe_options.h"
 #include "runtime/devices.h"
 #include "runtime/user32.h"
 #include "runtime/window_present.h"
@@ -49,18 +50,15 @@ static bool write_png(const char* path, const std::vector<uint8_t>& rgba, uint32
   f.write((const char*)png.data(), (std::streamsize)png.size()); return (bool)f;
 }
 int main(int argc, char** argv) {
-  anyxbox::RunOptions options;
-  bool trust = false, window = false, gpu = false, controller = false; const char* path = nullptr; const char* save = nullptr;
-  for (int i = 1; i < argc; i++) {
-    if (!std::strcmp(argv[i], "--i-built-this")) trust = true;
-    else if (!std::strcmp(argv[i], "--window")) window = true;
-    else if (!std::strcmp(argv[i], "--controller")) controller = true;
-    else if (!std::strcmp(argv[i], "--gpu")) gpu = true;
-    else if (!std::strcmp(argv[i], "--asset-root") && i + 1 < argc) options.asset_root=argv[++i];
-    else if (!std::strcmp(argv[i], "--save-frame") && i + 1 < argc) save = argv[++i];
-    else path = argv[i];
+  auto parsed=anyxbox::parse_launcher_options(argc,argv);
+  if(!parsed.error.empty()){
+    std::fprintf(stderr,"%s\n",parsed.error.c_str());
+    std::puts("usage: run_exe --i-built-this [--window] [--controller] [--gpu] [--save-frame out.png] [--asset-root DIR] [--] <file.exe>");
+    return 2;
   }
-  if (!path || !trust) { std::puts("usage: run_exe --i-built-this <file.exe> [--window] [--controller] [--gpu] [--save-frame out.png] [--asset-root DIR]"); return 2; }
+  auto& options=parsed.run;
+  bool window=parsed.window,gpu=parsed.gpu,controller=parsed.controller;
+  const char* path=parsed.path.c_str();const char* save=parsed.save.empty()?nullptr:parsed.save.c_str();
   std::ifstream f(path, std::ios::binary);
   if (!f) { std::puts("cannot open file"); return 2; }
   std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), {});
