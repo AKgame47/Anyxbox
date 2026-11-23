@@ -1,6 +1,7 @@
 // Anyxbox fixture slot: import coverage for hand-built PEs, and for any real self-built *.exe in tests/fixtures.
 // Usage: test_fixture_slot [fixture_dir]. Without fixtures it only runs the built-in import check.
 #include <cstdio>
+#include <cstdlib>
 #include <dirent.h>
 #include <fstream>
 #include <iterator>
@@ -8,6 +9,7 @@
 #include <vector>
 #include "pe_builder.h"
 #include "loader/pe_image.h"
+#include "gfx/d3d11_vulkan.h"
 #include "runtime/d3d11_runtime.h"
 #include "runtime/kernel32.h"
 #include "runtime/msvcrt.h"
@@ -54,6 +56,23 @@ int main(int argc, char** argv) {
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
         CHECK(r.ran && r.loaded && r.exit_code == 0);
         if (n.find("hello_crt") == 0) CHECK(r.output == "hello from a MinGW program, argc=1\n");
+        if (n.find("scene") == 0) {
+          CHECK(rt.presents == 2 && rt.presented_w == 320 && rt.presented_h == 240 && rt.last_error.empty() && rt.shaders_translated == 4);
+          // pixels need the translated shaders: run again on the Vulkan backend (software driver) when one exists
+          pnr::graphics::VulkanBackend vk;
+          if (vk.open() && vk.create_instance("anyxbox-test") && !vk.devices().empty() && vk.create_device(0)) {
+            D3D11Runtime g; d3d11::VulkanDrawBackend be(vk); g.ctx->SetDrawBackend(&be);
+            g.on_shaders_ubo = [&](const std::vector<uint32_t>& v, const std::vector<uint32_t>& p, bool ubo) { be.SetShaders(v, p, ubo); };
+            User32Context u2;
+            auto r2 = run_pe(data.data(), data.size(), true, [&](ImportRegistry& reg) { user32_register(reg, u2); g.register_imports(reg); });
+            CHECK(r2.ran && r2.exit_code == 0 && g.presents == 2 && g.last_error.empty());
+            auto Q = [&](int x, int y) { return &g.presented[((size_t)y * 320 + x) * 4]; };
+            auto is = [&](const uint8_t* q, int r, int gg, int b) { return std::abs(q[0] - r) <= 4 && std::abs(q[1] - gg) <= 4 && std::abs(q[2] - b) <= 4; };
+            CHECK(is(Q(300, 10), 13, 13, 38) && is(Q(50, 60), 0, 255, 0) && is(Q(190, 150), 255, 128, 0) && is(Q(120, 100), 0, 255, 0));
+            CHECK(is(Q(240, 70), 255, 0, 0) && is(Q(290, 70), 0, 255, 0) && is(Q(240, 170), 0, 0, 255) && is(Q(290, 170), 255, 255, 255));
+            std::printf("  scene pixels verified on the Vulkan backend\n");
+          } else std::printf("  SKIP scene pixels: no Vulkan device\n");
+        }
         if (n.find("triangle") == 0) {
           CHECK(rt.presents == 3 && rt.presented_w == 320 && rt.presented_h == 240 && rt.last_error.empty());
           auto P = [&](int x, int y) { return &rt.presented[((size_t)y * 320 + x) * 4]; };
