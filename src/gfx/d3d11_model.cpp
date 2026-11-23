@@ -53,6 +53,12 @@ bool DeviceContext::VSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
   vs_cb0_ = buffer; return true;
 }
 
+bool DeviceContext::PSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
+  if (slot != 0) return fail("PSSetConstantBuffer: only slot 0 is supported");
+  if (buffer != 0 && !dev_.buffer(buffer)) return fail("PSSetConstantBuffer: invalid buffer");
+  ps_cb0_ = buffer; return true;
+}
+
 bool DeviceContext::Draw(uint32_t count, uint32_t start) {
   err_.clear();
   if (topo_ != Topology::TriangleList) return fail("draw: only TriangleList is supported");
@@ -91,6 +97,7 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
     for (uint32_t i = 0; i < count; i++) cv[i] = {all[i].x, all[i].y, all[i].z, all[i].w, all[i].c[0], all[i].c[1], all[i].c[2], all[i].c[3]};
     stats_.triangles_in += count / 3;
     { const Device::Buffer* cb = vs_cb0_ ? dev_.buffer(vs_cb0_) : nullptr; backend_->set_vs_constants(cb ? cb->data : std::vector<uint8_t>()); }
+    { const Device::Buffer* cb = ps_cb0_ ? dev_.buffer(ps_cb0_) : nullptr; backend_->set_ps_constants(cb ? cb->data : std::vector<uint8_t>()); }
     if (!backend_->draw(dev_, dev_.rtv_texture(rtv_), vp_, cv, &stats_, &err_)) { if (err_.empty()) err_ = "draw: backend failed"; return false; }
     return true;
   }
