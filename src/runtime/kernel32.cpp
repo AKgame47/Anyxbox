@@ -1,11 +1,14 @@
 #include "runtime/kernel32.h"
 #include <chrono>
+#include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <functional>
 #include <map>
 #include <mutex>
 #include <thread>
 #if defined(__linux__) && defined(__x86_64__)
+#include <sys/mman.h>
 #define MSABI __attribute__((ms_abi))
 namespace anyxbox {
 namespace {
@@ -163,6 +166,77 @@ MSABI uint32_t k_HeapFree(uint64_t heap, uint32_t, void* p) {
   g_heap_used -= it->second; g_heap_blocks.erase(it); std::free(p); return 1;
 }
 MSABI void k_OutputDebugStringA(const char*) {}
+
+// ---- startup helpers of a C runtime: STARTUPINFO, code pages, page protection queries ----
+MSABI void k_GetStartupInfoA(uint8_t* si) { if (!si) return; std::memset(si, 0, 104); uint32_t cb = 104; std::memcpy(si, &cb, 4); }
+MSABI uint32_t k_IsDBCSLeadByteEx(uint32_t, uint8_t) { return 0; }
+MSABI int32_t k_MultiByteToWideChar(uint32_t, uint32_t, const uint8_t* src, int32_t n, uint16_t* dst, int32_t dn) {
+  if (!src || dn < 0) { t_last_error = 87; return 0; }
+  if (n < 0) { n = 0; while (src[n]) n++; n++; }                 // includes the terminating NUL
+  if (dn == 0) return n;
+  if (dn < n) { t_last_error = 122; return 0; }
+  for (int32_t i = 0; i < n; i++) dst[i] = src[i];               // Latin-1 / ASCII only
+  return n;
+}
+MSABI int32_t k_WideCharToMultiByte(uint32_t, uint32_t, const uint16_t* src, int32_t n, uint8_t* dst, int32_t dn, const char*, uint32_t* used) {
+  if (!src || dn < 0) { t_last_error = 87; return 0; }
+  if (n < 0) { n = 0; while (src[n]) n++; n++; }
+  if (used) *used = 0;
+  if (dn == 0) return n;
+  if (dn < n) { t_last_error = 122; return 0; }
+  for (int32_t i = 0; i < n; i++) { bool bad = src[i] > 0xFF; dst[i] = bad ? '?' : (uint8_t)src[i]; if (bad && used) *used = 1; }
+  return n;
+}
+// Protection of the host page range containing addr, from /proc/self/maps. Returns false when unmapped.
+bool host_region(uint64_t addr, uint64_t* base, uint64_t* size, uint32_t* prot) {
+  FILE* f = std::fopen("/proc/self/maps", "r");
+  if (!f) return false;
+  char line[512]; bool found = false;
+  while (std::fgets(line, sizeof line, f)) {
+    unsigned long long lo, hi; char perms[8] = {};
+    if (std::sscanf(line, "%llx-%llx %7s", &lo, &hi, perms) != 3) continue;
+    if (addr >= lo && addr < hi) {
+      *base = lo; *size = hi - lo;
+      bool r = perms[0] == 'r', w = perms[1] == 'w', x = perms[2] == 'x';
+      *prot = !r && !w && !x ? 1 : x ? (w ? 0x40 : r ? 0x20 : 0x10) : (w ? 4 : 2);
+      found = true; break;
+    }
+  }
+  std::fclose(f);
+  return found;
+}
+bool addr_allowed(uint64_t addr, uint64_t len) {
+  if (len == 0 || addr + len < addr) return false;
+  if (C->image_base && addr >= C->image_base && addr + len <= C->image_base + C->image_size) return true;
+  size_t rs = C->vm.region_size((const void*)addr);
+  return rs != 0 && len <= rs;
+}
+MSABI uint64_t k_VirtualQuery(uint64_t addr, uint8_t* mbi, uint64_t len) {
+  if (!mbi || len < 48 || !addr_allowed(addr, 1)) { t_last_error = 87; return 0; }
+  uint64_t base, size; uint32_t prot;
+  if (!host_region(addr, &base, &size, &prot)) { t_last_error = 87; return 0; }
+  uint64_t pg = addr & ~uint64_t(4095);
+  std::memset(mbi, 0, 48);
+  uint32_t st = 0x1000, ty = 0x20000;
+  std::memcpy(mbi, &pg, 8); std::memcpy(mbi + 8, &pg, 8); std::memcpy(mbi + 16, &prot, 4);
+  uint64_t rs = 4096; std::memcpy(mbi + 24, &rs, 8); std::memcpy(mbi + 32, &st, 4); std::memcpy(mbi + 36, &prot, 4); std::memcpy(mbi + 40, &ty, 4);
+  return 48;
+}
+MSABI uint32_t k_VirtualProtect(uint64_t addr, uint64_t size, uint32_t np, uint32_t* old) {
+  if (!old || !addr_allowed(addr, size)) { t_last_error = 87; return 0; }
+  int prot;
+  switch (np & 0xFF) {
+    case 1: prot = PROT_NONE; break; case 2: prot = PROT_READ; break; case 4: case 8: prot = PROT_READ | PROT_WRITE; break;
+    case 0x10: prot = PROT_EXEC; break; case 0x20: prot = PROT_READ | PROT_EXEC; break;
+    case 0x40: case 0x80: prot = PROT_READ | PROT_WRITE | PROT_EXEC; break;
+    default: t_last_error = 87; return 0;
+  }
+  uint64_t b, sz; uint32_t cur;
+  if (!host_region(addr, &b, &sz, &cur)) { t_last_error = 487; return 0; }
+  uint64_t lo = addr & ~uint64_t(4095), hi = (addr + size + 4095) & ~uint64_t(4095);
+  if (mprotect((void*)lo, hi - lo, prot) != 0) { t_last_error = 5; return 0; }
+  *old = cur; return 1;
+}
 }  // namespace
 
 bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
@@ -213,6 +287,12 @@ bool kernel32_register(ImportRegistry& r, Kernel32Context& ctx) {
   r.add(K, "HeapAlloc", A(&k_HeapAlloc));
   r.add(K, "HeapFree", A(&k_HeapFree));
   r.add(K, "OutputDebugStringA", A(&k_OutputDebugStringA));
+  r.add(K, "GetStartupInfoA", A(&k_GetStartupInfoA));
+  r.add(K, "IsDBCSLeadByteEx", A(&k_IsDBCSLeadByteEx));
+  r.add(K, "MultiByteToWideChar", A(&k_MultiByteToWideChar));
+  r.add(K, "WideCharToMultiByte", A(&k_WideCharToMultiByte));
+  r.add(K, "VirtualQuery", A(&k_VirtualQuery));
+  r.add(K, "VirtualProtect", A(&k_VirtualProtect));
   return true;
 }
 }
