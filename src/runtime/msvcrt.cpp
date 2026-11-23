@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <vector>
 #if defined(__linux__) && defined(__x86_64__)
 #define MSABI __attribute__((ms_abi))
 namespace anyxbox {
@@ -51,37 +53,58 @@ MSABI void* m_realloc(void* p, uint64_t n) {
 MSABI int m_puts(const char* s) { if (!s) return -1; if (C->out) { C->out->append(s); C->out->push_back('\n'); } return 1; }
 MSABI int m_putchar(int c) { if (C->out) C->out->push_back((char)c); return c; }
 
-// printf-lite over a Windows-ABI va_list
+// printf-lite over a Windows-ABI va_list. Each conversion is formatted by the host snprintf with the same flags,
+// width, precision and an explicit length, so the text matches a normal C library. Windows x64: long is 32 bits.
 std::string format(const char* f, __builtin_ms_va_list ap) {
   std::string o;
   for (; *f; f++) {
     if (*f != '%') { o.push_back(*f); continue; }
     f++;
-    bool left = false, zero = false;
-    for (; *f == '-' || *f == '0'; f++) (*f == '-' ? left : zero) = true;
-    int width = 0; while (*f >= '0' && *f <= '9') { width = width * 10 + (*f - '0'); if (width > 4096) width = 4096; f++; }
-    int lng = 0; while (*f == 'l' || *f == 'z' || *f == 'h' || *f == 'I') { if (*f == 'l' || *f == 'z' || *f == 'I') lng++; f++; }
-    // note: on Windows x64 long is 32-bit, so only ll/z/I64 mean 64-bit
-    bool is64 = lng >= 2;
-    std::string body; char t[40];
+    std::string flags; bool left = false;
+    for (; *f == '-' || *f == '0' || *f == '+' || *f == ' ' || *f == '#'; f++) { flags.push_back(*f); if (*f == '-') left = true; }
+    (void)left;
+    int width = -1, prec = -1;
+    if (*f == '*') { width = __builtin_va_arg(ap, int); f++; if (width < 0) { flags.push_back('-'); width = -width; } }
+    else if (*f >= '0' && *f <= '9') { width = 0; while (*f >= '0' && *f <= '9') { width = width * 10 + (*f - '0'); if (width > 4096) width = 4096; f++; } }
+    if (width > 4096) width = 4096;
+    if (*f == '.') {
+      f++; prec = 0;
+      if (*f == '*') { prec = __builtin_va_arg(ap, int); f++; }
+      else while (*f >= '0' && *f <= '9') { prec = prec * 10 + (*f - '0'); if (prec > 4096) prec = 4096; f++; }
+      if (prec > 4096) prec = 4096;
+    }
+    bool is64 = false;
+    for (;; f++) {
+      if (*f == 'l' && f[1] == 'l') { is64 = true; f++; }
+      else if (*f == 'z' || *f == 'j' || *f == 't') is64 = true;
+      else if (*f == 'I' && f[1] == '6' && f[2] == '4') { is64 = true; f += 2; }
+      else if (*f == 'I' && f[1] == '3' && f[2] == '2') f += 2;
+      else if (*f == 'I') is64 = true;
+      else if (*f == 'l' || *f == 'h' || *f == 'L') {}
+      else break;
+    }
+    std::string spec = "%" + flags;
+    if (width >= 0) spec += std::to_string(width);
+    if (prec >= 0) spec += "." + std::to_string(prec);
+    char t[4400]; int n = 0;
     switch (*f) {
-      case 'd': case 'i': { long long v = is64 ? __builtin_va_arg(ap, long long) : (long long)__builtin_va_arg(ap, int); std::snprintf(t, sizeof t, "%lld", v); body = t; break; }
-      case 'u': { unsigned long long v = is64 ? __builtin_va_arg(ap, unsigned long long) : (unsigned long long)__builtin_va_arg(ap, unsigned); std::snprintf(t, sizeof t, "%llu", v); body = t; break; }
-      case 'x': case 'X': { unsigned long long v = is64 ? __builtin_va_arg(ap, unsigned long long) : (unsigned long long)__builtin_va_arg(ap, unsigned); std::snprintf(t, sizeof t, *f == 'x' ? "%llx" : "%llX", v); body = t; break; }
-      case 'p': { void* v = __builtin_va_arg(ap, void*); std::snprintf(t, sizeof t, "%p", v); body = t; break; }
-      case 'c': { int v = __builtin_va_arg(ap, int); body.assign(1, (char)v); break; }
-      case 's': { const char* v = __builtin_va_arg(ap, const char*); body = v ? v : "(null)"; break; }
-      case '%': body = "%"; break;
+      case 'd': case 'i': { long long v = is64 ? __builtin_va_arg(ap, long long) : (long long)__builtin_va_arg(ap, int);
+        n = std::snprintf(t, sizeof t, (spec + "lld").c_str(), v); break; }
+      case 'u': case 'x': case 'X': case 'o': { unsigned long long v = is64 ? __builtin_va_arg(ap, unsigned long long) : (unsigned long long)__builtin_va_arg(ap, unsigned);
+        n = std::snprintf(t, sizeof t, (spec + "ll" + *f).c_str(), v); break; }
+      case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': case 'a': case 'A': { double v = __builtin_va_arg(ap, double);
+        n = std::snprintf(t, sizeof t, (spec + *f).c_str(), v); break; }
+      case 'p': { void* v = __builtin_va_arg(ap, void*); n = std::snprintf(t, sizeof t, (spec + "p").c_str(), v); break; }
+      case 'c': { int v = __builtin_va_arg(ap, int); n = std::snprintf(t, sizeof t, (spec + "c").c_str(), v); break; }
+      case 's': { const char* v = __builtin_va_arg(ap, const char*); if (!v) v = "(null)";
+        size_t len = 0; while (v[len] && (prec < 0 || (int)len < prec) && len < 4096) len++;   // never read past a missing NUL
+        std::string tmp(v, len); std::string sp = "%" + flags + (width >= 0 ? std::to_string(width) : "") + "s";
+        n = std::snprintf(t, sizeof t, sp.c_str(), tmp.c_str()); break; }
+      case '%': t[0] = '%'; n = 1; break;
       case 0: return o;
-      default: body = std::string("%") + *f; break;
+      default: n = std::snprintf(t, sizeof t, "%%%c", *f); break;
     }
-    if ((int)body.size() < width) {
-      size_t pad = width - body.size();
-      if (left) body.append(pad, ' ');
-      else if (zero && *f != 's' && *f != 'c') body.insert(body[0] == '-' ? 1 : 0, pad, '0');
-      else body.insert(0, pad, ' ');
-    }
-    o += body;
+    if (n > 0) o.append(t, (size_t)(n < (int)sizeof t ? n : (int)sizeof t - 1));
   }
   return o;
 }
@@ -89,6 +112,75 @@ MSABI int m_printf(const char* f, ...) {
   if (!f) return -1;
   __builtin_ms_va_list ap; __builtin_ms_va_start(ap, f);
   std::string s = format(f, ap);
+  __builtin_ms_va_end(ap);
+  if (C->out) C->out->append(s);
+  return (int)s.size();
+}
+
+// ---- C runtime startup set ----
+alignas(16) uint8_t g_iob[3][48];                   // FILE objects of stdin, stdout, stderr (opaque, identified by address)
+int g_fmode = 0, g_commode = 0;
+char g_cmdline[] = "anyxbox_program";
+char* g_argv[2] = {g_cmdline, nullptr};
+char* g_envp[1] = {nullptr};
+char** g_initenv = g_envp;
+char* g_acmdln = g_cmdline;
+thread_local int t_errno = 0;
+std::vector<void (MSABI *)()> g_atexit;
+std::recursive_mutex g_locks[64];
+bool is_out(const void* f) { return f == &g_iob[1] || f == &g_iob[2]; }
+[[noreturn]] void do_exit(uint32_t code) {
+  C->exited = true; C->exit_code = code;
+  if (C->exit_fn) C->exit_fn(code);
+  __builtin_trap();                                    // no exit hook installed: a guest must not continue past exit
+}
+void run_atexit() { while (!g_atexit.empty()) { auto fn = g_atexit.back(); g_atexit.pop_back(); fn(); } }
+MSABI int m___getmainargs(int* argc, char*** argv, char*** env, int, void*) {
+  if (!argc || !argv || !env) return -1;
+  *argc = 1; *argv = g_argv; *env = g_envp; return 0;
+}
+MSABI void m___set_app_type(int) {}
+MSABI void* m___setusermatherr(void*) { return nullptr; }
+MSABI void m__initterm(void (MSABI **b)(), void (MSABI **e)()) { for (; b && b < e; b++) if (*b) (*b)(); }
+MSABI void* m__onexit(void* fn) { if (!fn || g_atexit.size() >= 256) return nullptr; g_atexit.push_back((void (MSABI *)())fn); return fn; }
+MSABI void m__cexit() { run_atexit(); }
+MSABI void m_exit(int code) { run_atexit(); do_exit((uint32_t)code); }
+MSABI void m_abort() { do_exit(3); }
+MSABI void m__amsg_exit(int) { do_exit(255); }
+MSABI void* m_signal(int, void*) { return nullptr; }          // SIG_DFL; no signals are ever delivered
+MSABI void m__lock(int n) { if (n >= 0 && n < 64) g_locks[n].lock(); }
+MSABI void m__unlock(int n) { if (n >= 0 && n < 64) g_locks[n].unlock(); }
+MSABI int* m__errno() { return &t_errno; }
+MSABI const char* m_strerror(int) { return "Unknown error"; }
+MSABI void* m_localeconv() {
+  static char dot[] = ".", empty[] = "";
+  static void* lc[16];
+  lc[0] = dot; for (int i = 1; i < 10; i++) lc[i] = empty;       // decimal_point, the other strings empty (C locale)
+  return lc;
+}
+MSABI int m___lconv_init() { return 0; }
+MSABI uint32_t m____lc_codepage_func() { return 0; }
+MSABI int m____mb_cur_max_func() { return 1; }
+MSABI uint64_t m_wcslen(const uint16_t* s) { uint64_t n = 0; while (s[n]) n++; return n; }
+MSABI int m___C_specific_handler(void*, void*, void*, void*) { return 1; }   // ExceptionContinueSearch; no exceptions are raised
+MSABI void* m___iob_func() { return g_iob; }
+MSABI uint64_t m_fwrite(const void* b, uint64_t sz, uint64_t n, void* f) {
+  if (!is_out(f) || !b) return 0;
+  if (sz && n > (size_t(1) << 32) / sz) return 0;
+  if (C->out) C->out->append((const char*)b, (size_t)(sz * n));
+  return n;
+}
+MSABI int m_fputc(int c, void* f) { if (!is_out(f)) return -1; if (C->out) C->out->push_back((char)c); return c & 0xFF; }
+MSABI int m_vfprintf(void* f, const char* fmt, __builtin_ms_va_list ap) {
+  if (!is_out(f) || !fmt) return -1;
+  std::string s = format(fmt, ap);
+  if (C->out) C->out->append(s);
+  return (int)s.size();
+}
+MSABI int m_fprintf(void* f, const char* fmt, ...) {
+  if (!is_out(f) || !fmt) return -1;
+  __builtin_ms_va_list ap; __builtin_ms_va_start(ap, fmt);
+  std::string s = format(fmt, ap);
   __builtin_ms_va_end(ap);
   if (C->out) C->out->append(s);
   return (int)s.size();
@@ -105,6 +197,17 @@ bool msvcrt_register(ImportRegistry& r, MsvcrtContext& ctx) {
     r.add(d, "malloc", A(&m_malloc)); r.add(d, "calloc", A(&m_calloc)); r.add(d, "realloc", A(&m_realloc));
     r.add(d, "free", A(&m_free)); r.add(d, "puts", A(&m_puts)); r.add(d, "putchar", A(&m_putchar));
     r.add(d, "printf", A(&m_printf));
+    r.add(d, "__getmainargs", A(&m___getmainargs)); r.add(d, "__set_app_type", A(&m___set_app_type)); r.add(d, "__setusermatherr", A(&m___setusermatherr));
+    r.add(d, "_initterm", A(&m__initterm)); r.add(d, "_onexit", A(&m__onexit)); r.add(d, "_cexit", A(&m__cexit)); r.add(d, "exit", A(&m_exit));
+    r.add(d, "abort", A(&m_abort)); r.add(d, "_amsg_exit", A(&m__amsg_exit)); r.add(d, "signal", A(&m_signal));
+    r.add(d, "_lock", A(&m__lock)); r.add(d, "_unlock", A(&m__unlock)); r.add(d, "_errno", A(&m__errno)); r.add(d, "strerror", A(&m_strerror));
+    r.add(d, "localeconv", A(&m_localeconv)); r.add(d, "__lconv_init", A(&m___lconv_init)); r.add(d, "___lc_codepage_func", A(&m____lc_codepage_func));
+    r.add(d, "___mb_cur_max_func", A(&m____mb_cur_max_func)); r.add(d, "wcslen", A(&m_wcslen)); r.add(d, "__C_specific_handler", A(&m___C_specific_handler));
+    r.add(d, "__iob_func", A(&m___iob_func)); r.add(d, "fwrite", A(&m_fwrite)); r.add(d, "fputc", A(&m_fputc));
+    r.add(d, "vfprintf", A(&m_vfprintf)); r.add(d, "fprintf", A(&m_fprintf));
+    // data imports: the registry value is the address of the variable
+    r.add(d, "_fmode", (uint64_t)(uintptr_t)&g_fmode); r.add(d, "_commode", (uint64_t)(uintptr_t)&g_commode);
+    r.add(d, "_acmdln", (uint64_t)(uintptr_t)&g_acmdln); r.add(d, "__initenv", (uint64_t)(uintptr_t)&g_initenv);
   }
   return true;
 }
