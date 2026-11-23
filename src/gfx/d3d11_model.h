@@ -96,6 +96,7 @@ class DeviceContext {
   // The model's own default is no culling (older callers rely on it); D3D11CreateDevice-style users get D3D's default
   // (cull back, clockwise front) from the COM layer, which calls RSSetState(RasterizerDesc()) at creation.
   explicit DeviceContext(Device& d) : dev_(d) { state_.rs.cull = Cull::None; }
+  void ClearState(); // supported pipeline subset; preserves backend and accumulated stats
   void SetDrawBackend(DrawBackend* b) { backend_ = b; }  // null = built-in reference renderer
   void IASetInputLayout(const std::vector<InputElement>& layout) { layout_ = layout; }
   void IASetVertexBuffer(ResourceId buffer, uint32_t stride, uint32_t offset) { vbs_[0] = {buffer, stride, offset}; }
