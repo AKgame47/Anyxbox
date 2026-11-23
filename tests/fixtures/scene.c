@@ -137,12 +137,24 @@ MS uint32_t entry(void) {
 
   /* texture, view, sampler */
   uint8_t tx[44]; zero(tx, sizeof tx); put32(tx, 0, 2); put32(tx, 4, 2); put32(tx, 8, 1); put32(tx, 12, 1); put32(tx, 16, 28); put32(tx, 20, 1); put32(tx, 32, 0x8);
+#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+  put32(tx,28,2 /* DYNAMIC */); put32(tx,36,0x10000 /* CPU_ACCESS_WRITE */);
+#endif
   void *tex = 0, *srv = 0, *smp = 0;
   if (((F_CreateTex)VT(dev)[5])(dev, tx, 0, &tex) < 0) return 14;
   if (((F_CreateView)VT(dev)[7])(dev, tex, 0, &srv) < 0) return 15;
   uint8_t smd[64]; zero(smd, sizeof smd); put32(smd, 0, 0 /* POINT */); put32(smd, 4, 3); put32(smd, 8, 3); put32(smd, 12, 3);
   if (((F_CreateState)VT(dev)[23])(dev, smd, &smp) < 0) return 16;
+#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+  uint8_t initial_map[16]; zero(initial_map,sizeof initial_map);
+  if (((F_Map)VT(ctx)[14])(ctx,tex,0,4,0,initial_map)<0) return 35;
+  uint8_t* initial_data=*(uint8_t**)initial_map; uint32_t initial_pitch=*(uint32_t*)(initial_map+8);
+  if(!initial_data || initial_pitch<8) return 36;
+  for(uint32_t y=0;y<2;++y) for(uint32_t x=0;x<2;++x) *(uint32_t*)(initial_data+y*initial_pitch+x*4)=kTexels[y*2+x];
+  ((F_Unmap)VT(ctx)[15])(ctx,tex,0);
+#else
   ((F_Update)VT(ctx)[48])(ctx, tex, 0, 0, kTexels, 8, 0);
+#endif
 
   /* shaders and layouts */
   uint8_t el[96]; zero(el, sizeof el);
@@ -210,20 +222,64 @@ MS uint32_t entry(void) {
     if (frames == 0) {
       /* Mutate both a sampled resource and a live color target after the first present.
        * The next draw must upload the new color surface instead of restoring old pixels. */
-      void *replacement = 0, *surface = 0;
+      void *surface = 0;
+#if !defined(DRAW_COPY_METHOD) || DRAW_COPY_METHOD == 1
+      void *replacement = 0;
+#endif
       static const uint32_t yellow[4] = {0xff00ffffu,0xff00ffffu,0xff00ffffu,0xff00ffffu};
+#if !defined(DRAW_COPY_METHOD) || DRAW_COPY_METHOD == 1
       if (((F_CreateTex)VT(dev)[5])(dev, tx, 0, &replacement) < 0) return 29;
       ((F_Update)VT(ctx)[48])(ctx, replacement, 0, 0, yellow, 8, 0);
+#endif
+#if !defined(DRAW_COPY_METHOD) || DRAW_COPY_METHOD == 3
       typedef void (MS *Copy)(void*, void*, void*);
+#endif
+#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 1
+      typedef void (MS *Region)(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const void*);
+      const uint32_t box[6]={0,0,0,1,2,1};
+      ((Region)VT(ctx)[46])(ctx,tex,0,1,0,0,replacement,0,box);
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 2
+      const uint32_t box[6]={1,0,0,2,2,1};
+      ((F_Update)VT(ctx)[48])(ctx,tex,0,box,yellow,8,0);
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+      uint8_t mapped[16]; zero(mapped,sizeof mapped);
+      if (((F_Map)VT(ctx)[14])(ctx,tex,0,4,0,mapped)<0) return 31;
+      uint32_t pitch=*(uint32_t*)(mapped+8); uint8_t* bytes=*(uint8_t**)mapped;
+      if (!bytes || pitch<8) return 32;
+      for(uint32_t y=0;y<2;++y) for(uint32_t x=0;x<2;++x) *(uint32_t*)(bytes+y*pitch+x*4)=yellow[0];
+      ((F_Unmap)VT(ctx)[15])(ctx,tex,0);
+#else
       ((Copy)VT(ctx)[47])(ctx, tex, replacement);
+#endif
       uint8_t surface_desc[44]; zero(surface_desc, sizeof surface_desc);
       put32(surface_desc,0,320); put32(surface_desc,4,240); put32(surface_desc,8,1);
       put32(surface_desc,12,1); put32(surface_desc,16,28); put32(surface_desc,20,1);
+#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+      put32(surface_desc,28,3 /* STAGING */); put32(surface_desc,36,0x20000 /* CPU_ACCESS_READ */ | 0x10000 /* WRITE */);
+#endif
       if (((F_CreateTex)VT(dev)[5])(dev, surface_desc, 0, &surface) < 0) return 30;
       static uint32_t cyan[320*240];
       for (uint32_t i=0;i<320*240;++i) cyan[i]=0xffffff00u;
+#if !defined(DRAW_COPY_METHOD) || DRAW_COPY_METHOD != 3
       ((F_Update)VT(ctx)[48])(ctx, surface, 0, 0, cyan, 320*4, 0);
+#endif
+#if defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 1
+      const uint32_t strip[6]={0,0,0,320,20,1};
+      ((Region)VT(ctx)[46])(ctx,bb,0,0,0,0,surface,0,strip);
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 2
+      const uint32_t strip[6]={0,0,0,320,20,1};
+      ((F_Update)VT(ctx)[48])(ctx,bb,0,strip,cyan,320*4,0);
+#elif defined(DRAW_COPY_METHOD) && DRAW_COPY_METHOD == 3
+      uint8_t mapped_surface[16]; zero(mapped_surface,sizeof mapped_surface);
+      if (((F_Map)VT(ctx)[14])(ctx,surface,0,2 /* WRITE */,0,mapped_surface)<0) return 33;
+      uint8_t* data=*(uint8_t**)mapped_surface; uint32_t row=*(uint32_t*)(mapped_surface+8);
+      if(!data || row<320*4) return 34;
+      for(uint32_t y=0;y<240;++y) for(uint32_t x=0;x<320;++x) *(uint32_t*)(data+y*row+x*4)=cyan[0];
+      ((F_Unmap)VT(ctx)[15])(ctx,surface,0);
       ((Copy)VT(ctx)[47])(ctx, bb, surface);
+#else
+      ((Copy)VT(ctx)[47])(ctx, bb, surface);
+#endif
     }
 #endif
     frames++;
