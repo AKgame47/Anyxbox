@@ -1,6 +1,7 @@
 // Independently compiled against public Windows headers. No scene or private runtime declarations.
 #include <d3d11.h>
 #include <cstdio>
+#include <cstring>
 #define CHECK(c) do{if(!(c)){std::printf("resource interfaces failed line %d\n",__LINE__);return 3;}}while(0)
 int main(){
   ID3D11Device* dev=nullptr;ID3D11DeviceContext* ctx=nullptr;
@@ -15,6 +16,14 @@ int main(){
   ID3D11Texture2D* texture=nullptr;CHECK(SUCCEEDED(dev->CreateTexture2D(&td,nullptr,&texture)));
   td.Format=DXGI_FORMAT_D32_FLOAT;td.BindFlags=D3D11_BIND_DEPTH_STENCIL;
   ID3D11Texture2D* depth=nullptr;CHECK(SUCCEEDED(dev->CreateTexture2D(&td,nullptr,&depth)));
+  D3D11_BUFFER_DESC gotBuffer={};buffer->GetDesc(&gotBuffer);CHECK(std::memcmp(&gotBuffer,&bd,sizeof(bd))==0);
+  D3D11_TEXTURE2D_DESC gotTexture={};depth->GetDesc(&gotTexture);CHECK(std::memcmp(&gotTexture,&td,sizeof(td))==0);
+  td.Format=DXGI_FORMAT_R8G8B8A8_UNORM;td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+  texture->GetDesc(&gotTexture);CHECK(std::memcmp(&gotTexture,&td,sizeof(td))==0);
+  td.MipLevels=0;td.Usage=D3D11_USAGE_STAGING;td.BindFlags=0;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+  ID3D11Texture2D* staging=nullptr;CHECK(SUCCEEDED(dev->CreateTexture2D(&td,nullptr,&staging)));
+  staging->GetDesc(&gotTexture);td.MipLevels=3;CHECK(std::memcmp(&gotTexture,&td,sizeof(td))==0);staging->Release();
+  std::puts("resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok");
   ID3D11Resource* resources[]={buffer,texture,depth};
   for(unsigned i=0;i<3;++i){
     ID3D11Resource* resource=nullptr;CHECK(SUCCEEDED(resources[i]->QueryInterface(__uuidof(ID3D11Resource),(void**)&resource)));
