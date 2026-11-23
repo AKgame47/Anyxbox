@@ -25,6 +25,7 @@ MSABI void host_ExitProcess(uint32_t code) {
   __builtin_trap();
 }
 typedef uint32_t (MSABI *EntryFn)();
+typedef void (MSABI *TlsCallback)(void*, uint32_t, void*);
 }  // namespace
 #endif
 
@@ -78,10 +79,16 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   g_exit = &jb; g_exit_code = 0;
   EntryFn fn = (EntryFn)(uintptr_t)(img.actual_base + img.entry_rva);
   volatile bool exited = false;
+  if (img.tls.present) teb_set_tls_template((const uint8_t*)(uintptr_t)img.tls.start_va, (uint32_t)(img.tls.end_va - img.tls.start_va), img.tls.zero_fill);
   teb_install(img.actual_base);
-  if (setjmp(jb) == 0) { res.exit_code = fn(); } else { exited = true; res.exit_code = g_exit_code; }
+  if (setjmp(jb) == 0) {
+    // TLS callbacks run with DLL_PROCESS_ATTACH before the entry point (thread attach/detach callbacks are not called yet)
+    for (uint64_t cb : img.tls.callbacks) ((TlsCallback)(uintptr_t)cb)((void*)(uintptr_t)img.actual_base, 1, nullptr);
+    res.exit_code = fn();
+  } else { exited = true; res.exit_code = g_exit_code; }
   (void)exited;
   teb_restore();
+  teb_set_tls_template(nullptr, 0, 0);
   g_exit = nullptr;
   res.ran = true; res.output = out;
   munmap(mem, len);
