@@ -597,3 +597,19 @@ child/device lifetime, model allocation reclamation, thread safety and native ho
 isolation remain incomplete. Allocation retention previously masked this missing
 COM ownership; this fix does not reclaim those allocations. Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargets
+
+## Batch87: retain verified independent output-merger regression
+
+Replaces the same retained resource probe with exact run257 bytes from source
+15f73fa. Sixteen fixture executables remain. Current-runtime import check covers
+52/52 imports and direct execution passes all five markers, zero exit, two shaders,
+zero presents and empty error. Fixture-slot checks exact output and CI now requires
+the output-merger marker in fresh and retained paths. All 41 local sanitizer
+programs pass. No production/CMake/new-target/scene/release change.
+
+Retained independent output-merger checks cover caller release, same-object rebind
+and unbind for the single RTV/optional DSV path. Replacement, teardown and MRT
+refusal remain interface-unit coverage. Other bindings, child/device lifetime,
+model allocation reclamation, thread safety, hazard unbinding and host isolation
+remain incomplete. Runtime lifetime remains required for guest interface calls.
+No physical-device/input or Xbox-game compatibility evidence is added.
