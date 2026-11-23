@@ -20,6 +20,7 @@ struct Obj {
   uint32_t refs = 1;
   Kind kind;
   D3D11Runtime* rt;
+  uint32_t first_mip = 0, mip_count = ~0u; // SRV range
   ResourceId id = 0;      // buffer / texture / rtv id
   std::vector<uint32_t> spirv;
   std::vector<std::pair<uint32_t, uint32_t>> cb_layout; bool vs_ubo = false; int tex_sampler[4] = {-1, -1, -1, -1};   // shaders only
@@ -125,15 +126,16 @@ MSABI int32_t dev_CreateRTV(void* self, void* res, const uint32_t* desc, void** 
 MSABI int32_t dev_CreateSRV(void* self, void* res, const uint32_t* desc, void** out) {
   Obj* r = (Obj*)res;
   if (!r || r->kind != K_TEXTURE) { G(self)->last_error = "shader resource view: only 2D textures are supported"; return E_NOTIMPL_; }
-  if (desc) {
-    auto* tx = G(self)->dev.texture(r->id);
-    uint32_t levels = (uint32_t)tx->mips.size()+1;
-    if (desc[1] != 4 || desc[2] != 0 || (desc[3] != ~0u && desc[3] != levels) ||
-        (desc[0] && fmt_from_dxgi(desc[0]) != tx->f)) {
-      G(self)->last_error = "shader resource view: mip subset/format reinterpretation unsupported"; return E_NOTIMPL_;
-    }
+  auto* tx = G(self)->dev.texture(r->id);
+  uint32_t total = (uint32_t)tx->mips.size()+1, first=desc ? desc[2] : 0, count=desc ? desc[3] : ~0u;
+  if (desc && (desc[1] != 4 || (desc[0] && fmt_from_dxgi(desc[0]) != tx->f))) {
+    G(self)->last_error = "shader resource view: format or dimension unsupported"; return E_NOTIMPL_;
   }
-  Obj* o = make(G(self), K_SRV, r->id); if (out) *out = o; else delete o;
+  if (first >= total) return E_INVALIDARG_;
+  if (count == ~0u) count=total-first;
+  if (!count || count > total-first) return E_INVALIDARG_;
+  Obj* o = make(G(self), K_SRV, r->id); o->first_mip=first; o->mip_count=count;
+  if (out) *out = o; else delete o;
   return S_OK_;
 }
 // D3D11_SAMPLER_DESC: Filter@0 AddressU@4 AddressV@8 AddressW@12
@@ -295,13 +297,13 @@ MSABI void ctx_GenerateMips(void* self, void* view) {
   auto* rt = G(self); auto* o = (Obj*)view;
   if (!o || o->kind != K_SRV) { rt->last_error = "GenerateMips: requires a shader resource view"; return; }
   auto* tex = rt->dev.texture(o->id);
-  if (tex && tex->auto_mips && !rt->dev.GenerateMips(o->id)) rt->last_error = "GenerateMips: invalid texture";
+  if (tex && tex->auto_mips && !rt->dev.GenerateMips(o->id,o->first_mip,o->mip_count)) rt->last_error = "GenerateMips: invalid texture";
 }
 MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void* const* srvs) {
   for (uint32_t i = 0; i < n; i++) {
     Obj* o = srvs ? (Obj*)srvs[i] : nullptr;
     if (start + i >= 4) { if (o) G(self)->last_error = "only shader resource slots t0..t3 are supported"; continue; }
-    G(self)->ctx->PSSetShaderResource(start + i, o ? o->id : 0);
+    G(self)->ctx->PSSetShaderResource(start + i, o ? o->id : 0, o ? o->first_mip : 0, o ? o->mip_count : ~0u);
   }
 }
 MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const* smps) {
