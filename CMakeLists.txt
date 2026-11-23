@@ -180,3 +180,9 @@ add_test(NAME fixture_scene COMMAND test_fixture_scene)
 # tools/run_exe.cpp now includes gfx/d3d11_vulkan.h: if run_exe is a CMake target, add anyxbox_d3d11_vulkan anyxbox_vulkan to its link libs.
 
 # batch 32: no new tests or targets. test_fixture_slot now includes gfx/d3d11_vulkan.h: add anyxbox_d3d11_vulkan anyxbox_vulkan to its link libs if not already present.
+
+# batch 33: no new src files
+add_executable(test_tls tests/test_tls.cpp)
+target_include_directories(test_tls PRIVATE tests)
+target_link_libraries(test_tls PRIVATE anyxbox_runtime anyxbox_loader)
+add_test(NAME tls COMMAND test_tls)
