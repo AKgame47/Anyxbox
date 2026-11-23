@@ -109,6 +109,41 @@ int main() {
   }
   pnr::graphics::VulkanBackend vk;
   if (!vk.open() || !vk.create_instance("anyxbox-test") || vk.devices().empty() || !vk.create_device(0)) { std::printf("SKIP gpu part\n"); return 0; }
+  // End-to-end COM writes/copies -> already-live Vulkan render surface -> draw -> COM readback.
+  for (bool bgra : {false,true}) for (int method=0;method<4;++method) {
+    D3D11Runtime rt; ImportRegistry reg; rt.register_imports(reg); void* device=nullptr;void* context=nullptr;uint32_t fl=0;
+    auto create=(int32_t (MS *)(void*,uint32_t,void*,uint32_t,const uint32_t*,uint32_t,uint32_t,void**,uint32_t*,void**))reg.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(create(nullptr,1,nullptr,0,nullptr,0,7,&device,&fl,&context)==0);
+    uint32_t desc[11]={32,32,1,1,bgra?87u:28u,1,0,0,0x28,0,0};void* target=nullptr;void* source=nullptr;void* rtv=nullptr;
+    auto texture=slot<int32_t (MS *)(void*,const uint32_t*,const void*,void**)>(device,5);
+    CHECK(texture(device,desc,nullptr,&target)==0 && texture(device,desc,nullptr,&source)==0);
+    CHECK((slot<int32_t (MS *)(void*,void*,const void*,void**)>(device,9)(device,target,nullptr,&rtv)==0));
+    slot<void (MS *)(void*,uint32_t,void* const*,void*)>(context,33)(context,1,&rtv,nullptr);
+    d3d11::VulkanDrawBackend backend(vk);rt.ctx->SetDrawBackend(&backend);
+    struct V {float x,y,z,w,r,g,b,a;};V tri[3]={{-1,-1,0,1,1,0,0,1},{1,-1,0,1,1,0,0,1},{-1,1,0,1,1,0,0,1}};
+    rt.ctx->IASetInputLayout({{"POSITION",d3d11::Format::R32G32B32A32_FLOAT,0},{"COLOR",d3d11::Format::R32G32B32A32_FLOAT,16}});
+    rt.ctx->IASetVertexBuffer(rt.dev.CreateBuffer(tri,sizeof tri),sizeof(V),0);rt.ctx->IASetPrimitiveTopology(d3d11::Topology::TriangleList);
+    d3d11::RasterizerDesc rs;rs.cull=d3d11::Cull::None;rt.ctx->RSSetState(rs);rt.ctx->RSSetViewport({0,0,32,32});CHECK(rt.ctx->Draw(3,0));
+    std::vector<uint8_t> blue(32*32*4);for(size_t k=0;k<blue.size();k+=4){blue[k+(bgra?0:2)]=255;blue[k+3]=255;}
+    auto update=slot<void (MS *)(void*,void*,uint32_t,const uint32_t*,const void*,uint32_t,uint32_t)>(context,48);
+    if(method<2) {
+      update(context,source,0,nullptr,blue.data(),128,0);
+      if(method==0) slot<void (MS *)(void*,void*,void*)>(context,47)(context,target,source);
+      else slot<void (MS *)(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const uint32_t*)>(context,46)(context,target,0,0,0,0,source,0,nullptr);
+    } else if(method==2) update(context,target,0,nullptr,blue.data(),128,0);
+    else {
+      struct Mapped {void* p;uint32_t pitch,slice;};Mapped m{};
+      CHECK((slot<int32_t (MS *)(void*,void*,uint32_t,uint32_t,uint32_t,void*)>(context,14)(context,target,0,2,0,&m)==0));
+      std::memcpy(m.p,blue.data(),blue.size());slot<void (MS *)(void*,void*,uint32_t)>(context,15)(context,target,0);
+    }
+    CHECK(rt.last_error.empty());rt.ctx->RSSetViewport({0,0,16,16});CHECK(rt.ctx->Draw(3,0));
+    struct Mapped {void* p;uint32_t pitch,slice;};Mapped m{};
+    CHECK((slot<int32_t (MS *)(void*,void*,uint32_t,uint32_t,uint32_t,void*)>(context,14)(context,target,0,1,0,&m)==0));
+    auto* px=(uint8_t*)m.p;CHECK(px[(24*32+24)*4+(bgra?0:2)]==255 && px[(12*32+2)*4+(bgra?2:0)]==255);
+    slot<void (MS *)(void*,void*,uint32_t)>(context,15)(context,target,0);
+    std::printf("COM-to-Vulkan color sync %s method %d passed (copy resource, copy region, update, map)\n",bgra?"BGRA":"RGBA",method);
+    for(void* obj:{rtv,target,source})slot<uint32_t (MS *)(void*)>(obj,2)(obj);
+  }
   struct VT { float x, y, z, w, r, g, b, a, u, v; };
   const std::vector<d3d11::InputElement> lay = {{"POSITION", d3d11::Format::R32G32B32A32_FLOAT, 0}, {"COLOR", d3d11::Format::R32G32B32A32_FLOAT, 16}, {"TEXCOORD", d3d11::Format::R32G32_FLOAT, 32}};
   const int W = 32, H = 32;
