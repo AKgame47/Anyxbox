@@ -82,3 +82,5 @@ target_link_libraries(test_dxbc anyxbox_shader anyxbox_gfx)
 add_test(NAME dxbc COMMAND test_dxbc)
 
 # no new targets: tests/test_dxbc.cpp and src/shader sources are already in the batch 10 targets; no new files.
+
+# no new targets
