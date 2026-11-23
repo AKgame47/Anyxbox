@@ -110,3 +110,11 @@ GetDevice and an unsupported-interface query. Not a rendered scene. Build:
 `x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o resource_interfaces.exe tests/fixtures/resource_interfaces.cpp -ld3d11`.
 CI requires zero exit and its completion marker, and retains the executable and log.
 Independent binary evidence is pending CI; no retained binary is supplied in batch 72.
+
+Retained `resource_interfaces.run.exe` is the exact run-212 artifact, source tip 622ff44:
+https://github.com/AKgame47/Anyxbox/actions/runs/45258594810/job/137986902854
+503122 bytes; SHA-256 `5a28ec84f3674fbe601cd7851d1c30afa1a8c3e04ada9acba286a0120b1210f1`.
+Its independent public-header build and strict execution passed, covering 51 imports.
+Fixture-slot now requires its exact output, zero exit, zero frames/shaders and empty
+D3D11 error. Fresh and retained runs remain separate strict CI steps. This probe
+checks interface operations, not lifetime completeness or graphics output.
