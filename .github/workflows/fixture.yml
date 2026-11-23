@@ -34,6 +34,12 @@ jobs:
           x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -o hello_crt.exe tests/fixtures/hello_crt.c
           ls -l hello_crt.exe
           x86_64-w64-mingw32-objdump -p hello_crt.exe | sed -n '/DLL Name/p'
+      - name: Build the TLS fixture (default MinGW startup, __thread data)
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -o tls_crt.exe tests/fixtures/tls_crt.c
+          ls -l tls_crt.exe
+          x86_64-w64-mingw32-objdump -p tls_crt.exe | sed -n '/DLL Name/p;/^Entry/p' || true
+          x86_64-w64-mingw32-objdump -p tls_crt.exe | grep -i -E "TLS Directory|tls" | head || true
       - name: Build the Anyxbox tools (Linux)
         run: |
           mkdir -p obj
@@ -47,6 +53,10 @@ jobs:
         run: ./import_gap triangle.exe || true
       - name: Import coverage of the scene fixture
         run: ./import_gap scene.exe || true
+      - name: Import coverage and run of the TLS fixture
+        run: |
+          ./import_gap tls_crt.exe || true
+          ./run_exe --i-built-this tls_crt.exe || true
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
@@ -72,6 +82,7 @@ jobs:
           path: |
             triangle.exe
             hello_crt.exe
+            tls_crt.exe
             scene.exe
             scene.png
             triangle.png
