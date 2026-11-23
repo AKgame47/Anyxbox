@@ -703,11 +703,15 @@ Status VulkanBackend::render_core(
         fn<void (*)(VkPhysicalDevice, int32_t, VkFormatProperties*)>(vkGetPhysicalDeviceFormatProperties)(phys_, efmt, &ep);
         if (!(ep.optimalTilingFeatures & 0x1)) return Status::Fail(100, "vulkan", "RGBA8 sampled images unsupported on this device");
         if (et.linear && !(ep.optimalTilingFeatures & 0x1000)) return Status::Fail(100, "vulkan", "linear filtering of RGBA8 unsupported on this device");
+        uint32_t el = et.levels ? et.levels : 1, full = 1;
+        for (uint32_t n = std::max(et.w,et.h); n > 1; n >>= 1) ++full;
+        if (el > full) return Status::Fail(100,"vulkan","extra texture mip count exceeds full chain");
+        size_t bytes = 0; for(uint32_t l=0;l<el;++l) bytes += (size_t)std::max(1u,et.w>>l)*std::max(1u,et.h>>l)*4;
         ExtraTex ex;
-        if (Status st = host_buffer(et.rgba, (size_t)et.w * et.h * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "extra texture staging", &ex.stage); !st.ok) return st;
+        if (Status st = host_buffer(et.rgba, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "extra texture staging", &ex.stage); !st.ok) return st;
         VkImageCreateInfo eci{};
         eci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO; eci.imageType = VK_IMAGE_TYPE_2D; eci.format = efmt;
-        eci.extent = {et.w, et.h, 1}; eci.mipLevels = 1; eci.arrayLayers = 1;
+        eci.extent = {et.w, et.h, 1}; eci.mipLevels = el; eci.arrayLayers = 1;
         eci.samples = VK_SAMPLE_COUNT_1_BIT; eci.tiling = VK_IMAGE_TILING_OPTIMAL;
         eci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         eci.sharingMode = VK_SHARING_MODE_EXCLUSIVE; eci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -730,7 +734,7 @@ Status VulkanBackend::render_core(
         if (r != VK_SUCCESS) return vkfail("vkBindImageMemory (extra texture)", r);
         VkImageViewCreateInfo evci{};
         evci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO; evci.image = eimg; evci.viewType = VK_IMAGE_VIEW_TYPE_2D; evci.format = efmt;
-        evci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        evci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, el, 0, 1};
         VkImageView eview = 0;
         r = fn<VkResult (*)(VkDevice, const VkImageViewCreateInfo*, void*, VkImageView*)>(vkCreateImageView)(device_, &evci, nullptr, &eview);
         if (r != VK_SUCCESS) return vkfail("vkCreateImageView (extra texture)", r);
@@ -738,10 +742,10 @@ Status VulkanBackend::render_core(
         VkSamplerCreateInfo esci{};
         esci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         esci.magFilter = esci.minFilter = et.linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-        esci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        esci.mipmapMode = et.mip_mode >= 0 ? et.mip_mode : VK_SAMPLER_MIPMAP_MODE_NEAREST;
         const int32_t eaddr = et.repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         esci.addressModeU = esci.addressModeV = esci.addressModeW = eaddr;
-        esci.minLod = 0.0f; esci.maxLod = 0.0f;
+        esci.minLod = et.min_lod; esci.maxLod = et.max_lod >= 0 ? et.max_lod : (float)(el-1);
         VkSampler esamp = 0;
         r = fn<VkResult (*)(VkDevice, const VkSamplerCreateInfo*, void*, VkSampler*)>(vkCreateSampler)(device_, &esci, nullptr, &esamp);
         if (r != VK_SUCCESS) return vkfail("vkCreateSampler (extra texture)", r);
@@ -1109,13 +1113,18 @@ Status VulkanBackend::render_core(
     b2.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; b2.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     b2.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; b2.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     fn<BarrierFn>(vkCmdPipelineBarrier)(ucmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b2);
-    for (size_t xi = 0; xi < extras.size(); xi++) {   // extra textures t1..t3: same upload, one level
+    for (size_t xi = 0; xi < extras.size(); xi++) {   // extra textures t1..t3: packed mip upload
       const TexInput& et = (*mesh->extra_tex)[xi];
-      VkImageMemoryBarrier e1 = b1; e1.image = extras[xi].img; e1.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      uint32_t el = et.levels ? et.levels : 1;
+      VkImageMemoryBarrier e1 = b1; e1.image = extras[xi].img; e1.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, el, 0, 1};
       fn<BarrierFn>(vkCmdPipelineBarrier)(ucmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &e1);
-      VkBufferImageCopy ec{}; ec.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; ec.imageExtent = {et.w, et.h, 1};
+      VkBufferImageCopy ec[9]{}; size_t off = 0;
+      for(uint32_t l=0;l<el;++l) {
+        uint32_t ew = std::max(1u,et.w>>l), eh = std::max(1u,et.h>>l);
+        ec[l].bufferOffset = off; ec[l].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,l,0,1}; ec[l].imageExtent = {ew,eh,1}; off += (size_t)ew*eh*4;
+      }
       fn<void (*)(VkCommandBuffer, VkBuffer, VkImage, int32_t, uint32_t, const VkBufferImageCopy*)>(
-          vkCmdCopyBufferToImage)(ucmd, extras[xi].stage, extras[xi].img, (int32_t)VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &ec);
+          vkCmdCopyBufferToImage)(ucmd, extras[xi].stage, extras[xi].img, (int32_t)VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, el, ec);
       VkImageMemoryBarrier e2 = b2; e2.image = extras[xi].img; e2.subresourceRange = e1.subresourceRange;
       fn<BarrierFn>(vkCmdPipelineBarrier)(ucmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &e2);
     }
