@@ -15,6 +15,19 @@ bool VulkanDrawBackend::clear(Device&, ResourceId tex, const float c[4], std::st
   std::memcpy(t.clear, c, sizeof t.clear);
   return true;
 }
+bool VulkanDrawBackend::clear_depth(Device&, float value, std::string* err) {
+  if (value != 1.0f) { *err = "vulkan: depth can only be cleared to 1.0 for now"; return false; }
+  for (auto& kv : targets_) if (kv.second.has_surface) { *err = "vulkan: depth clear after a draw is not supported (clear colour and depth before the frame's first draw)"; return false; }
+  return true;
+}
+namespace {
+int32_t vk_factor(BlendFactor f) { switch (f) { case BlendFactor::Zero: return 0; case BlendFactor::One: return 1; case BlendFactor::SrcColor: return 2;
+  case BlendFactor::InvSrcColor: return 3; case BlendFactor::DestColor: return 4; case BlendFactor::InvDestColor: return 5; case BlendFactor::SrcAlpha: return 6;
+  case BlendFactor::InvSrcAlpha: return 7; case BlendFactor::DestAlpha: return 8; case BlendFactor::InvDestAlpha: return 9; } return 1; }
+int32_t vk_op(BlendOp o) { switch (o) { case BlendOp::Add: return 0; case BlendOp::Subtract: return 1; case BlendOp::RevSubtract: return 2; case BlendOp::Min: return 3; case BlendOp::Max: return 4; } return 0; }
+int32_t vk_cmp(Compare c) { switch (c) { case Compare::Never: return 0; case Compare::Less: return 1; case Compare::Equal: return 2; case Compare::LessEqual: return 3;
+  case Compare::Greater: return 4; case Compare::NotEqual: return 5; case Compare::GreaterEqual: return 6; case Compare::Always: return 7; } return 1; }
+}  // namespace
 bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, const std::vector<ClipVertex>& verts,
                              DrawStats* stats, std::string* err) {
   auto* rt = dev.texture(tex);
@@ -54,13 +67,22 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   if (ps_cb0_.size() > 16384) { *err = "vulkan draw: pixel constant buffer 0 larger than 16384 bytes is not supported"; return false; }
   const size_t total_tris = kept.size() / (3 * fpv), chunk = 9999;   // backend limit: 30000 indices per call
   std::vector<uint8_t> img;
+  const bool use_depth = st_.depth_bound;
+  const bool dtest = use_depth && st_.ds.depth_enable;
+  const bool dwrite = dtest && st_.ds.depth_write;
+  const int32_t dcmp = dtest ? vk_cmp(st_.ds.func) : 7;   // VK_COMPARE_OP_ALWAYS
+  const int32_t cull = st_.rs.cull == Cull::None ? VK_CULL_MODE_NONE : st_.rs.cull == Cull::Front ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_BACK_BIT;
+  // y is already flipped to match the screen picture, so D3D's visual winding maps straight across
+  const int32_t front = st_.rs.front_ccw ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+  BlendState bs; bs.enable = st_.blend.enable; bs.src_color = vk_factor(st_.blend.src); bs.dst_color = vk_factor(st_.blend.dst);
+  bs.color_op = vk_op(st_.blend.op); bs.src_alpha = vk_factor(st_.blend.src_a); bs.dst_alpha = vk_factor(st_.blend.dst_a); bs.alpha_op = vk_op(st_.blend.op_a);
   TexInput texin; if (textured) { texin.rgba = tex_.data(); texin.w = tex_w_; texin.h = tex_h_; texin.linear = smp_.linear; texin.repeat = smp_.wrap; }
   for (size_t first = 0; first < total_tris; first += chunk) {
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 3 * fpv, kept.begin() + (first + n) * 3 * fpv);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
-    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, false, texin, tg.clear, &img, &tg.surf, true, nullptr, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_COMPARE_OP_LESS, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_)
-      : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, false, tg.clear, &img, &tg.surf, true, nullptr, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_COMPARE_OP_LESS, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_);
+    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_)
+      : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_);
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
   }
