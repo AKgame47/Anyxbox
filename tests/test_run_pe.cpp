@@ -44,6 +44,40 @@ int main() {
   // 4. garbage rejected
   { std::vector<uint8_t> g(100, 1);
     CHECK(!anyxbox::run_pe(g.data(), g.size(), true).ran); }
+  // Reject invalid entry locations before TLS or guest execution, not via a host fault.
+  {
+    const size_t opt=0x98, section=opt+240;
+    auto base=make({0xB8,42,0,0,0,0xC3},{});
+    const uint32_t invalid[]={0,0x40,0x1fff,0x2000,0xffffffffu};
+    for(uint32_t entry:invalid){
+      auto img=base;w32(img,opt+16,entry);
+      if(entry==0x1fff)w32(img,section+8,6); // valid page but outside declared section
+      auto r=anyxbox::run_pe(img.data(),img.size(),true);
+      CHECK(!r.loaded&&!r.ran&&r.output.empty()&&r.error=="entry point is not within an executable section");
+    }
+    auto img=make2({0xB8,42,0,0,0,0xC3},{});
+    w32(img,opt+16,0x2000); // mapped writable data, no EXECUTE flag
+    auto r=anyxbox::run_pe(img.data(),img.size(),true);
+    CHECK(!r.loaded&&!r.ran&&r.error=="entry point is not within an executable section");
+    img=make2({0xB8,42,0,0,0,0xC3},{});w32(img,opt+56,0x4000);w32(img,section+40+12,0x3000);w32(img,opt+16,0x2000);
+    r=anyxbox::run_pe(img.data(),img.size(),true); // full-page gap between sections
+    CHECK(!r.loaded&&!r.ran&&r.error=="entry point is not within an executable section");
+    img=base;w32(img,section+36,0x40000040u); // code bytes in a non-executable section
+    r=anyxbox::run_pe(img.data(),img.size(),true);
+    CHECK(!r.loaded&&!r.ran&&r.error=="entry point is not within an executable section");
+    img=base;w32(img,section+8,0x100);w32(img,section+16,0x100);w32(img,opt+16,0x1100);
+    r=anyxbox::run_pe(img.data(),img.size(),true); // exact end of declared section
+    CHECK(!r.loaded&&!r.ran&&r.error=="entry point is not within an executable section");
+    // An executable section need not have WRITE or code-content characteristics.
+    img=base;w32(img,section+36,0x60000000u);w32(img,section+8,6);w32(img,section+16,6);
+    r=anyxbox::run_pe(img.data(),img.size(),true);
+    CHECK(r.loaded&&r.ran&&r.exit_code==42);
+    // VirtualSize=0 uses the raw extent, consistently with the mapper.
+    w32(img,section+8,0);r=anyxbox::run_pe(img.data(),img.size(),true);
+    CHECK(r.loaded&&r.ran&&r.exit_code==42);
+    CHECK(!anyxbox::run_pe(nullptr,128,true).ran);
+    std::puts("launch entry policy: zero/header/gap/data/out-of-image and page-tail rejected; executable code runs");
+  }
   // Launch-route file access: same PE denies opens by default, succeeds with explicit read-only root.
   {
     std::string root=(std::filesystem::temp_directory_path()/"anyxbox_launch_assets").string();
