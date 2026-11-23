@@ -8,8 +8,7 @@
 //    front-face must be flipped to compensate.
 //  - Triangles with any w <= 0 or non-finite coordinate are dropped before submission (same as the
 //    reference renderer; real clipping comes later).
-// Current limits (reported as errors, never silently ignored): the viewport must cover the whole render
-// target; vertex alpha is not carried (output alpha is 1); depth/blend/cull see set_pipeline_state.
+// Current limits (reported as errors, never silently ignored): one viewport/scissor rectangle; vertex alpha is not carried (output alpha is 1); depth/blend/cull see set_pipeline_state.
 #pragma once
 #include <map>
 #include <utility>
