@@ -204,3 +204,9 @@ API references for this backend:
 - Added a scene-source variant that presents once, copies yellow into its sampled texture and cyan into the already-drawn backbuffer, then draws/presents again without another color/depth clear. LESS_EQUAL allows the existing geometry to redraw while retaining the near-over-far overlap.
 - Added test_fixture_draw_copy: host-source mode runs locally; independent-executable mode loads CI's MinGW binary. Both modes check two presents, four shader translations, no runtime error, first-frame texture colors and second-frame cyan background/yellow texture/green-orange geometry.
 - CI requires Vulkan for independent-binary validation and retains both presented frames. Local sanitizer host-source checks passed on software Vulkan; both images were inspected. The separately compiled binary still awaits CI. No physical-device or game compatibility claim.
+
+## Batch 61: retain independent draw-copy binary regression
+- Committed the exact run-149 draw_copy.exe as draw_copy.run.exe, with build/source/hash provenance in the fixture README.
+- The draw-copy test's directory mode now checks source calls and the retained PE. CI requires Vulkan separately for both the freshly built and retained executables; frame images for both are retained.
+- Local sanitizer run of the supplied independent binary passed all two-frame pixel checks. Both local frames matched the supplied CI frames byte-for-byte as decoded RGB images; inspected both CI images. The fixture-slot check also requires the expected present/shader counts and no output/error.
+- Scope remains software Vulkan validation of this self-written fixture, not game or physical-device compatibility.
