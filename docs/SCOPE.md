@@ -316,3 +316,30 @@ CI keeps fresh/retained interface probe execution separate and strict. All 41 lo
 ASan/UBSan test programs pass with this independent binary. No production change,
 new scene or new test target. The batch-72 lifetime/device-retention/ownership and
 thread-safety limits remain, including disabled leak checking in the local suite.
+
+## Batch 74: fail closed on wrapped PE metadata
+
+The loader now computes relocation targets and import thunk offsets in 64 bits before
+checking the image span. It rejects a non-ordinal 64-bit import-name entry that cannot
+fit an RVA, instead of truncating it or wrapping the two-byte hint skip into headers.
+Import descriptors must fit their declared directory, which must itself fit the image;
+a terminator requires all five descriptor fields zero. Nonterminal descriptors need a
+name and IAT. OriginalFirstThunk=0 continues to use the IAT lookup fallback.
+Relocation block lengths use subtraction bounds and must contain complete 16-bit
+entries; truncated trailing block bytes are rejected. Null input is rejected by the
+mapper and image-size helper without dereferencing it.
+
+Expanded existing test_pe_image with 16 negative checks and a positive fallback check:
+wrapped DIR64/HIGHLOW targets, oversized/odd/trailing relocation blocks, out-of-range
+or short/unterminated import directory, malformed terminator/incomplete descriptor,
+out-of-range lookup/IAT, wrapped/high-bit import-name RVA and null inputs. All 41
+local ASan/UBSan programs pass after relinking, including all sixteen retained real
+executables. No new fixture, test target or graphics claim. CI's existing strict suite
+covers these checks; independent CI results are pending publication.
+
+This is a bounded metadata-correctness improvement, not a complete PE validator or
+an OS sandbox. It does not establish Windows-loader parity for malformed inputs,
+reject every metadata overlap, add a guest execution timeout or fix native-code trust
+and process privileges. External destination buffers may already contain partial
+mapping on failure, as before. Complete object lifetime and thread-safety work remains.
+PE layout reference: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
