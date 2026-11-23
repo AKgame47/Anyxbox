@@ -118,3 +118,8 @@ Its independent public-header build and strict execution passed, covering 51 imp
 Fixture-slot now requires its exact output, zero exit, zero frames/shaders and empty
 D3D11 error. Fresh and retained runs remain separate strict CI steps. This probe
 checks interface operations, not lifetime completeness or graphics output.
+
+Batch80 extends the fresh resource_interfaces.cpp build with GetDesc checks for
+buffer/color/depth/staging and resolved full-mip fields. The retained run212 binary
+is unchanged and checks only its original interface operations. New independent
+GetDesc compiler/run evidence is pending CI and must not be attributed to run212.
