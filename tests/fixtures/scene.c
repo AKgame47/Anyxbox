@@ -116,6 +116,9 @@ MS uint32_t entry(void) {
   if (((F_CreateTex)VT(dev)[5])(dev, td, 0, &dtex) < 0) return 6;
   if (((F_CreateView)VT(dev)[10])(dev, dtex, 0, &dsv) < 0) return 7;
   uint8_t dd[64]; zero(dd, sizeof dd); put32(dd, 0, 1); put32(dd, 4, 1); put32(dd, 8, 2);
+#ifdef DRAW_COPY_FIXTURE
+  put32(dd, 8, 4 /* LESS_EQUAL, redraw the same geometry without clearing depth */);
+#endif
   if (((F_CreateState)VT(dev)[21])(dev, dd, &dss) < 0) return 8;
   uint8_t rd[64]; zero(rd, sizeof rd); put32(rd, 0, 3); put32(rd, 4, 1);
   if (((F_CreateState)VT(dev)[22])(dev, rd, &rs) < 0) return 9;
@@ -167,7 +170,13 @@ MS uint32_t entry(void) {
     if (quit) break;
     ((F_OMSetRT)VT(ctx)[33])(ctx, 1, &rtv, dsv);
     ((F_RSSetVP)VT(ctx)[44])(ctx, 1, vp);
+#ifdef DRAW_COPY_FIXTURE
+    if (frames == 0)
+#endif
     ((F_ClearRTV)VT(ctx)[50])(ctx, rtv, clear);
+#ifdef DRAW_COPY_FIXTURE
+    if (frames == 0)
+#endif
     ((F_ClearDSV)VT(ctx)[53])(ctx, dsv, 1 /* CLEAR_DEPTH */, 1.0f, 0);
     ((F_SetState)VT(ctx)[43])(ctx, rs);
     ((F_SetDSS)VT(ctx)[36])(ctx, dss, 0);
@@ -197,6 +206,26 @@ MS uint32_t entry(void) {
     ((F_SetSlots)VT(ctx)[8])(ctx, 0, 1, &srv);
     ((F_DrawIndexed)VT(ctx)[12])(ctx, 6, 12, 0);
     if (((F_Present)VT(swap)[8])(swap, 0, 0) < 0) return 27;
+#ifdef DRAW_COPY_FIXTURE
+    if (frames == 0) {
+      /* Mutate both a sampled resource and a live color target after the first present.
+       * The next draw must upload the new color surface instead of restoring old pixels. */
+      void *replacement = 0, *surface = 0;
+      static const uint32_t yellow[4] = {0xff00ffffu,0xff00ffffu,0xff00ffffu,0xff00ffffu};
+      if (((F_CreateTex)VT(dev)[5])(dev, tx, 0, &replacement) < 0) return 29;
+      ((F_Update)VT(ctx)[48])(ctx, replacement, 0, 0, yellow, 8, 0);
+      typedef void (MS *Copy)(void*, void*, void*);
+      ((Copy)VT(ctx)[47])(ctx, tex, replacement);
+      uint8_t surface_desc[44]; zero(surface_desc, sizeof surface_desc);
+      put32(surface_desc,0,320); put32(surface_desc,4,240); put32(surface_desc,8,1);
+      put32(surface_desc,12,1); put32(surface_desc,16,28); put32(surface_desc,20,1);
+      if (((F_CreateTex)VT(dev)[5])(dev, surface_desc, 0, &surface) < 0) return 30;
+      static uint32_t cyan[320*240];
+      for (uint32_t i=0;i<320*240;++i) cyan[i]=0xffffff00u;
+      ((F_Update)VT(ctx)[48])(ctx, surface, 0, 0, cyan, 320*4, 0);
+      ((Copy)VT(ctx)[47])(ctx, bb, surface);
+    }
+#endif
     frames++;
   }
   return frames == 0 && !quit ? 28 : 0;
