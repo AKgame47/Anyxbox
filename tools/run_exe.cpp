@@ -1,7 +1,8 @@
 // run_exe --i-built-this <file.exe> [--window] [--controller] [--gpu] [--save-frame out.png] [--asset-root DIR]: run a self-built Windows x64 program through Anyxbox.
 // Prints unresolved imports, the exit code, captured output and the number of frames presented.
 // --gpu draws with the Vulkan backend (a software driver such as lavapipe is enough) so translated shaders decide the pixels;
-// without it the reference renderer ignores shader bytecode. --save-frame writes the last presented frame as a PNG.
+// without it the reference renderer ignores shader bytecode. Requested GPU initialization failure is fatal.
+// --save-frame writes the last presented frame as a PNG; missing frames or failed writes return failure.
 // --asset-root opts into read-only relative file access under an existing directory. No root means file opens fail.
 // This is path routing, not isolation of native guest code.
 // --window opens an SDL2 window when libSDL2 and a display exist; otherwise the run is headless.
@@ -47,7 +48,8 @@ static bool write_png(const char* path, const std::vector<uint8_t>& rgba, uint32
   be32(ihdr, w); be32(ihdr, h); ihdr.insert(ihdr.end(), {8, 6, 0, 0, 0});
   chunk(png, "IHDR", ihdr); chunk(png, "IDAT", z); chunk(png, "IEND", {});
   std::ofstream f(path, std::ios::binary); if (!f) return false;
-  f.write((const char*)png.data(), (std::streamsize)png.size()); return (bool)f;
+  f.write((const char*)png.data(), (std::streamsize)png.size());
+  f.flush(); f.close(); return (bool)f;
 }
 int main(int argc, char** argv) {
   auto parsed=anyxbox::parse_launcher_options(argc,argv);
@@ -82,14 +84,21 @@ int main(int argc, char** argv) {
       auto* b = be.get();
       rt.on_shaders_ubo = [b](const std::vector<uint32_t>& v, const std::vector<uint32_t>& p, bool ubo) { b->SetShaders(v, p, ubo); };
       std::puts("gpu: Vulkan backend active");
-    } else std::puts("gpu: no Vulkan device, using the reference renderer (shader bytecode ignored)");
+    } else {
+      std::fputs("gpu: requested Vulkan backend unavailable; refusing reference-renderer fallback\n",stderr);
+      return 1;
+    }
   }
   anyxbox::attach_window_present(rt, u);
   auto r = anyxbox::run_pe(d.data(), d.size(), true, [&](anyxbox::ImportRegistry& reg) { anyxbox::user32_register(reg, u); rt.register_imports(reg); if (controller) anyxbox::xinput_register(reg, xi); }, options);
   std::printf("loaded=%d ran=%d exit=%u error='%s'\n", r.loaded, r.ran, r.exit_code, r.error.c_str());
   for (auto& s : r.unresolved) std::printf("  missing import: %s\n", s.c_str());
   if (!r.output.empty()) std::printf("output: %s\n", r.output.c_str());
-  if (save && !rt.presented.empty()) std::printf("saved frame %s: %s\n", save, write_png(save, rt.presented, rt.presented_w, rt.presented_h) ? "ok" : "failed");
+  bool saved=true;
+  if(save){
+    saved=write_png(save,rt.presented,rt.presented_w,rt.presented_h);
+    std::printf("saved frame %s: %s\n",save,saved?"ok":"failed (no valid frame or output not writable)");
+  }
   std::printf("frames presented=%d d3d11 last_error='%s' shaders_translated=%d\n", rt.presents, rt.last_error.c_str(), (int)rt.shaders_translated);
-  return r.ran && r.exit_code == 0 ? 0 : 1;
+  return r.ran && r.exit_code == 0 && saved ? 0 : 1;
 }
