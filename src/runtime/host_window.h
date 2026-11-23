@@ -5,7 +5,7 @@
 #include <memory>
 namespace anyxbox {
 struct HostEvent {
-  enum Type { None, Quit, KeyDown, KeyUp, MouseMove, MouseDown, MouseUp, Resize } type = None;
+  enum Type { None, Quit, KeyDown, KeyUp, MouseMove, MouseDown, MouseUp, Resize, FocusLost } type = None;
   int32_t key = 0;        // Windows virtual-key code for keys
   int32_t x = 0, y = 0;   // mouse position, or new size for Resize
   int32_t button = 0;     // 1 left, 2 right, 3 middle
