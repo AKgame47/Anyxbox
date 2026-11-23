@@ -208,6 +208,7 @@ jobs:
           cat retained-resource-interfaces.log
           grep -q 'loaded=1 ran=1 exit=0' retained-resource-interfaces.log
           grep -q 'resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok' retained-resource-interfaces.log
+          grep -q 'resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok' retained-resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
