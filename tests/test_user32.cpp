@@ -53,7 +53,7 @@ int main() {
   CHECK(R<Show>("ShowWindow")(hw, 5) == 0 && host.opens == 1 && host.ow == 320 && host.oh == 200);
   int32_t rc4[4] = {9, 9, 9, 9}; CHECK(R<Rect>("GetClientRect")(hw, rc4) == 1 && rc4[2] == 320 && rc4[3] == 200);
   host.ev = {{HostEvent::KeyDown, 'A', 0, 0, 0}, {HostEvent::MouseMove, 0, 12, 34, 0}, {HostEvent::MouseDown, 0, 5, 6, 1}, {HostEvent::KeyUp, 0x25, 0, 0, 0}};
-  CHECK(R<Async>("GetAsyncKeyState")('A') == 0);
+  CHECK(R<Async>("GetAsyncKeyState")('A') == 0x8000);
   std::vector<MSG64> got; MSG64 m;
   while (R<Peek>("PeekMessageA")(&m, 0, 0, 0, 1)) { got.push_back(m); R<Disp>("DispatchMessageA")(&m); }
   CHECK(got.size() == 5);
@@ -64,6 +64,18 @@ int main() {
   CHECK(got[4].message == 0x101 && got[4].w == 0x25);
   CHECK(ctx.dispatched == 5);
   CHECK(R<Async>("GetAsyncKeyState")('A') == 0x8000);
+  // Async polling pumps host events without requiring a guest message read.
+  host.ev={{HostEvent::KeyDown,'B'},{HostEvent::KeyDown,'A'}};host.at=0;
+  CHECK(R<Async>("GetAsyncKeyState")('A')==0x8000 && R<Async>("GetAsyncKeyState")('B')==0x8000);
+  host.ev={{HostEvent::KeyUp,'A'}};host.at=0;
+  CHECK(R<Async>("GetAsyncKeyState")('A')==0 && R<Async>("GetAsyncKeyState")('B')==0x8000);
+  host.ev={{HostEvent::KeyDown,'B'},{HostEvent::KeyDown,-1},{HostEvent::KeyDown,256}};host.at=0;
+  CHECK(R<Async>("GetAsyncKeyState")('B')==0x8000);
+  CHECK(R<Async>("GetAsyncKeyState")(-1)==0 && R<Async>("GetAsyncKeyState")(256)==0);
+  host.ev={{HostEvent::FocusLost}};host.at=0;
+  CHECK(R<Async>("GetAsyncKeyState")('B')==0);
+  while(R<Peek>("PeekMessageA")(&m,0,0,0,1)) {}
+  std::puts("held-key checks: simultaneous keys, release, repeat, invalid codes and focus loss passed");
   // peek without remove keeps the message
   R<Post>("PostMessageA")(hw, 0x400, 1, 2);
   CHECK(R<Peek>("PeekMessageA")(&m, 0, 0, 0, 0) == 1 && m.message == 0x400);
