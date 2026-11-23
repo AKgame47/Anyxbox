@@ -172,3 +172,10 @@ API references for this backend:
 - Eight sampling modes at each supported slot, 32 total local software-Vulkan checks. New modes prove LOD-zero rebasing to mip 1 and out-of-view LOD clamping. COM tests verify valid/invalid ranges and generation confined to levels 1..2 while levels 0 and 3 remain unchanged.
 - Limits still include UNORM RGBA8/BGRA8, four slots, 256x256 Vulkan upload size, no arrays/compressed formats/nonzero-mip RTVs, and no physical GPU or game compatibility validation.
 - View semantics: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_tex2d_srv . Generation range: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-generatemips
+
+## Batch 55: host-backed resource copies
+- Context CopyResource (47) copies buffers or identically sized/formatted UNORM color textures including all mip levels. CopySubresourceRegion (46) copies byte ranges or pitched texel rectangles between supported subresources, without scaling or color conversion.
+- Same-resource whole copies, same-subresource region copies, mapped resources, immutable destinations, mismatched types/formats, invalid mip indices and out-of-bounds regions fail with diagnostics. Empty source boxes do nothing. Arithmetic checks avoid unsigned destination overflow.
+- Copies complete synchronously in host storage, not an asynchronous GPU queue. Render-target destinations are explicitly unsupported because persistent Vulkan render surfaces are not re-seeded from modified host pixels. Depth copies, arrays and format reinterpretation remain unsupported.
+- COM tests compare all bytes for whole mip chains and buffer copies, verify region rows and byte offsets, and exercise mapped/same-resource/bounds/empty-box behavior. All 32 local ASan/UBSan tests pass.
+- API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-copyresource and https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-copysubresourceregion
