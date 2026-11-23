@@ -94,6 +94,9 @@ struct MeshInput {
   bool depth = false;
   const TexInput* tex = nullptr;  // sampled at set 0 binding 0 (fragment stage)
   const std::vector<uint8_t>* frag_ubo = nullptr;  // Anyxbox: fragment uniform buffer at set 1 binding 0 (1..16384 bytes)
+  // Anyxbox: extra textures t1..t3 (needs `tex` as t0): plain 2D RGBA8, one level, at set 0 bindings 1..3, up to 256x256. Each carries its own
+  // sampler (linear/repeat). Other TexInput fields are ignored for extras.
+  const std::vector<TexInput>* extra_tex = nullptr;
   const std::vector<uint8_t>* vert_ubo = nullptr;  // Anyxbox: vertex uniform buffer at set 1 binding 1 (1..16384 bytes)
   FrameSurface* shared_frame = nullptr;  // slice S13: persistent targets; null = per-draw
   bool depth_write = true;               // DB_DEPTH_CONTROL depth_write_enable
@@ -250,7 +253,8 @@ public:
                                         int32_t depth_compare = VK_COMPARE_OP_LESS,
                                         const std::vector<uint32_t>* vertex_push = nullptr,
                                         const std::vector<uint8_t>* frag_ubo = nullptr,
-                               const std::vector<uint8_t>* vert_ubo = nullptr);
+                               const std::vector<uint8_t>* vert_ubo = nullptr,
+                               const std::vector<TexInput>* extra_tex = nullptr);
 
   // Texture-array variant (slice S27): float4 clip position + float3 colour +
   // float3 (u, v, layer) per vertex (10 floats); the fragment shader samples a
