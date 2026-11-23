@@ -13,7 +13,7 @@ namespace {
 const int32_t S_OK_ = 0;
 const int32_t E_NOTIMPL_ = (int32_t)0x80004001, E_NOINTERFACE_ = (int32_t)0x80004002, E_FAIL_ = (int32_t)0x80004005,
               E_INVALIDARG_ = (int32_t)0x80070057;
-enum Kind : uint32_t { K_DEVICE, K_CONTEXT, K_BUFFER, K_TEXTURE, K_RTV, K_VS, K_PS, K_LAYOUT, K_DEPTH, K_DSV, K_RS, K_DSS, K_BLEND, K_SWAPCHAIN, K_SRV, K_SAMPLER };
+enum Kind : uint32_t { K_DEVICE, K_CONTEXT, K_BUFFER, K_TEXTURE, K_RTV, K_VS, K_PS, K_LAYOUT, K_DEPTH, K_DSV, K_RS, K_DSS, K_BLEND, K_SWAPCHAIN, K_SRV, K_SAMPLER, K_FACTORY };
 struct Obj {
   void** vtbl;            // must be first: guest code reads it
   uint32_t refs = 1;
@@ -21,6 +21,7 @@ struct Obj {
   D3D11Runtime* rt;
   ResourceId id = 0;      // buffer / texture / rtv id
   std::vector<uint32_t> spirv;
+  std::vector<std::pair<uint32_t, uint32_t>> cb_layout; bool vs_ubo = false;   // shaders only
   std::vector<InputElement> layout;
   RasterizerDesc rs; DepthStencilDesc ds; BlendDesc bl;
   Obj* backbuffer = nullptr;   // swap chain only
@@ -47,7 +48,7 @@ MSABI uint32_t release(void* self) {
 
 struct D3D11Runtime::Impl {
   Obj device, context;
-  void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* sc_vt[20];
+  void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* sc_vt[20]; void* fac_vt[25];
   // bound state
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* swapchain = nullptr;
   Impl() {}
@@ -204,8 +205,8 @@ MSABI int32_t dev_CreateInputLayout(void* self, const ElemDesc* e, uint32_t n, c
   Obj* o = make(rt, K_LAYOUT, 0);
   for (uint32_t i = 0; i < n; i++) {
     Format f = fmt_from_dxgi(e[i].format);
-    if (f == Format::Unknown || e[i].slot != 0 || !e[i].name) { delete o; rt->last_error = "unsupported input element"; return E_INVALIDARG_; }
-    o->layout.push_back({e[i].name, f, e[i].offset});
+    if (f == Format::Unknown || e[i].slot >= 16 || !e[i].name) { delete o; rt->last_error = "unsupported input element"; return E_INVALIDARG_; }
+    o->layout.push_back({e[i].name, f, e[i].offset, e[i].slot});
   }
   if (out) *out = o; else delete o;
   return S_OK_;
@@ -219,7 +220,7 @@ int32_t create_shader(void* self, const void* code, size_t len, void** out, Kind
     return E_INVALIDARG_;
   }
   rt->shaders_translated++;
-  Obj* o = make(rt, k, 0); o->spirv = std::move(r.words);
+  Obj* o = make(rt, k, 0); o->spirv = std::move(r.words); o->cb_layout = std::move(r.cb_layout); o->vs_ubo = r.vs_ubo;
   if (out) *out = o; else delete o;
   return S_OK_;
 }
@@ -244,9 +245,8 @@ MSABI void ctx_IASetInputLayout(void* self, void* layout) {
 }
 MSABI void ctx_IASetVertexBuffers(void* self, uint32_t start, uint32_t n, void* const* bufs, const uint32_t* strides, const uint32_t* offsets) {
   D3D11Runtime* rt = G(self);
-  if (start != 0 || n != 1 || !bufs || !strides || !offsets) { rt->last_error = "only vertex buffer slot 0 is supported"; return; }
-  Obj* b = (Obj*)bufs[0];
-  rt->ctx->IASetVertexBuffer(b ? b->id : 0, strides[0], offsets[0]);
+  if (start >= 16 || n > 16 - start || !bufs || !strides || !offsets) { rt->last_error = "vertex buffer slots must lie within 0..15"; return; }
+  for (uint32_t i = 0; i < n; i++) { Obj* b = (Obj*)bufs[i]; rt->ctx->IASetVertexBufferSlot(start + i, b ? b->id : 0, strides[i], offsets[i]); }
 }
 MSABI void ctx_IASetPrimitiveTopology(void* self, uint32_t t) {
   G(self)->ctx->IASetPrimitiveTopology(t == 4 ? Topology::TriangleList : Topology::Undefined);
@@ -290,7 +290,11 @@ MSABI void ctx_IASetIndexBuffer(void* self, void* buf, uint32_t fmt, uint32_t of
 MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t base) {
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
-  if (vs && ps && rt->on_shaders) rt->on_shaders(vs->spirv, ps->spirv);
+  if (vs && ps) {
+    rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout);
+    if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
+    else if (rt->on_shaders) rt->on_shaders(vs->spirv, ps->spirv);
+  }
   if (!rt->ctx->DrawIndexed(count, start, base)) rt->last_error = rt->ctx->last_error();
 }
 // Raw bytes of a buffer or texture resource, for Map / UpdateSubresource.
@@ -352,7 +356,11 @@ MSABI void ctx_ClearRenderTargetView(void* self, void* rtv, const float* rgba) {
 MSABI void ctx_Draw(void* self, uint32_t count, uint32_t start) {
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
-  if (vs && ps && rt->on_shaders) rt->on_shaders(vs->spirv, ps->spirv);
+  if (vs && ps) {
+    rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout);
+    if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
+    else if (rt->on_shaders) rt->on_shaders(vs->spirv, ps->spirv);
+  }
   if (!rt->ctx->Draw(count, start)) rt->last_error = rt->ctx->last_error();
 }
 }  // namespace
@@ -360,6 +368,12 @@ MSABI void ctx_Draw(void* self, uint32_t count, uint32_t start) {
 namespace {
 MSABI int32_t sc_Present(void* self, uint32_t sync, uint32_t flags);
 MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* iid, void** out);
+}
+namespace {
+MSABI int32_t fac_EnumAdapters(void*, uint32_t, void** out);
+MSABI int32_t fac_MakeWindowAssociation(void*, void*, uint32_t);
+MSABI int32_t fac_CreateSwapChain(void*, void*, const uint8_t*, void**);
+MSABI int32_t fac_IsCurrent(void*);
 }
 D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   ctx.reset(new DeviceContext(dev));
@@ -384,6 +398,9 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   I.ctx_vt[53] = (void*)&ctx_ClearDepthStencilView; I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
   for (auto& p : I.sc_vt) p = (void*)&stub_notimpl;
   I.sc_vt[0] = (void*)&qi; I.sc_vt[1] = (void*)&addref; I.sc_vt[2] = (void*)&release;
+  for (auto& p : I.fac_vt) p = (void*)&stub_notimpl;
+  I.fac_vt[0] = (void*)&qi; I.fac_vt[1] = (void*)&addref; I.fac_vt[2] = (void*)&release;
+  I.fac_vt[7] = (void*)&fac_EnumAdapters; I.fac_vt[8] = (void*)&fac_MakeWindowAssociation; I.fac_vt[10] = (void*)&fac_CreateSwapChain; I.fac_vt[13 - 0] = (void*)&fac_IsCurrent;
   I.sc_vt[8] = (void*)&sc_Present; I.sc_vt[9] = (void*)&sc_GetBuffer;
   I.device.vtbl = I.dev_vt; I.device.kind = K_DEVICE; I.device.rt = this;
   I.context.vtbl = I.ctx_vt; I.context.kind = K_CONTEXT; I.context.rt = this;
@@ -409,6 +426,41 @@ MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* /*iid*/, v
   sc->backbuffer->refs++; *out = sc->backbuffer; return S_OK_;
 }
 D3D11Runtime* g_rt = nullptr;   // one runtime per guest run; set by register_imports
+// DXGI_SWAP_CHAIN_DESC Width@0 Height@4 Format@16 SampleCount@28 BufferCount@40 (72 bytes); shared by CreateSwapChain and D3D11CreateDeviceAndSwapChain
+int32_t create_swapchain(const uint8_t* desc, void** swap) {
+  *swap = nullptr;
+  if (!desc) return E_INVALIDARG_;
+  uint32_t w, h, fmt, samples; std::memcpy(&w, desc, 4); std::memcpy(&h, desc + 4, 4); std::memcpy(&fmt, desc + 16, 4); std::memcpy(&samples, desc + 28, 4);
+  if (w == 0) w = 640;
+  if (h == 0) h = 480;   // 0 means "size of the window", which this headless runtime does not have
+  Format f = fmt == 0 ? Format::R8G8B8A8_UNORM : fmt_from_dxgi(fmt);
+  if ((f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) || samples > 1) return E_INVALIDARG_;
+  ResourceId tid = g_rt->dev.CreateTexture2D(w, h, f);
+  if (!tid) return E_INVALIDARG_;
+  Obj* sc = make(g_rt, K_SWAPCHAIN, 0); sc->vtbl = (void**)g_rt->impl->sc_vt;
+  sc->backbuffer = make(g_rt, K_TEXTURE, tid);
+  g_rt->impl->swapchain = sc;
+  *swap = sc;
+  return S_OK_;
+}
+// IDXGIFactory (slots from https://reverseengineering.wiki/index.php/Fact:DXGI/enum/IDXGIFactory_vtable_slots):
+// MakeWindowAssociation 8, CreateSwapChain 10, EnumAdapters 7 (no adapters are exposed), IsCurrent 13 (IDXGIFactory1).
+const int32_t DXGI_ERROR_NOT_FOUND_ = (int32_t)0x887A0002;
+MSABI int32_t fac_EnumAdapters(void*, uint32_t, void** out) { if (out) *out = nullptr; return DXGI_ERROR_NOT_FOUND_; }
+MSABI int32_t fac_MakeWindowAssociation(void*, void*, uint32_t) { return S_OK_; }
+MSABI int32_t fac_CreateSwapChain(void* /*self*/, void* /*device*/, const uint8_t* desc, void** out) {
+  if (!out || !g_rt) return E_INVALIDARG_;
+  return create_swapchain(desc, out);
+}
+MSABI int32_t fac_IsCurrent(void*) { return 1; }
+// CreateDXGIFactory / CreateDXGIFactory1(REFIID, void**): any requested interface id gets the factory (IUnknown/IDXGIFactory/IDXGIFactory1 share one vtable).
+MSABI int32_t host_CreateDXGIFactory(const uint8_t* /*iid*/, void** out) {
+  if (!out) return E_INVALIDARG_;
+  *out = nullptr;
+  if (!g_rt) return E_FAIL_;
+  Obj* f = make(g_rt, K_FACTORY, 0); f->vtbl = (void**)g_rt->impl->fac_vt;
+  *out = f; return S_OK_;
+}
 MSABI int32_t host_D3D11CreateDevice(void* /*adapter*/, uint32_t /*driver*/, void* /*software*/, uint32_t /*flags*/,
                                      const uint32_t* /*levels*/, uint32_t /*n*/, uint32_t /*sdk*/, void** dev,
                                      uint32_t* level, void** ctx) {
@@ -423,27 +475,15 @@ MSABI int32_t host_D3D11CreateDeviceAndSwapChain(void* adapter, uint32_t driver,
                                                  uint32_t nlevels, uint32_t sdk, const uint8_t* desc, void** swap, void** dev,
                                                  uint32_t* level, void** ctx) {
   if (!g_rt) return E_FAIL_;
-  if (swap) {
-    *swap = nullptr;
-    if (!desc) return E_INVALIDARG_;
-    uint32_t w, h, fmt, samples; std::memcpy(&w, desc, 4); std::memcpy(&h, desc + 4, 4); std::memcpy(&fmt, desc + 16, 4); std::memcpy(&samples, desc + 28, 4);
-    if (w == 0) w = 640;
-    if (h == 0) h = 480;   // 0 means "size of the window", which this headless runtime does not have
-    Format f = fmt == 0 ? Format::R8G8B8A8_UNORM : fmt_from_dxgi(fmt);
-    if ((f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) || samples > 1) return E_INVALIDARG_;
-    ResourceId tid = g_rt->dev.CreateTexture2D(w, h, f);
-    if (!tid) return E_INVALIDARG_;
-    Obj* sc = make(g_rt, K_SWAPCHAIN, 0); sc->vtbl = (void**)g_rt->impl->sc_vt;
-    sc->backbuffer = make(g_rt, K_TEXTURE, tid);
-    g_rt->impl->swapchain = sc;
-    *swap = sc;
-  }
+  if (swap) { int32_t hr = create_swapchain(desc, swap); if (hr != S_OK_) return hr; }
   int32_t hr = host_D3D11CreateDevice(adapter, driver, software, flags, levels, nlevels, sdk, dev, level, ctx);
   return hr;
 }
 }  // namespace
 void D3D11Runtime::register_imports(ImportRegistry& reg) {
   g_rt = this;
+  reg.add("dxgi.dll", "CreateDXGIFactory", (uint64_t)(uintptr_t)&host_CreateDXGIFactory);
+  reg.add("dxgi.dll", "CreateDXGIFactory1", (uint64_t)(uintptr_t)&host_CreateDXGIFactory);
   reg.add("d3d11.dll", "D3D11CreateDevice", (uint64_t)(uintptr_t)&host_D3D11CreateDevice);
   reg.add("d3d11.dll", "D3D11CreateDeviceAndSwapChain", (uint64_t)(uintptr_t)&host_D3D11CreateDeviceAndSwapChain);
 }
