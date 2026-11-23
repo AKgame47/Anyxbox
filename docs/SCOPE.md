@@ -158,3 +158,10 @@ API references for this backend:
 - Additional Vulkan texture bindings upload their packed mip chains, expose all levels in the image view, and use the selected sampler's mip filter and LOD bounds.
 - The five explicit-level/filter/clamp cases from batch 51 now run separately at each supported texture slot, twenty actual software-Vulkan sampling checks in total. Higher slots also exercise zero-filled lower unbound slots. All passed locally along with all 32 ASan/UBSan test programs.
 - This removes the t0-only restriction for mip sampling. Remaining limits stay: four texture slots, 256x256 Vulkan upload limit, no GenerateMips, no subset views, no compressed texture formats or arrays, and no physical GPU or real game compatibility validation.
+
+## Batch 53: GenerateMips for RGBA8/BGRA8
+- Context vtable slot 54 generates the full SRV's lower levels recursively from its base level when the texture was created with both render-target/shader-resource bind flags and GENERATE_MIPS. Missing flags leave it unchanged, matching the documented API gate.
+- The model uses a CPU area-weighted box reduction, including odd final rows/columns, per stored channel. This is a chosen filter, not a promise of bit-exact agreement with every D3D driver. RGBA8/BGRA8 UNORM only; sRGB is not supported.
+- Tests check odd dimensions, all channels, recursive levels, regeneration after base edits, invalid IDs and COM flag gating. A generated checkerboard chain is sampled through translated DXBC on software Vulkan at each t0..t3 slot; all return the expected reduced color. Total mip sampling checks: 24.
+- No GPU compute generation, subset views, arrays, compressed formats or physical GPU validation. Existing resource limits still apply.
+- API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-generatemips
