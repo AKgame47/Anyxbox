@@ -194,3 +194,8 @@ API references for this backend:
 - CI builds texture_copy.cpp using MinGW's D3D11 headers and calls COM methods from that independently compiled Windows executable. It checks whole mip-chain copies, region copies, staging Map readback and generated mip copying.
 - The fixture uses proper default-source and staging-readback resource descriptors. It prints four success lines and exits zero if all checks pass. Its build/run step is strict.
 - No local MinGW toolchain is available, so compilation/execution of this new fixture awaits CI. It is not yet a committed executable regression. This adds no production functionality and makes no new compatibility claim.
+
+## Batch 59: committed independently compiled texture-copy regression
+- Added the exact texture_copy.exe from CI run 141 as texture_copy.run.exe, with recorded source commit, build command and SHA-256 in the fixture README.
+- test_fixture_slot now requires its four exact output lines, successful exit, empty runtime error, zero presented frames and zero translated shaders. The independent Windows binary passed locally with address/undefined-behavior sanitizers after relinking run_exe to the current runtime objects.
+- This is copy/readback coverage only. It does not add drawing or prove physical-GPU or game compatibility.
