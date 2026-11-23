@@ -133,6 +133,7 @@ jobs:
           for method in region update map; do
             ./import_gap draw_${method}.exe
             ./tbin/test_fixture_draw_${method} draw_${method}.exe --require-vulkan draw-${method}-frame
+            ./tbin/test_fixture_draw_${method} tests/fixtures/draw_${method}.run.exe --require-vulkan committed-draw-${method}-frame
           done
       - name: Run separately compiled texture-copy fixture (strict)
         run: |
@@ -164,6 +165,9 @@ jobs:
             draw_region.exe
             draw_update.exe
             draw_map.exe
+            committed-draw-region-frame*.ppm
+            committed-draw-update-frame*.ppm
+            committed-draw-map-frame*.ppm
             draw-region-frame*.ppm
             draw-update-frame*.ppm
             draw-map-frame*.ppm
