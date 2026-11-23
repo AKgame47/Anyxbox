@@ -59,6 +59,32 @@ int main() {
   b = image(true, 0x100);                      // template address outside the image
   auto img = anyxbox::load_pe_image(b.data(), b.size(), nullptr);
   CHECK(!img.ok && img.error.find("tls") != std::string::npos);
+  // The mapper accepts in-image callback pointers; launch policy requires code.
+  auto reject_callback=[&](std::vector<uint8_t> bytes){
+    auto mapped=anyxbox::load_pe_image(bytes.data(),bytes.size(),nullptr);
+    if(!mapped.ok)return false;
+    auto result=anyxbox::run_pe(bytes.data(),bytes.size(),true);
+    return !result.loaded&&!result.ran&&result.output.empty()&&result.error=="TLS callback is not within an executable section";
+  };
+  const uint64_t base=0x140000000ull;const size_t opt=0x98,section=opt+240;
+  for(uint32_t callback:{0x40u,0x2000u,0x2200u,0x1107u}){
+    auto bytes=image(true);w64(bytes,0x900,base+callback);
+    if(callback==0x1107u)w32(bytes,section+8,0x107); // exact section end, still in executable page
+    CHECK(reject_callback(bytes));
+  }
+  {auto bytes=image(true);w32(bytes,opt+56,0x4000);w32(bytes,section+8,0x107);w64(bytes,0x900,base+0x1fff);
+    CHECK(reject_callback(bytes));} // rounded-page tail
+  // A valid first callback would fault (UD2) if called. Invalid second must win first.
+  {auto bytes=image(true);bytes[0x300]=0x0f;bytes[0x301]=0x0b;
+    w64(bytes,0x908,base+0x2200);w64(bytes,0x910,0);
+    // Add relocation for the second callback pointer, using the existing padding slot.
+    w16(bytes,0xb12,0xA308);
+    CHECK(reject_callback(bytes));}
+  // First-byte executable extent is enough for this policy; instruction validity is separate.
+  {auto bytes=image(true);w32(bytes,section+8,0x107);w32(bytes,section+16,0x107);
+    auto result=anyxbox::run_pe(bytes.data(),bytes.size(),true);
+    CHECK(result.loaded&&result.ran&&result.exit_code==107);}
+  std::puts("TLS launch policy: header/data/exact-end/page-tail callbacks and invalid later list member rejected before execution");
   std::puts("test_tls ok");
   return 0;
 }
