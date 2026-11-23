@@ -44,7 +44,7 @@ jobs:
         run: |
           mkdir -p obj
           # explicit list: the tree also holds files from the AnyPS5 import that no target builds (for example src/syslayer/services.cpp)
-          for f in src/gfx/d3d11_model.cpp src/gfx/d3d11_vulkan.cpp src/gfx/render.cpp src/gfx/vulkan.cpp src/loader/pe_header.cpp src/loader/pe_image.cpp src/loader/pe_report.cpp src/runtime/d3d11_runtime.cpp src/runtime/devices.cpp src/runtime/host_window.cpp src/runtime/kernel32.cpp src/runtime/msvcrt.cpp src/runtime/run_pe.cpp src/runtime/teb.cpp src/runtime/user32.cpp src/shader/dxbc.cpp src/shader/dxbc_spirv.cpp src/syslayer/import_registry.cpp src/syslayer/win32_file.cpp src/syslayer/win32_memory.cpp src/syslayer/win32_sync.cpp src/syslayer/win32_thread.cpp; do
+          for f in src/gfx/d3d11_model.cpp src/gfx/d3d11_vulkan.cpp src/gfx/render.cpp src/gfx/vulkan.cpp src/loader/pe_header.cpp src/loader/pe_image.cpp src/loader/pe_report.cpp src/runtime/d3d11_runtime.cpp src/runtime/devices.cpp src/runtime/host_window.cpp src/runtime/kernel32.cpp src/runtime/msvcrt.cpp src/runtime/run_pe.cpp src/runtime/seh.cpp src/runtime/teb.cpp src/runtime/user32.cpp src/shader/dxbc.cpp src/shader/dxbc_spirv.cpp src/syslayer/import_registry.cpp src/syslayer/win32_file.cpp src/syslayer/win32_memory.cpp src/syslayer/win32_sync.cpp src/syslayer/win32_thread.cpp; do
             g++ -std=c++17 -O1 -Isrc -c "$f" -o "obj/$(echo "$f" | tr / _).o"
           done
           g++ -std=c++17 -O1 -Isrc tools/import_gap.cpp obj/*.o -ldl -lpthread -o import_gap
