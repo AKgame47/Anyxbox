@@ -61,6 +61,7 @@ std::vector<uint8_t> build_guest(bool scissor = false) {
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, BUF);
   a.lea(0, STRIDE); a.store_stack_rax(0x20); a.lea(0, OFFSET); a.store_stack_rax(0x28); a.vcall(18);
   a.on(CTX); a.mov_edx(4); a.vcall(24);
+  a.on(LAY);a.vcall(2);a.on(RS);a.vcall(2);a.on(DSS);a.vcall(2);a.on(BLS);a.vcall(2); // caller state refs released after binding
   a.on(CTX); a.load(2, VS); a.zero_r8(); a.zero_r9(); a.vcall(11);
   a.on(CTX); a.load(2, PS); a.zero_r8(); a.zero_r9(); a.vcall(9);
   a.on(CTX); a.mov_edx(6); a.zero_r8(); a.vcall(13);                                               // Draw(6, 0)
