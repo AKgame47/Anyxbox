@@ -189,3 +189,8 @@ API references for this backend:
 ## Batch 57: COM-to-Vulkan write/copy regression coverage
 - Eight integration cases join the previously separate COM copy and Vulkan synchronization tests. A live Vulkan color target is first drawn, then changed through CopyResource, CopySubresourceRegion, UpdateSubresource or Map/Unmap; a smaller second draw must preserve the changed background. Each path runs for RGBA8 and BGRA8, with final pixels read through COM Map.
 - These are host tests using Windows-ABI vtables plus actual local software Vulkan, not new independently compiled guest binaries. Both channel orders and all four mutation paths pass. All 32 ASan/UBSan test programs pass. Production behavior and remaining limits are unchanged from batch 56.
+
+## Batch 58: separately compiled texture-copy fixture source
+- CI builds texture_copy.cpp using MinGW's D3D11 headers and calls COM methods from that independently compiled Windows executable. It checks whole mip-chain copies, region copies, staging Map readback and generated mip copying.
+- The fixture uses proper default-source and staging-readback resource descriptors. It prints four success lines and exits zero if all checks pass. Its build/run step is strict.
+- No local MinGW toolchain is available, so compilation/execution of this new fixture awaits CI. It is not yet a committed executable regression. This adds no production functionality and makes no new compatibility claim.
