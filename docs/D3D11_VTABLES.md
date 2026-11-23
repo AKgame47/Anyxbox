@@ -22,3 +22,11 @@ Device: CreateShaderResourceView 7, CreateSamplerState 23. Context: PSSetShaderR
 IASetIndexBuffer 19, UpdateSubresource 48 (same listings as above; mingw-w64 d3d11.h order).
 Supported: SRV of a 2D texture at t0, a point or linear sampler at s0 with WRAP or CLAMP (U and V equal), 16 and 32 bit indices, buffers and RGBA8/BGRA8
 textures for UpdateSubresource and Map (all five map types use a staging copy that Unmap writes back). MipLevels 0 or 1 creates the base level only.
+
+## Constant buffer slots, vertex buffer slots, dxgi.dll factory
+Context: VSSetConstantBuffers 7 / PSSetConstantBuffers 16 now accept slots 0..13; IASetVertexBuffers 18 accepts slots 0..15 (per-vertex data only, no instancing);
+input elements carry their slot. The context packs the bound constant buffers for the translator (see SetConstantLayout in gfx/d3d11_model.h).
+dxgi.dll exports CreateDXGIFactory and CreateDXGIFactory1. The factory object implements: MakeWindowAssociation 8 (ok, no-op), CreateSwapChain 10 (same headless swap chain as
+D3D11CreateDeviceAndSwapChain), EnumAdapters 7 (returns DXGI_ERROR_NOT_FOUND, no adapters are exposed), IsCurrent 13. All other slots return E_NOTIMPL.
+Slots: https://reverseengineering.wiki/index.php/Fact:DXGI/enum/IDXGIFactory_vtable_slots (mingw-w64 dxgi.h / dxgi1_2.h member order).
+Not supported yet: more than one texture/sampler (t0/s0 only), instanced vertex data, GetParent/QueryInterface for other DXGI interface ids on the factory.
