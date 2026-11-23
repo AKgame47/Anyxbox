@@ -306,3 +306,13 @@ https://github.com/mingw-w64/mingw-w64/blob/master/mingw-w64-headers/include/d3d
 API behavior references:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicechild-getdevice
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11resource-gettype
+
+## Batch 73: retain independent resource interface regression
+
+The exact run-212 resource_interfaces.exe is retained with source/hash provenance.
+The fixture-slot test now runs sixteen independent retained programs and requires the
+resource probe's exact output, zero exit, no graphics activity and empty D3D11 error.
+CI keeps fresh/retained interface probe execution separate and strict. All 41 local
+ASan/UBSan test programs pass with this independent binary. No production change,
+new scene or new test target. The batch-72 lifetime/device-retention/ownership and
+thread-safety limits remain, including disabled leak checking in the local suite.
