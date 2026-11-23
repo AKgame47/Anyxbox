@@ -161,3 +161,7 @@ add_executable(run_exe tools/run_exe.cpp)
 target_link_libraries(run_exe anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_loader)
 add_executable(gen_fixture_shaders tools/gen_fixture_shaders.cpp)
 target_include_directories(gen_fixture_shaders PRIVATE tests)
+
+add_executable(test_crt_startup tests/test_crt_startup.cpp)
+target_link_libraries(test_crt_startup anyxbox_runtime)
+add_test(NAME crt_startup COMMAND test_crt_startup)
