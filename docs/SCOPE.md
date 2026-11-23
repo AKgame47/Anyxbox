@@ -852,3 +852,18 @@ fixture/scene/CMake target/release. This is a supported-subset reset, not full
 D3D11 state/lifetime/validation, model reclamation, thread safety or host isolation.
 Runtime lifetime still required. No physical-device/input/game claim. Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-clearstate
+
+## Batch99: retain verified independent ClearState regression
+
+Replaces the same resource probe with exact run313 bytes from source d437ba3.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports;
+direct execution passes all eleven markers, zero exit, two translated shaders,
+zero presents and empty error. Fixture-slot requires exact output and retained
+CI requires ClearState marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Independent ClearState evidence is repeated reset/shared VS/PS buffer release.
+Other binding-category release remains unit evidence; rendered defaults/backend
+reuse are not established. Supported subset only, not full D3D11 state, lifetime,
+validation, reclamation, thread safety or native isolation. Runtime lifetime still
+required. No physical-device/input or Xbox-game compatibility evidence is added.
