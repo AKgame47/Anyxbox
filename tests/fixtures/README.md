@@ -38,3 +38,12 @@ SHA-256: `3ca114889b4e22f7a47bf20c2180b9676569fb7b54d9eae38f833ef662f6be69` (156
 The directory-mode draw-copy test now runs both the source-call path and this retained binary.
 CI also explicitly verifies the retained binary with required Vulkan, separate from the freshly built binary.
 `test_fixture_slot` requires zero exit, empty output/error, two presents and four shader translations.
+
+## draw_region.c, draw_update.c, draw_map.c
+These select methods 1, 2 and 3 of the shared scene draw-copy fixture.
+Region-copy and UpdateSubresource replace only the right texture column and top 20 backbuffer rows.
+Their verifier also checks the left column and lower background stay unchanged.
+Map/Unmap writes a dynamic sampled texture directly. For the backbuffer it writes a staging texture,
+then CopyResource transfers staging bytes to the live target, rather than mapping a default render target.
+All use two presents and require Vulkan in CI's independently compiled binary checks. Fresh executables
+and both frames are retained. Independent compilation/execution of these new variants awaits CI.
