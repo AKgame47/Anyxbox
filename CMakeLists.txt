@@ -165,3 +165,9 @@ target_include_directories(gen_fixture_shaders PRIVATE tests)
 add_executable(test_crt_startup tests/test_crt_startup.cpp)
 target_link_libraries(test_crt_startup anyxbox_runtime)
 add_test(NAME crt_startup COMMAND test_crt_startup)
+
+# src/runtime/teb.cpp is used by kernel32.cpp and run_pe.cpp, so it belongs to the runtime target
+target_sources(anyxbox_runtime PRIVATE src/runtime/teb.cpp)
+add_executable(test_teb tests/test_teb.cpp)
+target_link_libraries(test_teb anyxbox_runtime)
+add_test(NAME teb COMMAND test_teb)
