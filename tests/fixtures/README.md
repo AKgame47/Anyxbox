@@ -31,3 +31,10 @@ Frame 2 redraws without clearing either color or depth, using LESS_EQUAL depth t
 requires Vulkan, checks pixels from both presents and retains both frames as PPM images.
 With a fixture-directory argument instead of an executable, the test runs the same source as host calls.
 That local host-source test is not proof of the MinGW binary; its compile and execution await CI.
+
+The committed `draw_copy.run.exe` is the exact MinGW artifact from run 149 at c2aaad5:
+https://github.com/AKgame47/Anyxbox/actions/runs/45232791579/job/137896509288
+SHA-256: `3ca114889b4e22f7a47bf20c2180b9676569fb7b54d9eae38f833ef662f6be69` (15610 bytes).
+The directory-mode draw-copy test now runs both the source-call path and this retained binary.
+CI also explicitly verifies the retained binary with required Vulkan, separate from the freshly built binary.
+`test_fixture_slot` requires zero exit, empty output/error, two presents and four shader translations.
