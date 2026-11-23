@@ -21,9 +21,10 @@ void C_pump_one(const HostEvent& e) {
   GuestMsg g; g.hwnd = hw;
   auto pos = [&](int x, int y) { return (uint64_t)(((uint32_t)(y & 0xFFFF) << 16) | (uint32_t)(x & 0xFFFF)); };
   switch (e.type) {
-    case HostEvent::Quit: g.msg = WM_CLOSE; break;
-    case HostEvent::KeyDown: g.msg = WM_KEYDOWN; g.wparam = (uint64_t)e.key; C->last_key_down = (uint32_t)e.key; break;
-    case HostEvent::KeyUp: g.msg = WM_KEYUP; g.wparam = (uint64_t)e.key; break;
+    case HostEvent::Quit: C->keys_down.fill(false); g.msg = WM_CLOSE; break;
+    case HostEvent::FocusLost: C->keys_down.fill(false); g.msg=8 /* WM_KILLFOCUS */;break;
+    case HostEvent::KeyDown: g.msg = WM_KEYDOWN; g.wparam = (uint64_t)e.key; if(e.key>0 && e.key<256) C->keys_down[e.key]=true; break;
+    case HostEvent::KeyUp: g.msg = WM_KEYUP; g.wparam = (uint64_t)e.key; if(e.key>0 && e.key<256) C->keys_down[e.key]=false;break;
     case HostEvent::MouseMove: g.msg = WM_MOUSEMOVE; g.lparam = pos(e.x, e.y); g.px = e.x; g.py = e.y; break;
     case HostEvent::MouseDown: g.msg = e.button == 2 ? WM_RBUTTONDOWN : WM_LBUTTONDOWN; g.lparam = pos(e.x, e.y); g.px = e.x; g.py = e.y; break;
     case HostEvent::MouseUp: g.msg = e.button == 2 ? WM_RBUTTONUP : WM_LBUTTONUP; g.lparam = pos(e.x, e.y); g.px = e.x; g.py = e.y; break;
@@ -86,7 +87,7 @@ MSABI uint32_t u_DestroyWindow(uint64_t h) {
   if (!C->windows.count(h)) return 0;
   call_proc(h, WM_DESTROY, 0, 0);
   C->windows.erase(h);
-  if (C->windows.empty() && C->host) C->host->close();
+  if (C->windows.empty()) {C->keys_down.fill(false);if(C->host)C->host->close();}
   return 1;
 }
 MSABI uint32_t u_ShowWindow(uint64_t h, int cmd) {
@@ -138,7 +139,10 @@ MSABI uint64_t u_LoadIconA(uint64_t, const char*) { return 0x7002; }
 MSABI int32_t u_MessageBoxA(uint64_t, const char* text, const char* cap, uint32_t) {
   C->last_message_box = std::string(nz(cap)) + ": " + nz(text); return 1;
 }
-MSABI uint16_t u_GetAsyncKeyState(int vk) { return (uint32_t)vk == C->last_key_down && vk ? 0x8000 : 0; }
+MSABI uint16_t u_GetAsyncKeyState(int vk) {
+  C->pump_host();
+  return vk>0 && vk<256 && C->keys_down[vk] ? 0x8000 : 0;
+}
 MSABI uint32_t u_IsWindow(uint64_t h) { return C->windows.count(h) ? 1 : 0; }
 MSABI int64_t u_SetWindowLongPtrA(uint64_t h, int idx, int64_t v) {
   auto it = C->windows.find(h); if (it == C->windows.end() || idx != -21) return 0;     // GWLP_USERDATA only
