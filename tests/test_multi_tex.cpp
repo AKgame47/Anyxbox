@@ -70,6 +70,30 @@ int main() {
     CHECK(map(ctx,tex,3,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==77); unmap(ctx,tex,3);
     slot<uint32_t (MS *)(void*)>(srv,2)(srv); slot<uint32_t (MS *)(void*)>(tex,2)(tex);
     std::puts("COM subset GenerateMips preserves levels outside the view");
+    auto copy=slot<void (MS *)(void*,void*,void*)>(ctx,47);
+    auto region=slot<void (MS *)(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const uint32_t*)>(ctx,46);
+    void* source=nullptr;void* dest=nullptr;desc[8]=8;desc[10]=0;desc[0]=4;desc[1]=4;
+    auto texture=slot<int32_t (MS *)(void*,const uint32_t*,const Init*,void**)>(dev,5);
+    CHECK(texture(dev,desc,nullptr,&source)==0 && texture(dev,desc,nullptr,&dest)==0);
+    uint8_t pattern[64]; for(int i=0;i<64;++i) pattern[i]=(uint8_t)i;
+    update(ctx,source,0,nullptr,pattern,16,0);update(ctx,source,1,nullptr,pattern,8,0);update(ctx,source,2,nullptr,pattern,4,0);
+    copy(ctx,dest,source);
+    for(uint32_t l=0;l<3;++l) {CHECK(map(ctx,dest,l,1,0,&mapped)==0);CHECK(std::memcmp(mapped.p,pattern,(4u>>l)*(4u>>l)*4)==0);unmap(ctx,dest,l);}
+    uint32_t box[6]={1,1,0,3,3,1};region(ctx,dest,0,0,0,0,source,0,box);
+    CHECK(map(ctx,dest,0,1,0,&mapped)==0);CHECK(std::memcmp(mapped.p,pattern+20,8)==0 && std::memcmp((uint8_t*)mapped.p+16,pattern+36,8)==0);unmap(ctx,dest,0);
+    rt.last_error.clear();region(ctx,dest,0,~0u,0,0,source,0,box);CHECK(!rt.last_error.empty());
+    rt.last_error.clear();box[3]=box[0];region(ctx,dest,0,0,0,0,source,0,box);CHECK(rt.last_error.empty());
+    CHECK(map(ctx,source,0,1,0,&mapped)==0);copy(ctx,dest,source);CHECK(!rt.last_error.empty());unmap(ctx,source,0);rt.last_error.clear();
+    copy(ctx,source,source);CHECK(!rt.last_error.empty());rt.last_error.clear();
+    slot<uint32_t (MS *)(void*)>(source,2)(source);slot<uint32_t (MS *)(void*)>(dest,2)(dest);
+    uint32_t bd[6]={16,0,1,0,0,0};Init bi{pattern,0,0};
+    auto buffer=slot<int32_t (MS *)(void*,const uint32_t*,const Init*,void**)>(dev,3);
+    CHECK(buffer(dev,bd,&bi,&source)==0 && buffer(dev,bd,nullptr,&dest)==0);copy(ctx,dest,source);
+    CHECK(map(ctx,dest,0,1,0,&mapped)==0);CHECK(std::memcmp(mapped.p,pattern,16)==0);unmap(ctx,dest,0);
+    uint32_t bb[6]={4,0,0,12,1,1};region(ctx,dest,0,0,0,0,source,0,bb);
+    CHECK(map(ctx,dest,0,1,0,&mapped)==0);CHECK(std::memcmp(mapped.p,pattern+4,8)==0);unmap(ctx,dest,0);
+    slot<uint32_t (MS *)(void*)>(source,2)(source);slot<uint32_t (MS *)(void*)>(dest,2)(dest);
+    std::puts("COM CopyResource/CopySubresourceRegion texture mips and buffers passed; bounds, mapped, same-resource and empty-box checks passed");
     std::puts("COM GenerateMips flag gate and regeneration passed");
     std::puts("COM mip initialization, row pitch, subresource update/map and SRV range checks passed");
   }
