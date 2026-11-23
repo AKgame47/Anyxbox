@@ -1,4 +1,5 @@
 // Anyxbox: several textures in one pixel shader (t0, t2 and t1/t3 with their samplers), hand-built DXBC, through the model + Vulkan backend.
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -67,6 +68,40 @@ int main() {
       if (std::abs(p[0] - er) > 2 || std::abs(p[1] - eg) > 2 || std::abs(p[2] - eb) > 2) { if (!bad) std::printf("%s: px (%d,%d) got %d %d %d exp %d %d %d\n", c.name, x, y, p[0], p[1], p[2], er, eg, eb); bad++; }
     }
     std::printf("%s: %d wrong\n", c.name, bad); CHECK(bad == 0);
+  }
+  // extra paths: (A) t0 and t1 unbound while the shader samples t0 and t2: unbound reads as zeros; (B) s0 = clamp, s1 = wrap on two textures in one draw
+  for (int variant = 0; variant < 2; variant++) {
+    auto pb = ps_two(0, 0, 2, 1); auto psr = shader::dxbc_to_spirv(pb.data(), pb.size()); CHECK(psr.ok);
+    d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+    d3d11::Device dev; d3d11::DeviceContext ctx(dev); ctx.SetDrawBackend(&be); ctx.SetTexturePairing(psr.tex_sampler);
+    auto rt = dev.CreateTexture2D(W, H, d3d11::Format::R8G8B8A8_UNORM); auto rtv = dev.CreateRenderTargetView(rt);
+    d3d11::ResourceId tex[3];
+    for (int k = 0; k < 3; k++) {
+      uint8_t px[2 * 2 * 4];
+      for (int i = 0; i < 4; i++) { px[i * 4] = (uint8_t)(10 + 30 * k + 7 * i); px[i * 4 + 1] = (uint8_t)(5 + 20 * k); px[i * 4 + 2] = (uint8_t)(2 * i); px[i * 4 + 3] = 255; }
+      tex[k] = dev.CreateTexture2D(2, 2, d3d11::Format::R8G8B8A8_UNORM); CHECK(dev.UpdateTexture(tex[k], px, sizeof px));
+    }
+    if (variant == 1) CHECK(ctx.PSSetShaderResource(0, tex[0]));
+    CHECK(ctx.PSSetShaderResource(2, tex[2]));
+    CHECK(ctx.PSSetSampler(0, {false, false})); CHECK(ctx.PSSetSampler(1, {false, variant == 1}));
+    ctx.IASetInputLayout(lay); ctx.IASetPrimitiveTopology(d3d11::Topology::TriangleList); ctx.RSSetViewport({0, 0, (float)W, (float)H}); ctx.OMSetRenderTarget(rtv);
+    const float m = variant == 1 ? 2.0f : 1.0f;   // uv range 0..m
+    VT a{-1, 1, 0, 1, 1, 1, 1, 1, 0, 0}, b{1, 1, 0, 1, 1, 1, 1, 1, m, 0}, cc{-1, -1, 0, 1, 1, 1, 1, 1, 0, m}, d{1, -1, 0, 1, 1, 1, 1, 1, m, m};
+    std::vector<VT> q = {a, b, cc, b, d, cc};
+    ctx.IASetVertexBuffer(dev.CreateBuffer(q.data(), q.size() * sizeof(VT)), sizeof(VT), 0);
+    const float black[4] = {0, 0, 0, 1}; ctx.ClearRenderTargetView(rtv, black);
+    if (!ctx.Draw((uint32_t)q.size(), 0)) { std::printf("variant %d: draw failed: %s\n", variant, ctx.last_error().c_str()); return 1; }
+    std::vector<uint8_t> img; dev.ReadTexture(rt, &img);
+    int bad = 0;
+    for (int y = 1; y < H; y += 8) for (int x = 1; x < W; x += 8) {
+      // texel index for nearest sampling at uv = (pixel centre / size) * m on a 2x2 texture, floor(uv*2)
+      int cx = (int)std::floor((x + 0.5f) / W * m * 2), cy = (int)std::floor((y + 0.5f) / H * m * 2);
+      int c0 = (std::min(cy, 1)) * 2 + std::min(cx, 1), c2 = (variant == 1 ? (cy & 1) * 2 + (cx & 1) : c0);
+      int er = (variant == 1 ? 10 + 7 * c0 : 0) + (10 + 60 + 7 * c2), eg = (variant == 1 ? 5 : 0) + (5 + 40), eb = (variant == 1 ? 2 * c0 : 0) + 2 * c2;
+      const uint8_t* p = &img[((size_t)y * W + x) * 4];
+      if (std::abs(p[0] - er) > 2 || std::abs(p[1] - eg) > 2 || std::abs(p[2] - eb) > 2) { if (!bad) std::printf("variant %d: px (%d,%d) got %d %d %d exp %d %d %d\n", variant, x, y, p[0], p[1], p[2], er, eg, eb); bad++; }
+    }
+    std::printf("%s: %d wrong\n", variant == 0 ? "unbound t0/t1 read zeros" : "t0 clamp + t2 wrap, two samplers", bad); CHECK(bad == 0);
   }
   std::printf("multi texture: all ok\n");
   return 0;
