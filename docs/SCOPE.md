@@ -165,3 +165,10 @@ API references for this backend:
 - Tests check odd dimensions, all channels, recursive levels, regeneration after base edits, invalid IDs and COM flag gating. A generated checkerboard chain is sampled through translated DXBC on software Vulkan at each t0..t3 slot; all return the expected reduced color. Total mip sampling checks: 24.
 - No GPU compute generation, subset views, arrays, compressed formats or physical GPU validation. Existing resource limits still apply.
 - API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-generatemips
+
+## Batch 54: mip-subset shader-resource views
+- Texture2D SRVs validate MostDetailedMip and level count, including all-remaining-levels (-1). Bound sampling rebases dimensions and LOD zero to the selected first mip and exposes only the selected chain. Works across t0..t3.
+- GenerateMips starts from the selected view's top mip and stops at its last mip, preserving levels outside that range. The same format/flag restrictions remain.
+- Eight sampling modes at each supported slot, 32 total local software-Vulkan checks. New modes prove LOD-zero rebasing to mip 1 and out-of-view LOD clamping. COM tests verify valid/invalid ranges and generation confined to levels 1..2 while levels 0 and 3 remain unchanged.
+- Limits still include UNORM RGBA8/BGRA8, four slots, 256x256 Vulkan upload size, no arrays/compressed formats/nonzero-mip RTVs, and no physical GPU or game compatibility validation.
+- View semantics: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_tex2d_srv . Generation range: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-generatemips
