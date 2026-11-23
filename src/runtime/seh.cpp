@@ -22,6 +22,10 @@ struct Img { uint64_t base; uint32_t size, pdata_rva, pdata_n; };
 std::mutex g_mu;
 std::vector<Img> g_imgs;
 std::function<void(uint32_t)> g_unhandled;
+struct Veh { uint64_t id, fn; bool cont; };
+std::vector<Veh> g_veh;                 // vectored handlers in call order (first=1 ones at the front)
+uint64_t g_veh_next = 1;
+uint64_t g_filter = 0;                  // SetUnhandledExceptionFilter callback (guest pointer)
 // Host frames (our dispatcher) have no unwind tables. When a walk reaches one, it continues from the newest saved continuation: the
 // context the walk that called the handler was at. Entries whose stack lies below a landing point are dead and get pruned.
 struct Cont { uint8_t c[0x4D0]; };
@@ -205,6 +209,34 @@ bool dispatch(uint8_t* rec, uint8_t* ctx0) {
   t_cont.resize(base_depth);
   return continued;
 }
+// Vectored handlers, then frame handlers, then the unhandled-exception filter. True when execution should continue at ctx0
+// (a vectored handler or the filter said EXCEPTION_CONTINUE_EXECUTION, or a frame handler did); false when nothing took it
+// (the end-of-program callback has run).
+typedef int32_t (MSABI *Veh_fn)(uint64_t* ptrs);
+bool run_veh(uint8_t* rec, uint8_t* ctx, bool cont_list) {
+  std::vector<Veh> list; { std::lock_guard<std::mutex> l(g_mu); list = g_veh; }
+  uint64_t ptrs[2] = {(uint64_t)(uintptr_t)rec, (uint64_t)(uintptr_t)ctx};
+  for (auto& v : list) {
+    if (v.cont != cont_list) continue;
+    if (trace()) std::fprintf(stderr, "seh: %s handler %llx\n", cont_list ? "continue" : "vectored", (unsigned long long)v.fn);
+    if (((Veh_fn)(uintptr_t)v.fn)(ptrs) == -1) return true;   // EXCEPTION_CONTINUE_EXECUTION
+  }
+  return false;
+}
+bool raise_full(uint8_t* rec, uint8_t* ctx0) {
+  if (run_veh(rec, ctx0, false)) { run_veh(rec, ctx0, true); return true; }
+  if (dispatch(rec, ctx0)) { run_veh(rec, ctx0, true); return true; }
+  uint64_t flt; { std::lock_guard<std::mutex> l(g_mu); flt = g_filter; }
+  if (flt) {
+    uint64_t ptrs[2] = {(uint64_t)(uintptr_t)rec, (uint64_t)(uintptr_t)ctx0};
+    int32_t r = ((int32_t (MSABI *)(uint64_t*))(uintptr_t)flt)(ptrs);
+    if (trace()) std::fprintf(stderr, "seh: unhandled filter returned %d\n", r);
+    if (r == -1) return true;
+  }
+  std::function<void(uint32_t)> h; { std::lock_guard<std::mutex> l(g_mu); h = g_unhandled; }
+  if (h) h(u32(rec));
+  return false;
+}
 // Phase 2: unwind from start up to target_frame, running termination handlers, then continue at target_ip. Does not return.
 [[noreturn]] void unwind_to(uint64_t target_frame, uint64_t target_ip, uint8_t* rec, uint64_t retval, const uint8_t* start) {
   uint8_t local_rec[0x98] = {};
@@ -260,7 +292,7 @@ MSABI uint64_t anyxbox_seh_impl_RaiseException(uint64_t code, uint64_t flags, ui
   std::memcpy(rec, &c, 4); std::memcpy(rec + 4, &f, 4);
   uint64_t addr = RIP(ctx); std::memcpy(rec + 16, &addr, 8); std::memcpy(rec + 24, &n, 4);
   if (args) for (uint32_t i = 0; i < n; i++) std::memcpy(rec + 32 + 8 * i, (const void*)(uintptr_t)(args + 8 * i), 8);
-  if (!dispatch(rec, ctx)) { std::function<void(uint32_t)> h; { std::lock_guard<std::mutex> l(g_mu); h = g_unhandled; } if (h) h(c); }
+  raise_full(rec, ctx);
   return 0;
 }
 MSABI uint64_t anyxbox_seh_impl_RtlCaptureContext(uint64_t out, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint8_t* ctx) {
@@ -277,6 +309,27 @@ MSABI uint64_t anyxbox_seh_impl_RtlUnwind(uint64_t target_frame, uint64_t target
 }
 namespace anyxbox {
 namespace {
+MSABI uint64_t s_AddVectoredExceptionHandler(uint32_t first, uint64_t fn) {
+  std::lock_guard<std::mutex> l(g_mu); uint64_t id = 0x7e000000u + g_veh_next++; Veh v{id, fn, false};
+  if (first) g_veh.insert(g_veh.begin(), v); else g_veh.push_back(v);
+  return id;
+}
+MSABI uint64_t s_AddVectoredContinueHandler(uint32_t first, uint64_t fn) {
+  std::lock_guard<std::mutex> l(g_mu); uint64_t id = 0x7e000000u + g_veh_next++; Veh v{id, fn, true};
+  if (first) g_veh.insert(g_veh.begin(), v); else g_veh.push_back(v);
+  return id;
+}
+MSABI uint32_t s_RemoveVectoredExceptionHandler(uint64_t id) {
+  std::lock_guard<std::mutex> l(g_mu);
+  for (size_t i = 0; i < g_veh.size(); i++) if (g_veh[i].id == id) { g_veh.erase(g_veh.begin() + i); return 1; }
+  return 0;
+}
+MSABI uint64_t s_SetUnhandledExceptionFilter(uint64_t fn) { std::lock_guard<std::mutex> l(g_mu); uint64_t old = g_filter; g_filter = fn; return old; }
+MSABI int32_t s_UnhandledExceptionFilter(uint64_t* ptrs) {
+  uint64_t flt; { std::lock_guard<std::mutex> l(g_mu); flt = g_filter; }
+  if (flt) return ((int32_t (MSABI *)(uint64_t*))(uintptr_t)flt)(ptrs);
+  return 1;   // EXCEPTION_EXECUTE_HANDLER: no filter, the process ends
+}
 MSABI void s_RtlRestoreContext(uint8_t* ctx, uint8_t*) { if (__asan_handle_no_return) __asan_handle_no_return(); anyxbox_seh_restore(ctx); }
 MSABI const RF* s_RtlLookupFunctionEntry(uint64_t pc, uint64_t* base, void*) { uint64_t b = 0; const RF* r = lookup(pc, &b); if (base) *base = r ? b : 0; return r; }
 MSABI void* s_RtlVirtualUnwind(uint32_t type, uint64_t base, uint64_t pc, const RF* rf, uint8_t* ctx, uint64_t* hdata, uint64_t* frame, void*) {
@@ -325,11 +378,7 @@ namespace {
 struct sigaction g_old[4];
 const int kSigs[4] = {SIGSEGV, SIGFPE, SIGILL, SIGBUS};
 [[noreturn]] void fault_dispatch(uint8_t* rec, uint8_t* ctx) {
-  if (!dispatch(rec, ctx)) {
-    std::function<void(uint32_t)> h; { std::lock_guard<std::mutex> l(g_mu); h = g_unhandled; }
-    if (h) h(u32(rec));
-    _exit(1);
-  }
+  if (!raise_full(rec, ctx)) _exit(1);
   if (__asan_handle_no_return) __asan_handle_no_return();
   anyxbox_seh_restore(ctx);   // handler chose EXCEPTION_CONTINUE_EXECUTION: resume at the faulting instruction
   __builtin_unreachable();
@@ -394,12 +443,15 @@ void seh_unregister_image(uint64_t base) {
   std::lock_guard<std::mutex> l(g_mu);
   for (size_t i = 0; i < g_imgs.size(); i++) if (g_imgs[i].base == base) { g_imgs.erase(g_imgs.begin() + (long)i); break; }
 }
-void seh_set_unhandled(std::function<void(uint32_t)> fn) { std::lock_guard<std::mutex> l(g_mu); g_unhandled = std::move(fn); }
+void seh_set_unhandled(std::function<void(uint32_t)> fn) { std::lock_guard<std::mutex> l(g_mu); g_unhandled = std::move(fn); if (!g_unhandled) { g_veh.clear(); g_filter = 0; } }
 bool seh_register(ImportRegistry& r) {
   auto A = [](auto* f) { return (uint64_t)(uintptr_t)f; };
   for (const char* dll : {"kernel32.dll", "ntdll.dll"}) {
     r.add(dll, "RaiseException", A(&anyxbox_seh_RaiseException)); r.add(dll, "RtlCaptureContext", A(&anyxbox_seh_RtlCaptureContext));
     r.add(dll, "RtlRestoreContext", A(&s_RtlRestoreContext)); r.add(dll, "RtlLookupFunctionEntry", A(&s_RtlLookupFunctionEntry));
+    r.add(dll, "AddVectoredExceptionHandler", A(&s_AddVectoredExceptionHandler)); r.add(dll, "AddVectoredContinueHandler", A(&s_AddVectoredContinueHandler));
+    r.add(dll, "RemoveVectoredExceptionHandler", A(&s_RemoveVectoredExceptionHandler)); r.add(dll, "RemoveVectoredContinueHandler", A(&s_RemoveVectoredExceptionHandler));
+    r.add(dll, "SetUnhandledExceptionFilter", A(&s_SetUnhandledExceptionFilter)); r.add(dll, "UnhandledExceptionFilter", A(&s_UnhandledExceptionFilter));
     r.add(dll, "RtlVirtualUnwind", A(&s_RtlVirtualUnwind)); r.add(dll, "RtlUnwind", A(&anyxbox_seh_RtlUnwind)); r.add(dll, "RtlUnwindEx", A(&anyxbox_seh_RtlUnwindEx));
   }
   for (const char* dll : {"msvcrt.dll", "ucrtbase.dll", "vcruntime140.dll"}) r.add(dll, "__C_specific_handler", A(&s_C_specific_handler));
