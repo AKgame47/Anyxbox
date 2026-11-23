@@ -2,6 +2,7 @@
 // Windows x64 calling convention, Linux x86-64 hosts only. Guest window procedures are called natively.
 #pragma once
 #include <cstdint>
+#include <array>
 #include <deque>
 #include <map>
 #include <string>
@@ -22,7 +23,7 @@ struct User32Context {
   bool quit_posted = false; int quit_code = 0;
   int dispatched = 0;
   std::string last_message_box;               // MessageBox text is recorded, never shown
-  uint32_t last_key_down = 0;
+  std::array<bool,256> keys_down{}; // current translated host key state, high-bit GetAsyncKeyState subset
   void pump_host();                           // moves host events into the queue
 };
 // Registers RegisterClassA/ExA, CreateWindowExA, DestroyWindow, ShowWindow, UpdateWindow, PeekMessageA, GetMessageA,
