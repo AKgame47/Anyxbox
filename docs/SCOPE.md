@@ -639,3 +639,19 @@ Other binding ownership, child/device lifetime, model allocation reclamation, th
 safety, output/input hazard auto-unbinding and host isolation remain incomplete.
 Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshaderresources
+
+## Batch89: retain verified independent pixel-SRV regression
+
+Replaces the same resource probe with exact run266 bytes from source 9896e4a.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports and
+direct execution passes all six markers, zero exit, two translated shaders,
+zero presents and empty error. Fixture-slot requires exact combined output and
+retained CI requires the pixel-SRV marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Retained independent pixel-SRV checks cover caller release, cross-slot swap,
+rebind and unbind. Partial replacement, range refusal and teardown remain unit
+evidence. Supported slots are t0..t3, not the full API. Other binding ownership,
+child/device lifetime, model allocation reclamation, thread safety, hazard
+handling and native host isolation remain incomplete. Runtime lifetime is still
+required. No physical-device/input or Xbox-game compatibility evidence is added.
