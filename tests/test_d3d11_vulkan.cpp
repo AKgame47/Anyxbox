@@ -1,6 +1,7 @@
 // The same D3D11-model calls through the Vulkan backend and through the reference renderer must produce
 // the same pixels. Skips (exit 0) when the host has no Vulkan loader or device.
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <memory>
 #include <vector>
@@ -102,5 +103,20 @@ int main() {
     r.ctx.RSSetViewport({0, 0, 64, 64});
     CHECK(r.draw({{-1,-1,0,1, 1,1,1,1}, {1,-1,0,1, 1,1,1,1}, {0,1,0,1, 1,1,1,1}}));
     CHECK(r.ctx.last_error().empty()); }
+  for (bool before : {false,true}) {
+    Rig gpu(Format::R8G8B8A8_UNORM,&be),ref;
+    std::vector<V> triangle={{-1,-1,0,1,1,0,0,1},{1,-1,0,1,1,0,0,1},{-1,1,0,1,1,0,0,1}};
+    std::vector<uint8_t> blue(W*H*4);for(size_t k=0;k<blue.size();k+=4){blue[k+2]=255;blue[k+3]=255;}
+    for(Rig* r:{&gpu,&ref}) {
+      r->ctx.ClearRenderTargetView(r->rtv,navy);
+      if(before) CHECK(r->draw(triangle));
+      CHECK(r->dev.UpdateTexture(r->tex,blue.data(),blue.size()));
+      r->ctx.RSSetViewport({0,0,64,64}); CHECK(r->draw(triangle));
+    }
+    CHECK(mismatches(gpu.image(),ref.image())==0);
+    auto im=gpu.image();CHECK(im[((size_t)100*W+100)*4+2]==255);
+    if (before && std::getenv("ANYXBOX_SYNC_PREVIEW")) { FILE* f=std::fopen("/downloads/color-sync.ppm","wb"); if(f){std::fprintf(f,"P6\n%d %d\n255\n",W,H);for(size_t k=0;k<im.size();k+=4)std::fwrite(im.data()+k,1,3,f);std::fclose(f);} }
+    std::printf("host color replacement %s first draw: zero mismatches\n",before?"after":"before");
+  }
   std::puts("ok"); return 0;
 }
