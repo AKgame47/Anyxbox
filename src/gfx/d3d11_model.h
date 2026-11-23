@@ -36,7 +36,7 @@ struct PipelineState { RasterizerDesc rs; DepthStencilDesc ds; BlendDesc blend; 
 
 struct ClipVertex { float x, y, z, w; float r, g, b, a; float u = 0, v = 0; };  // D3D clip space (y up)
 
-struct SamplerDesc { bool linear = false; bool wrap = false; };   // point/linear filter, clamp/wrap (U and V)
+struct SamplerDesc { bool linear = false; bool wrap = false; bool mip_linear = false; float min_lod = 0, max_lod = 1000; };   // point/linear min-mag and mip filter, clamp/wrap (U and V)
 class Device;
 // Pluggable draw path. The reference renderer is built in; the Vulkan backend lives in d3d11_vulkan.h.
 class DrawBackend {
@@ -55,6 +55,7 @@ class DrawBackend {
   virtual void set_ps_constants(const std::vector<uint8_t>& /*cb0*/) {}
   // Pixel-shader texture t0 for the next draw, RGBA byte order, row 0 at top; rgba == nullptr = none bound.
   virtual void set_ps_texture(const uint8_t* /*rgba*/, uint32_t /*w*/, uint32_t /*h*/, const SamplerDesc& /*s*/) {}
+  virtual void set_ps_mip_chain(uint32_t, const std::vector<uint8_t>&, uint32_t) {}
   // Textures t1..t3 (slot 1..3); a null rgba unbinds. Default: ignored.
   virtual void set_ps_texture_slot(uint32_t /*slot*/, const uint8_t* /*rgba*/, uint32_t /*w*/, uint32_t /*h*/, const SamplerDesc& /*s*/) {}
 };
@@ -62,9 +63,10 @@ class DrawBackend {
 class Device {
  public:
   ResourceId CreateBuffer(const void* data, size_t bytes);           // 0 on failure
-  ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f);       // RGBA8 or BGRA8 only; max 16384
+  ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f, uint32_t levels = 1);       // RGBA8 or BGRA8 only; max 16384
   bool UpdateBuffer(ResourceId buffer, const void* data, size_t bytes);   // whole buffer, same size
   bool UpdateTexture(ResourceId texture, const void* data, size_t bytes);   // whole texture, in the texture's own byte order
+  bool UpdateTextureMip(ResourceId texture, uint32_t level, const void* data, size_t bytes);
   ResourceId CreateDepthBuffer(uint32_t w, uint32_t h);               // 32-bit float depth, 0 on failure
   ResourceId CreateDepthStencilView(ResourceId depth_buffer);          // 0 on failure
   struct Depth { uint32_t w = 0, h = 0; std::vector<float> z; };
@@ -74,7 +76,7 @@ class Device {
   bool ReadTexture(ResourceId texture, std::vector<uint8_t>* out) const;  // row 0 = top
   // internal, used by DeviceContext
   struct Buffer { std::vector<uint8_t> data; };
-  struct Texture { uint32_t w = 0, h = 0; Format f = Format::Unknown; std::vector<uint8_t> px; };
+  struct Texture { uint32_t w = 0, h = 0; Format f = Format::Unknown; std::vector<uint8_t> px; std::vector<std::vector<uint8_t>> mips; };
   const Buffer* buffer(ResourceId id) const;
   Texture* texture(ResourceId id);
   const Texture* texture(ResourceId id) const;
