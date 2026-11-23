@@ -22,6 +22,7 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   if (vp.x != 0.f || vp.y != 0.f || vp.width != (float)rt->w || vp.height != (float)rt->h) {
     *err = "vulkan draw: viewport must cover the whole render target (not supported yet)"; return false;
   }
+  const bool custom = !vs_.empty() && !fs_.empty();   // translated shaders flip y themselves (dxbc_to_spirv vulkan_flip_y)
   // keep only triangles the reference renderer would also draw
   std::vector<float> kept;
   for (size_t t = 0; t + 2 < verts.size(); t += 3) {
@@ -33,20 +34,25 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
     if (!ok) continue;
     for (int k = 0; k < 3; k++) {
       const ClipVertex& v = verts[t + k];
-      kept.insert(kept.end(), {v.x, -v.y, v.z, v.w, v.r, v.g, v.b});
+      kept.insert(kept.end(), {v.x, custom ? v.y : -v.y, v.z, v.w, v.r, v.g, v.b});
     }
   }
   if (kept.empty()) return true;
   Target& tg = targets_[tex];
   std::vector<uint32_t> vs(std::begin(clip_vert), std::end(clip_vert)), fs(std::begin(spin_frag), std::end(spin_frag));
   if (!vs_.empty() && !fs_.empty()) { vs = vs_; fs = fs_; }
+  std::vector<uint32_t> push;
+  if (!cb0_.empty()) {
+    if (cb0_.size() > 128) { *err = "vulkan draw: constant buffer 0 larger than 128 bytes is not supported yet"; return false; }
+    push.assign((cb0_.size() + 3) / 4, 0); std::memcpy(push.data(), cb0_.data(), cb0_.size());
+  }
   const size_t total_tris = kept.size() / 21, chunk = 9999;   // backend limit: 30000 indices per call
   std::vector<uint8_t> img;
   for (size_t first = 0; first < total_tris; first += chunk) {
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 21, kept.begin() + (first + n) * 21);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
-    pnr::Status s = vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, false, tg.clear, &img, &tg.surf);
+    pnr::Status s = vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, false, tg.clear, &img, &tg.surf, true, nullptr, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_COMPARE_OP_LESS, push.empty() ? nullptr : &push);
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
   }
