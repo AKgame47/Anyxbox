@@ -82,7 +82,16 @@ struct D3D11Runtime::Impl {
   Obj* samplers[4] = {};
   Obj* layout=nullptr;Obj* rasterizer=nullptr;Obj* depth_state=nullptr;Obj* blend_state=nullptr;
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);for(auto* cb:vs_cbs)if(cb)release(cb);for(auto* cb:ps_cbs)if(cb)release(cb);for(auto* sampler:samplers)if(sampler)release(sampler);if(layout)release(layout);if(rasterizer)release(rasterizer);if(depth_state)release(depth_state);if(blend_state)release(blend_state);}
+  void clear_bindings(){
+    auto drop=[](Obj*& o){auto* old=o;o=nullptr;if(old)release(old);};
+    for(auto** o:{&vs,&ps,&rtv,&dsv,&ib,&layout,&rasterizer,&depth_state,&blend_state})drop(*o);
+    for(auto& o:srvs)drop(o);
+    for(auto& o:vbs)drop(o);
+    for(auto& o:vs_cbs)drop(o);
+    for(auto& o:ps_cbs)drop(o);
+    for(auto& o:samplers)drop(o);
+  }
+  ~Impl(){clear_bindings();}
 };
 
 namespace {
@@ -294,6 +303,9 @@ MSABI void dev_GetImmediateContext(void* self, void** out) {
 }
 // ---- ID3D11DeviceContext ----
 struct Viewport6 { float x, y, w, h, mn, mx; };
+MSABI void ctx_ClearState(void* self){
+  auto* rt=G(self);rt->impl->clear_bindings();rt->ctx->ClearState();
+}
 MSABI void ctx_VSSetShader(void* self, void* shader, void* const*, uint32_t) {
   auto*& bound=G(self)->impl->vs;auto* next=(Obj*)shader;
   if(next)addref(next);
@@ -563,6 +575,7 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   I.ctx_vt[8] = (void*)&ctx_PSSetShaderResources; I.ctx_vt[10] = (void*)&ctx_PSSetSamplers; I.ctx_vt[12] = (void*)&ctx_DrawIndexed;
   I.ctx_vt[14] = (void*)&ctx_Map; I.ctx_vt[15] = (void*)&ctx_Unmap; I.ctx_vt[19] = (void*)&ctx_IASetIndexBuffer; I.ctx_vt[48] = (void*)&ctx_UpdateSubresource;
   I.ctx_vt[35] = (void*)&ctx_OMSetBlendState; I.ctx_vt[36] = (void*)&ctx_OMSetDepthStencilState; I.ctx_vt[43] = (void*)&ctx_RSSetState;
+  I.ctx_vt[110]=(void*)&ctx_ClearState;
   I.ctx_vt[45] = (void*)&ctx_RSSetScissorRects;
   I.ctx_vt[53] = (void*)&ctx_ClearDepthStencilView; I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
   for (auto& p : I.sc_vt) p = (void*)&stub_notimpl;
