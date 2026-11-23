@@ -18,7 +18,7 @@ struct Import { const char* dll; const char* name; void** slot; };
 static std::vector<Import>& imports() { static std::vector<Import> v; return v; }
 extern "C" void anyxbox_fixture_import(const char* dll,const char* name,void** slot) { imports().push_back({dll,name,slot}); }
 static __attribute__((ms_abi)) void exit_stub(uint32_t) {}
-int main(int argc,char** argv) {
+static int run_case(int argc,char** argv) {
   std::vector<uint8_t> pe;
   if(argc>1 && std::string(argv[1]).size()>4 && std::string(argv[1]).substr(std::strlen(argv[1])-4)==".exe") {
     std::ifstream f(argv[1],std::ios::binary); pe.assign(std::istreambuf_iterator<char>(f),{}); CHECK(!pe.empty());
@@ -62,4 +62,16 @@ int main(int argc,char** argv) {
   CHECK(pixel(1,240,170,255,255,0) && pixel(1,290,170,255,255,0));
   std::printf("draw-copy: %s, two presents, four translated shaders, both frames verified on Vulkan\n",pe.empty()?"host calls":"independent Windows binary");
   std::puts("test_fixture_draw_copy ok"); return 0;
+}
+
+int main(int argc,char** argv) {
+  int rc=run_case(argc,argv);
+  if(rc) return rc;
+  // A directory invocation covers both source calls and the retained independent PE.
+  std::string dir=argc>1?argv[1]:"tests/fixtures";
+  if(dir.size()>=4 && dir.substr(dir.size()-4)==".exe") return 0;
+  std::string exe=dir+"/draw_copy.run.exe";
+  std::vector<char> path(exe.begin(),exe.end()); path.push_back(0);
+  char* args[]={argv[0],path.data()};
+  return run_case(2,args);
 }
