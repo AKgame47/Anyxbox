@@ -93,6 +93,8 @@ jobs:
             if xvfb-run -a "tbin/$n" tests/fixtures > "tbin/$n.log" 2>&1; then echo "pass $n"; else echo "FAIL $n"; cat "tbin/$n.log"; fail=1; fi
           done
           exit $fail
+      - name: Capability rejection paths (strict Vulkan required, injected query evidence)
+        run: ./tbin/test_vulkan_capabilities tests/fixtures --require-vulkan
       - name: Stack-protected hardware exception regression (strict)
         run: |
           g++ -std=c++17 -O1 -g -fstack-protector-all -Isrc -c src/runtime/seh.cpp -o obj/seh-protected.o
