@@ -783,3 +783,31 @@ sampler slots/reference ownership only, not full capacity, descriptor validation
 or null filtering defaults. Other state/device lifetime, model reclamation,
 thread safety and native host isolation remain incomplete. Runtime lifetime is
 required. No new physical-device/input or Xbox-game compatibility evidence.
+
+## Batch96: retain copied-state interface bindings
+
+Input layout, rasterizer, depth-stencil and blend setters now retain their bound
+interfaces in addition to copying supported state into the model. Each setter
+acquires the next reference before dropping the old one, preserving same-object
+rebind after caller release. Replacement, null unbind and runtime teardown drop
+the held references. Supported state/default rendering behavior is unchanged.
+
+Existing interface unit checks exact reference counts for initial bind, rebind,
+replacement, caller release, unbind and runtime teardown for all four kinds.
+Teardown uses saved static Release only; runtime-owned vtables still require the
+runtime to live. Existing state guest releases all four caller references after
+binding before draws/Present. Existing reference depth/scissor/viewport checks and
+software-Vulkan comparison pass with zero mismatches. All 41 local sanitizer
+programs pass after full relink. No physical-device/input evidence is added.
+
+Existing public-header probe adds caller-release/rebind/unbind for these four
+bindings; fresh CI requires its marker. Independent MinGW compilation/execution
+awaits CI. Retained run293 stays earlier regression only. No new fixture, scene,
+CMake target or release. This fixes these reference edges, not full COM lifetime,
+child/device retention, model reclamation, thread safety or host isolation. Ignored
+blend factors/sample masks/stencil-reference parameters remain incomplete.
+References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetinputlayout
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-rssetstate
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetdepthstencilstate
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetblendstate
