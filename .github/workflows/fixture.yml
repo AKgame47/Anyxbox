@@ -200,6 +200,7 @@ jobs:
           cat resource-interfaces.log
           grep -q 'loaded=1 ran=1 exit=0' resource-interfaces.log
           grep -q 'resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok' resource-interfaces.log
+          grep -q 'resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok' resource-interfaces.log
       - name: Verify retained resource interface probe (strict)
         run: |
           ./import_gap tests/fixtures/resource_interfaces.run.exe
