@@ -409,3 +409,28 @@ Guest argument forwarding is still absent: a second positional argument is an er
 not an implicit guest argument. This parser does not validate program instructions or
 supply OS isolation, timeout or host privilege limits. The existing loader, COM
 ownership/lifetime and thread-safety limitations remain. No new graphics claim.
+
+## Batch 78: honor explicit GPU and frame-output requests
+
+Explicit `--gpu` now refuses launch with exit1 if Vulkan initialization or device
+selection fails, rather than silently using a reference renderer that ignores shaders.
+Omitting `--gpu` still intentionally selects the reference renderer. This checks
+backend initialization, not whether a particular draw/render later succeeds.
+`--save-frame` now returns exit1 when no valid frame exists or PNG output fails,
+even if the guest itself exited0. The output stream is flushed and closed before
+success is reported, so buffered-write/close errors are not silently missed.
+
+New actual-CLI shell checks force driver unavailability via an invalid driver manifest,
+require failure before the loaded-result line, check absent-frame and missing-directory
+output failures, then require successful GPU initialization and a saved triangle PNG.
+CI runs these checks strictly and retains the logs/PNG. Local script and previous
+CLI parsing script pass, as do all 41 sanitizer test programs. Inspected actual local
+320x240 PNG: centered red/green/blue triangle on dark blue background, complete and
+readable. This reuses the retained triangle guest, not a new scene or binary variant.
+No production compilation unit, test target or CMake addition.
+
+GPU evidence remains software Vulkan only. A saved rendered image does not prove
+window screenshot parity or physical graphics/input. This is output/exit-status truth,
+not full renderer correctness, atomic file replacement or crash-safe storage. CLI PNG
+writes still overwrite a supplied destination and are not confined by the guest asset
+root. Native execution and the existing loader/COM lifetime/thread-safety limits remain.
