@@ -78,6 +78,7 @@ struct D3D11Runtime::Impl {
   // bound state
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* swapchain = nullptr;
   Impl() {}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);}
 };
 
 namespace {
@@ -290,10 +291,14 @@ MSABI void dev_GetImmediateContext(void* self, void** out) {
 // ---- ID3D11DeviceContext ----
 struct Viewport6 { float x, y, w, h, mn, mx; };
 MSABI void ctx_VSSetShader(void* self, void* shader, void* const*, uint32_t) {
-  G(self)->impl->vs = (Obj*)shader;
+  auto*& bound=G(self)->impl->vs;auto* next=(Obj*)shader;
+  if(next)addref(next);
+  auto* old=bound;bound=next;if(old)release(old);
 }
 MSABI void ctx_PSSetShader(void* self, void* shader, void* const*, uint32_t) {
-  G(self)->impl->ps = (Obj*)shader;
+  auto*& bound=G(self)->impl->ps;auto* next=(Obj*)shader;
+  if(next)addref(next);
+  auto* old=bound;bound=next;if(old)release(old);
 }
 MSABI void ctx_IASetInputLayout(void* self, void* layout) {
   Obj* l = (Obj*)layout;
