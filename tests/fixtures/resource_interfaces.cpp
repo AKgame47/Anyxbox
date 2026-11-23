@@ -59,6 +59,19 @@ int main(){
     returned->Release();
   }
   std::puts("view GetResource: RTV/SRV/DSV identity and retained resource lifetime ok");
+  ID3D11Texture2D* target=nullptr;ID3D11RenderTargetView* boundRT=nullptr;ID3D11DepthStencilView* boundDS=nullptr;
+  CHECK(SUCCEEDED(dev->CreateTexture2D(&td,nullptr,&target)));
+  CHECK(SUCCEEDED(dev->CreateRenderTargetView(target,nullptr,&boundRT)));
+  CHECK(SUCCEEDED(dev->CreateDepthStencilView(depth,nullptr,&boundDS)));target->Release();
+  ctx->OMSetRenderTargets(1,&boundRT,boundDS);
+  CHECK(boundRT->Release()==1&&boundDS->Release()==1);
+  ctx->OMSetRenderTargets(1,&boundRT,boundDS);
+  ID3D11Resource* held=nullptr;boundRT->GetResource(&held);D3D11_RESOURCE_DIMENSION heldType=D3D11_RESOURCE_DIMENSION_UNKNOWN;held->GetType(&heldType);CHECK(heldType==D3D11_RESOURCE_DIMENSION_TEXTURE2D);
+  held->Release();
+  CHECK(boundRT->AddRef()==2&&boundDS->AddRef()==2);
+  ctx->OMSetRenderTargets(0,nullptr,nullptr);
+  CHECK(boundRT->Release()==0&&boundDS->Release()==0);
+  std::puts("output merger: RTV/DSV caller release, same-object rebind and unbind references ok");
   ID3D11VertexShader* vs=nullptr;ID3D11PixelShader* ps=nullptr;
   CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&vs)));
   CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&ps)));
