@@ -10,13 +10,14 @@
 #include "runtime/d3d11_runtime.h"
 #include "runtime/kernel32.h"
 #include "runtime/msvcrt.h"
+#include "runtime/devices.h"
 #include "runtime/user32.h"
 static __attribute__((ms_abi)) void stub_exit(uint32_t) {}
 int main(int argc, char** argv) {
   if (argc < 2) { std::puts("usage: import_gap <file.exe>..."); return 2; }
   anyxbox::ImportRegistry reg;
   anyxbox::Kernel32Context k; anyxbox::MsvcrtContext crt; anyxbox::User32Context u; anyxbox::D3D11Runtime rt;
-  anyxbox::kernel32_register(reg, k); anyxbox::msvcrt_register(reg, crt); anyxbox::user32_register(reg, u); rt.register_imports(reg);
+  anyxbox::kernel32_register(reg, k); anyxbox::msvcrt_register(reg, crt); anyxbox::user32_register(reg, u); anyxbox::XInputContext xi; anyxbox::xinput_register(reg, xi); anyxbox::XAudio2Context xa; anyxbox::xaudio2_register(reg, xa); rt.register_imports(reg);
   reg.add("kernel32.dll", "ExitProcess", (uint64_t)(uintptr_t)&stub_exit);   // run_pe binds the real one
   int rc = 0;
   for (int i = 1; i < argc; i++) {
