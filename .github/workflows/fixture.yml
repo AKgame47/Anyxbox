@@ -66,6 +66,8 @@ jobs:
         run: |
           ./import_gap eh.exe || true
           ./run_exe --i-built-this eh.exe || true
+          ANYXBOX_SEH_TRACE=1 ./run_exe --i-built-this eh.exe 2>&1 | head -80 || true
+          gdb -batch -ex run -ex bt -ex 'info registers rip rsp rax rcx rdx' -ex 'x/10i $rip-12' --args ./run_exe --i-built-this eh.exe 2>&1 | head -60 || true
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
