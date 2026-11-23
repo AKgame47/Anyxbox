@@ -39,6 +39,25 @@ int main(){
     typed=(void*)1;CHECK(child->QueryInterface(__uuidof(ID3D11Device),&typed)==E_NOINTERFACE&&typed==nullptr);
     a->Release();b->Release();child->Release();resource->Release();
   }
+  ID3D11Texture2D* owned=nullptr;td.MipLevels=1;td.Usage=D3D11_USAGE_DEFAULT;td.CPUAccessFlags=0;
+  td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+  CHECK(SUCCEEDED(dev->CreateTexture2D(&td,nullptr,&owned)));
+  ID3D11RenderTargetView* rtv=nullptr;ID3D11ShaderResourceView* srv=nullptr;ID3D11DepthStencilView* dsv=nullptr;
+  CHECK(SUCCEEDED(dev->CreateRenderTargetView(owned,nullptr,&rtv)));
+  CHECK(SUCCEEDED(dev->CreateShaderResourceView(owned,nullptr,&srv)));
+  CHECK(SUCCEEDED(dev->CreateDepthStencilView(depth,nullptr,&dsv)));
+  ID3D11View* views[]={rtv,srv,dsv};ID3D11Resource* expected[]={owned,owned,depth};
+  owned->Release();
+  for(unsigned i=0;i<3;++i){
+    ID3D11View* baseView=nullptr;CHECK(SUCCEEDED(views[i]->QueryInterface(__uuidof(ID3D11View),(void**)&baseView)));
+    void* concrete=nullptr;const GUID* id=i==0?&__uuidof(ID3D11RenderTargetView):i==1?&__uuidof(ID3D11ShaderResourceView):&__uuidof(ID3D11DepthStencilView);
+    CHECK(SUCCEEDED(baseView->QueryInterface(*id,&concrete))&&concrete==views[i]);((IUnknown*)concrete)->Release();
+    ID3D11Resource* returned=nullptr;baseView->GetResource(&returned);CHECK(returned==expected[i]);
+    baseView->Release();views[i]->Release();
+    D3D11_RESOURCE_DIMENSION type=D3D11_RESOURCE_DIMENSION_UNKNOWN;returned->GetType(&type);CHECK(type==D3D11_RESOURCE_DIMENSION_TEXTURE2D);
+    returned->Release();
+  }
+  std::puts("view GetResource: RTV/SRV/DSV identity and retained resource lifetime ok");
   depth->Release();texture->Release();buffer->Release();ctx->Release();dev->Release();
   std::puts("resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok");return 0;
 }
