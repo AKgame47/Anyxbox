@@ -199,3 +199,8 @@ API references for this backend:
 - Added the exact texture_copy.exe from CI run 141 as texture_copy.run.exe, with recorded source commit, build command and SHA-256 in the fixture README.
 - test_fixture_slot now requires its four exact output lines, successful exit, empty runtime error, zero presented frames and zero translated shaders. The independent Windows binary passed locally with address/undefined-behavior sanitizers after relinking run_exe to the current runtime objects.
 - This is copy/readback coverage only. It does not add drawing or prove physical-GPU or game compatibility.
+
+## Batch 60: draw/copy/present fixture source and strict pixel verifier
+- Added a scene-source variant that presents once, copies yellow into its sampled texture and cyan into the already-drawn backbuffer, then draws/presents again without another color/depth clear. LESS_EQUAL allows the existing geometry to redraw while retaining the near-over-far overlap.
+- Added test_fixture_draw_copy: host-source mode runs locally; independent-executable mode loads CI's MinGW binary. Both modes check two presents, four shader translations, no runtime error, first-frame texture colors and second-frame cyan background/yellow texture/green-orange geometry.
+- CI requires Vulkan for independent-binary validation and retains both presented frames. Local sanitizer host-source checks passed on software Vulkan; both images were inspected. The separately compiled binary still awaits CI. No physical-device or game compatibility claim.
