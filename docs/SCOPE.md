@@ -526,3 +526,29 @@ marker in both fresh and retained runs. All41 local sanitizer programs pass and 
 retained fixture count remains sixteen. No production/CMake/new-target/visual change.
 View-to-resource retention is covered, but binding/device lifetime, model allocation
 reclamation, thread safety and native isolation remain incomplete.
+
+## Batch84: retain bound vertex/pixel shaders
+
+VSSetShader/PSSetShader now add a context-owned reference before replacing the old
+binding, then release the old reference. Same-object rebinding is safe. Null unbind
+and runtime teardown release the held reference. This removes a direct freed-object
+read when an application releases its caller reference after binding and then draws.
+
+Existing interface unit checks exact reference deltas for initial bind, same-object
+rebind, replacement, unbind and runtime teardown. Teardown testing saves the static
+Release function before destroying the runtime, because its per-runtime vtable memory
+is not valid afterward. This is test-only reference accounting, not supported object
+use beyond runtime lifetime. Existing hand-built PE draw test now releases both caller
+shader references before Draw and still passes reference/Vulkan comparison. Existing
+public-header probe adds shader binding/reference checks with the existing hand-built
+triangle shader data; fresh CI requires the new marker. Retained run239 remains old
+view/descriptor regression only. All41 sanitizer programs pass after full relink.
+No new scene, guest fixture slot, test target or CMake addition. Fresh independent
+compiler/run evidence awaits CI.
+
+This fixes shader binding ownership only. Other state/resource bindings, child/device
+lifetime, model allocation reclamation, thread safety and host isolation remain
+incomplete. Dynamic class instances are still ignored. No full COM or physical-device
+claim. References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vssetshader
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshader
