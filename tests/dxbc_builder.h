@@ -148,4 +148,71 @@ inline std::vector<uint8_t> ps_sample(uint32_t tsw = swz(0, 1, 2, 3), float lod 
   code.push_back(ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), src(T_TEMP, 0)})); code.push_back(ins(OP_RET, {}));
   return shader(0, {{"TEXCOORD", 0, 0, 1, 0x3}}, {{"SV_Target", 0, 0, 0, 0xF}}, code);
 }
+// ---- control flow and integer ops ----
+inline Words imm1u(uint32_t bits) { return {1u | (4u << 12), bits}; }
+inline Words imm4u(uint32_t a, uint32_t b, uint32_t c, uint32_t d) { return {2u | (1u << 2) | (swz(0, 1, 2, 3) << 4) | (4u << 12), a, b, c, d}; }
+const uint32_t OP_BREAK = 2, OP_BREAKC = 3, OP_CONTINUEC = 8, OP_DISCARD = 13, OP_ELSE = 18, OP_ENDIF = 21, OP_ENDLOOP = 22, OP_FTOI = 27,
+               OP_IADD = 30, OP_IF = 31, OP_IGE = 33, OP_ILT = 34, OP_ITOF = 43, OP_LOOP = 48, OP_LT = 49, OP_MOVC = 55, OP_RETC = 63;
+const uint32_t NZ = 0x80;   // test-nonzero bit in the control field (opcode token bit 18)
+inline Words sx(int type, uint32_t reg, int comp) { return src(type, reg, swz(comp, comp, comp, comp)); }   // select1-style scalar
+// vs: o0 = v0; o1 = (v1.xyz, 1)
+inline std::vector<uint8_t> vs_color_pass() {
+  return shader(1, {{"POSITION", 0, 0, 0, 0xF}, {"COLOR", 0, 0, 1, 0x7}}, {{"SV_Position", 0, 1, 0, 0xF}, {"COLOR", 0, 0, 1, 0xF}},
+    {ins(95, {dst(T_INPUT, 0, 0xF)}), ins(95, {dst(T_INPUT, 1, 0x7)}), ins(103, {dst(T_OUTPUT, 0, 0xF)}, false, 0, {1}), ins(101, {dst(T_OUTPUT, 1, 0xF)}),
+     ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 0)}), ins(OP_MOV, {dst(T_OUTPUT, 1, 0x7), src(T_INPUT, 1, swz(0, 1, 2, 0))}),
+     ins(OP_MOV, {dst(T_OUTPUT, 1, 0x8), imm1(1)}), ins(OP_RET, {})});
+}
+inline std::vector<Words> ps_head(uint32_t temps) {
+  return {ins(98, {dst(T_INPUT, 1, 0xF)}, false, 2), ins(101, {dst(T_OUTPUT, 0, 0xF)}), dcl_temps(temps)};
+}
+inline std::vector<uint8_t> ps_of(std::vector<Words> head, const std::vector<Words>& body) {
+  head.insert(head.end(), body.begin(), body.end()); head.push_back(ins(OP_RET, {}));
+  return shader(0, {{"COLOR", 0, 0, 1, 0xF}}, {{"SV_Target", 0, 0, 0, 0xF}}, head);
+}
+// if (v1.x < 0.5) o0 = red else o0 = blue
+inline std::vector<uint8_t> ps_if_else(bool with_else = true) {
+  std::vector<Words> b = {ins(OP_LT, {dst(T_TEMP, 0, 1), src(T_INPUT, 1), imm1(0.5f)}), ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), imm4(0, 0, 1, 1)}),
+    ins(OP_IF, {sx(T_TEMP, 0, 0)}, false, NZ), ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), imm4(1, 0, 0, 1)})};
+  if (with_else) { b.push_back(ins(OP_ELSE, {})); b.push_back(ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), imm4(0, 1, 0, 1)})); }
+  b.push_back(ins(OP_ENDIF, {}));
+  return ps_of(ps_head(1), b);
+}
+// 4-iteration loop summing v1.x; optional continue skips the first two iterations. o0.rgb = sum / 4 (or sum / 2)
+inline std::vector<uint8_t> ps_loop(bool use_continue) {
+  std::vector<Words> b = {ins(OP_MOV, {dst(T_TEMP, 0, 0x3), imm4u(0, 0, 0, 0)}),
+    ins(OP_LOOP, {}),
+    ins(OP_IGE, {dst(T_TEMP, 1, 1), sx(T_TEMP, 0, 0), imm1u(4)}), ins(OP_BREAKC, {sx(T_TEMP, 1, 0)}, false, NZ),
+    ins(OP_IADD, {dst(T_TEMP, 0, 1), sx(T_TEMP, 0, 0), imm1u(1)})};
+  if (use_continue) { b.push_back(ins(OP_ILT, {dst(T_TEMP, 1, 2), sx(T_TEMP, 0, 0), imm1u(3)})); b.push_back(ins(OP_CONTINUEC, {sx(T_TEMP, 1, 1)}, false, NZ)); }
+  b.push_back(ins(OP_ADD, {dst(T_TEMP, 0, 2), sx(T_TEMP, 0, 1), src(T_INPUT, 1, swz(0, 0, 0, 0))}));
+  b.push_back(ins(OP_ENDLOOP, {}));
+  b.push_back(ins(OP_MUL, {dst(T_OUTPUT, 0, 0x7), sx(T_TEMP, 0, 1), imm1(use_continue ? 0.5f : 0.25f)}));
+  b.push_back(ins(OP_MOV, {dst(T_OUTPUT, 0, 0x8), imm1(1)}));
+  return ps_of(ps_head(2), b);
+}
+// if (v1.x < 0.5) discard; o0 = green
+inline std::vector<uint8_t> ps_discard() {
+  return ps_of(ps_head(1), {ins(OP_LT, {dst(T_TEMP, 0, 1), src(T_INPUT, 1), imm1(0.5f)}), ins(OP_DISCARD, {sx(T_TEMP, 0, 0)}, false, NZ),
+                            ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), imm4(0, 1, 0, 1)})});
+}
+// o0.rgb = itof(ftoi(v1.x * 4)) / 4 ; movc picks red for v1.x < 0.5 else that value in green
+inline std::vector<uint8_t> ps_int_movc() {
+  return ps_of(ps_head(3), {ins(OP_MUL, {dst(T_TEMP, 0, 0xF), src(T_INPUT, 1, swz(0, 0, 0, 0)), imm1(4.0f)}),
+    ins(OP_FTOI, {dst(T_TEMP, 1, 0xF), src(T_TEMP, 0)}), ins(OP_ITOF, {dst(T_TEMP, 1, 0xF), src(T_TEMP, 1)}),
+    ins(OP_MUL, {dst(T_TEMP, 1, 0xF), src(T_TEMP, 1), imm1(0.25f)}),
+    ins(OP_LT, {dst(T_TEMP, 2, 0xF), src(T_INPUT, 1, swz(1, 1, 1, 1)), imm1(0.5f)}),            // v1.y < 0.5 (rows: y/H)
+    ins(OP_MOVC, {dst(T_OUTPUT, 0, 0xF), src(T_TEMP, 2), imm4(1, 0, 0, 1), src(T_TEMP, 1, swz(0, 0, 0, 0))}) });
+}
+// vs: o0 = v0 + (0, 0.25, 0, 0); o1 = colour; if (v0.x < 5) return;  o0.xy *= 0.5 (must never run)
+inline std::vector<uint8_t> vs_early_ret() {
+  return shader(1, {{"POSITION", 0, 0, 0, 0xF}, {"COLOR", 0, 0, 1, 0x7}}, {{"SV_Position", 0, 1, 0, 0xF}, {"COLOR", 0, 0, 1, 0xF}},
+    {ins(95, {dst(T_INPUT, 0, 0xF)}), ins(95, {dst(T_INPUT, 1, 0x7)}), ins(103, {dst(T_OUTPUT, 0, 0xF)}, false, 0, {1}), ins(101, {dst(T_OUTPUT, 1, 0xF)}), dcl_temps(1),
+     ins(OP_ADD, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 0), imm4(0, 0.25f, 0, 0)}), ins(OP_MOV, {dst(T_OUTPUT, 1, 0x7), src(T_INPUT, 1, swz(0, 1, 2, 0))}),
+     ins(OP_MOV, {dst(T_OUTPUT, 1, 0x8), imm1(1)}),
+     ins(OP_LT, {dst(T_TEMP, 0, 1), src(T_INPUT, 0), imm1(5.0f)}), ins(OP_RETC, {sx(T_TEMP, 0, 0)}, false, NZ),
+     ins(OP_MUL, {dst(T_OUTPUT, 0, 0x3), src(T_OUTPUT, 0), imm4(0.5f, 0.5f, 0, 0)}), ins(OP_RET, {})});
+}
+inline std::vector<uint8_t> ps_pass() {
+  return ps_of(ps_head(1), {ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 1)})});
+}
 }  // namespace dxb
