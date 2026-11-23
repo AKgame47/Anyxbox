@@ -21,7 +21,7 @@ struct Obj {
   D3D11Runtime* rt;
   ResourceId id = 0;      // buffer / texture / rtv id
   std::vector<uint32_t> spirv;
-  std::vector<std::pair<uint32_t, uint32_t>> cb_layout; bool vs_ubo = false;   // shaders only
+  std::vector<std::pair<uint32_t, uint32_t>> cb_layout; bool vs_ubo = false; int tex_sampler[4] = {-1, -1, -1, -1};   // shaders only
   std::vector<InputElement> layout;
   RasterizerDesc rs; DepthStencilDesc ds; BlendDesc bl;
   Obj* backbuffer = nullptr;   // swap chain only
@@ -220,7 +220,7 @@ int32_t create_shader(void* self, const void* code, size_t len, void** out, Kind
     return E_INVALIDARG_;
   }
   rt->shaders_translated++;
-  Obj* o = make(rt, k, 0); o->spirv = std::move(r.words); o->cb_layout = std::move(r.cb_layout); o->vs_ubo = r.vs_ubo;
+  Obj* o = make(rt, k, 0); o->spirv = std::move(r.words); o->cb_layout = std::move(r.cb_layout); o->vs_ubo = r.vs_ubo; for (int q = 0; q < 4; q++) o->tex_sampler[q] = r.tex_sampler[q];
   if (out) *out = o; else delete o;
   return S_OK_;
 }
@@ -271,15 +271,15 @@ MSABI void ctx_RSSetState(void* self, void* st) {
 MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void* const* srvs) {
   for (uint32_t i = 0; i < n; i++) {
     Obj* o = srvs ? (Obj*)srvs[i] : nullptr;
-    if (start + i != 0) { if (o) G(self)->last_error = "only shader resource slot t0 is supported"; continue; }
-    G(self)->ctx->PSSetShaderResource(0, o ? o->id : 0);
+    if (start + i >= 4) { if (o) G(self)->last_error = "only shader resource slots t0..t3 are supported"; continue; }
+    G(self)->ctx->PSSetShaderResource(start + i, o ? o->id : 0);
   }
 }
 MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const* smps) {
   for (uint32_t i = 0; i < n; i++) {
     Obj* o = smps ? (Obj*)smps[i] : nullptr;
-    if (start + i != 0) { if (o) G(self)->last_error = "only sampler slot s0 is supported"; continue; }
-    G(self)->ctx->PSSetSampler(0, o ? o->smp : SamplerDesc());
+    if (start + i >= 4) { if (o) G(self)->last_error = "only sampler slots s0..s3 are supported"; continue; }
+    G(self)->ctx->PSSetSampler(start + i, o ? o->smp : SamplerDesc());
   }
 }
 MSABI void ctx_IASetIndexBuffer(void* self, void* buf, uint32_t fmt, uint32_t offset) {
@@ -291,7 +291,7 @@ MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t b
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
   if (vs && ps) {
-    rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout);
+    rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout); rt->ctx->SetTexturePairing(ps->tex_sampler);
     if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
     else if (rt->on_shaders) rt->on_shaders(vs->spirv, ps->spirv);
   }
