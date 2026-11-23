@@ -125,12 +125,12 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
         Reg r; r.builtin = true; r.width = 4; out[o->index[0]] = r; break; }
       case OP_DCL_GLOBAL_FLAGS: break;
       case OP_DCL_CONSTANT_BUFFER: {
-        if (pixel) return fail("constant buffers in pixel shaders are not supported yet (vertex shaders only)");
         if (o->type != OT_CBUFFER || o->index_dim != 2) return fail("unsupported constant buffer declaration");
         if (o->index[0] != 0) return fail("only constant buffer slot 0 is supported");
         if (cb_count) return fail("constant buffer 0 declared twice");
         if (I.control & 1) return fail("dynamically indexed constant buffers are not supported yet");
-        if (o->index[1] == 0 || o->index[1] > 8) return fail("constant buffer 0 must have 1 to 8 registers (128 byte push-constant limit)");
+        const uint32_t cb_max = pixel ? 1024 : 8;
+        if (o->index[1] == 0 || o->index[1] > cb_max) return fail(pixel ? "constant buffer 0 must have 1 to 1024 registers" : "constant buffer 0 must have 1 to 8 registers (128 byte push-constant limit)");
         cb_count = o->index[1]; break; }
       default: break;
     }
@@ -160,8 +160,10 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
     uint32_t len = b.id(); b.put(b.globals, sOpConstant, {t_uint, len, cb_count});
     uint32_t arr = b.id(); b.put(b.globals, sOpTypeArray, {arr, b.T(4), len});
     uint32_t st = b.id(); b.put(b.globals, sOpTypeStruct, {st, arr});
-    uint32_t pp = b.id(); b.put(b.globals, sOpTypePointer, {pp, 9, st});
-    cb_var = b.id(); b.put(b.globals, sOpVariable, {pp, cb_var, 9});
+    const uint32_t csc = pixel ? 2 : 9;   // Uniform (set 1, binding 0) for pixel shaders, PushConstant for vertex shaders
+    uint32_t pp = b.id(); b.put(b.globals, sOpTypePointer, {pp, csc, st});
+    cb_var = b.id(); b.put(b.globals, sOpVariable, {pp, cb_var, csc});
+    if (pixel) { b.put(b.decor, sOpDecorate, {cb_var, 34, 1}); b.put(b.decor, sOpDecorate, {cb_var, 33, 0}); }
     b.put(b.decor, sOpDecorate, {arr, 6, 16});
     b.put(b.decor, sOpDecorate, {st, 2});
     b.put(b.decor, sOpMemberDecorate, {st, 0, 35, 0});
@@ -193,7 +195,7 @@ SpirvResult dxbc_to_spirv(const uint8_t* data, size_t size, bool vulkan_flip_y) 
       if (!cb_count || o.index_dim != 2 || o.index[0] != 0) { err = "read of an undeclared constant buffer"; return false; }
       if (o.index[1] >= cb_count) { err = "constant buffer read past the declared size"; return false; }
       uint32_t ic = b.id(); b.put(b.globals, sOpConstant, {t_uint, ic, o.index[1]});
-      uint32_t ch = b.id(); b.put(b.body, sOpAccessChain, {b.P(9, 4), ch, cb_var, b.id_zero_uint(t_uint), ic});
+      uint32_t ch = b.id(); b.put(b.body, sOpAccessChain, {b.P(pixel ? 2 : 9, 4), ch, cb_var, b.id_zero_uint(t_uint), ic});
       base = b.load(4, ch);
     }
     else if (o.type == OT_OUTPUT) { auto it = out.find(o.index[0]); if (o.index_dim != 1 || it == out.end()) { err = "read of an undeclared output"; return false; } base = b.load(4, it->second.var); }
