@@ -72,7 +72,7 @@ int main() {
     std::puts("COM subset GenerateMips preserves levels outside the view");
     auto copy=slot<void (MS *)(void*,void*,void*)>(ctx,47);
     auto region=slot<void (MS *)(void*,void*,uint32_t,uint32_t,uint32_t,uint32_t,void*,uint32_t,const uint32_t*)>(ctx,46);
-    void* source=nullptr;void* dest=nullptr;desc[8]=8;desc[10]=0;desc[0]=4;desc[1]=4;
+    void* source=nullptr;void* dest=nullptr;desc[8]=0x28;desc[10]=0;desc[0]=4;desc[1]=4;
     auto texture=slot<int32_t (MS *)(void*,const uint32_t*,const Init*,void**)>(dev,5);
     CHECK(texture(dev,desc,nullptr,&source)==0 && texture(dev,desc,nullptr,&dest)==0);
     uint8_t pattern[64]; for(int i=0;i<64;++i) pattern[i]=(uint8_t)i;
