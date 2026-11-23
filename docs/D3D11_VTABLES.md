@@ -30,3 +30,10 @@ dxgi.dll exports CreateDXGIFactory and CreateDXGIFactory1. The factory object im
 D3D11CreateDeviceAndSwapChain), EnumAdapters 7 (returns DXGI_ERROR_NOT_FOUND, no adapters are exposed), IsCurrent 13. All other slots return E_NOTIMPL.
 Slots: https://reverseengineering.wiki/index.php/Fact:DXGI/enum/IDXGIFactory_vtable_slots (mingw-w64 dxgi.h / dxgi1_2.h member order).
 Not supported yet: more than one texture/sampler (t0/s0 only), instanced vertex data, GetParent/QueryInterface for other DXGI interface ids on the factory.
+
+## Several textures
+PSSetShaderResources / PSSetSamplers accept slots 0..3. The translator maps tN to a combined image sampler at set 0 binding N and reports which sampler slot each
+texture is sampled with (SpirvResult::tex_sampler, one sampler per texture); the context pairs them (SetTexturePairing, set by the COM layer before every draw).
+A slot the shader samples (or a lower slot than the highest sampled one) that has no texture bound reads as zeros, like D3D. Vulkan backend: t0 keeps the full
+single-texture path; t1..t3 are plain 2D RGBA8, one level, up to 256x256, with nearest/linear and clamp/wrap from their sampler. Not supported: arrays, cube/3D,
+mips for t1..t3, comparison samplers, texture sampling in the vertex shader, SRV format reinterpretation.
