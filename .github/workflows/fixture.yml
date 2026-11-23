@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install MinGW-w64 (Ubuntu package)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 g++ gdb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 g++ gdb xvfb
       - name: Build the Windows fixture
         run: |
           x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables \
@@ -59,6 +59,16 @@ jobs:
           done
           g++ -std=c++17 -O1 -Isrc tools/import_gap.cpp obj/*.o -ldl -lpthread -o import_gap
           g++ -std=c++17 -O1 -g -Isrc tools/run_exe.cpp obj/*.o -ldl -lpthread -o run_exe
+      - name: Run every unit test and the committed-fixture checks (strict, fails the job)
+        run: |
+          mkdir -p tbin
+          fail=0
+          for t in tests/test_*.cpp; do
+            n=$(basename "$t" .cpp)
+            g++ -std=c++17 -O1 -Isrc -Itests -Itests/fixtures "$t" obj/*.o -ldl -lpthread -o "tbin/$n" || { echo "BUILD FAIL $n"; fail=1; continue; }
+            if xvfb-run -a "tbin/$n" tests/fixtures > "tbin/$n.log" 2>&1; then echo "pass $n"; else echo "FAIL $n"; tail -5 "tbin/$n.log"; fail=1; fi
+          done
+          exit $fail
       - name: Import coverage of the real exe
         run: ./import_gap triangle.exe || true
       - name: Import coverage of the scene fixture
