@@ -21,7 +21,7 @@ int main() {
   ctx.image_base = 0x1234000;
   std::string out; ctx.out = &out;
   CHECK(kernel32_register(reg, ctx));
-  CHECK(reg.size() == 54);
+  CHECK(reg.size() == 59);
 
   CHECK(fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")(nullptr) == 0x1234000);
   CHECK(fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")("user32.dll") == 0);
@@ -38,6 +38,23 @@ int main() {
     CHECK(rs(sem, 0, &prev) == 0 && rs(0xFFFFFFFF00ull, 1, &prev) == 0);
     CHECK(wt(sem, 0) == 0 && wt(sem, 0) == 0 && wt(sem, 0) == 0x102);
     CHECK(fn<MS uint64_t(*)(void*, int32_t, int32_t, const uint16_t*)>("CreateEventW")(nullptr, 1, 1, nullptr) != 0);
+  }
+  {
+    auto ll = fn<MS uint64_t(*)(const char*)>("LoadLibraryA");
+    auto gp = fn<MS uint64_t(*)(uint64_t, const char*)>("GetProcAddress");
+    auto fl = fn<MS uint32_t(*)(uint64_t)>("FreeLibrary");
+    auto gle = fn<MS uint32_t(*)()>("GetLastError");
+    uint64_t k = ll("KERNEL32");                                             // case and ".dll" do not matter
+    CHECK(k != 0 && ll("C:\\Windows\\System32\\kernel32.dll") == k && fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")("Kernel32.dll") == k);
+    uint64_t sl = gp(k, "Sleep");
+    CHECK(sl == (uint64_t)(uintptr_t)fn<MS void(*)(uint32_t)>("Sleep"));     // same address an import would get
+    CHECK(gp(k, "NoSuchFunction") == 0 && gle() == 127);
+    CHECK(gp(k, (const char*)(uintptr_t)7) == 0 && gle() == 127);            // ordinal lookup: none registered
+    CHECK(gp(0x1234, "Sleep") == 0 && gle() == 126);
+    CHECK(ll("nothere.dll") == 0 && gle() == 126 && ll(nullptr) == 0);
+    CHECK(ll("steam_api64.dll") == 0);                                       // nothing is ever loaded from disk
+    uint64_t (MS *tick)() = (uint64_t (MS *)())(uintptr_t)gp(k, "GetTickCount64"); CHECK(tick && tick() > 0);
+    CHECK(fl(k) == 1 && fl(0x42) == 0);
   }
   auto va = fn<MS void*(*)(void*, uint64_t, uint32_t, uint32_t)>("VirtualAlloc");
   auto vf = fn<MS uint32_t(*)(void*, uint64_t, uint32_t)>("VirtualFree");
@@ -154,4 +171,4 @@ int main() {
     CHECK(r.exit_code == 5 + 0x1234 + 99);
   }
   std::puts("ok"); return 0;
-}
+  }
