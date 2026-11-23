@@ -36,7 +36,7 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   const bool custom = !vs_.empty() && !fs_.empty();   // translated shaders flip y themselves (dxbc_to_spirv vulkan_flip_y)
   const bool textured = !tex_.empty();
   if (textured && !custom) { *err = "vulkan draw: a texture is bound but no shaders are set (the pass-through shaders cannot sample)"; return false; }
-  if (textured && (tex_w_ > 256 || tex_h_ > 256)) { *err = "vulkan draw: textures larger than 256x256 are not supported yet"; return false; }
+  if (textured && (tex_w_ > 1024 || tex_h_ > 1024)) { *err = "vulkan draw: textures larger than 1024x1024 are not supported yet"; return false; }
   const size_t fpv = textured ? 9 : 7;   // floats per vertex
   // keep only triangles the reference renderer would also draw
   std::vector<float> kept;
@@ -80,14 +80,14 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   const int32_t front = st_.rs.front_ccw ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
   BlendState bs; bs.enable = st_.blend.enable; bs.src_color = vk_factor(st_.blend.src); bs.dst_color = vk_factor(st_.blend.dst);
   bs.color_op = vk_op(st_.blend.op); bs.src_alpha = vk_factor(st_.blend.src_a); bs.dst_alpha = vk_factor(st_.blend.dst_a); bs.alpha_op = vk_op(st_.blend.op_a);
-  TexInput texin; if (textured) { texin.rgba = tex_.data(); texin.w = tex_w_; texin.h = tex_h_; texin.linear = smp_.linear; texin.repeat = smp_.wrap; texin.levels = tex_levels_; texin.mip_mode = smp_.mip_linear ? 1 : 0; texin.min_lod = std::max(0.f,smp_.min_lod); texin.max_lod = std::max(0.f,smp_.max_lod); }
+  TexInput texin; if (textured) { texin.rgba = tex_.data(); texin.byte_size=tex_.size(); texin.w = tex_w_; texin.h = tex_h_; texin.linear = smp_.linear; texin.repeat = smp_.wrap; texin.levels = tex_levels_; texin.mip_mode = smp_.mip_linear ? 1 : 0; texin.min_lod = std::max(0.f,smp_.min_lod); texin.max_lod = std::max(0.f,smp_.max_lod); }
   std::vector<pnr::graphics::TexInput> extra_in;
   for (int xi = 0; xi < 3; xi++) {
     const Extra& e = extra_[xi]; if (e.rgba.empty()) continue;
     if (!textured) { *err = "vulkan draw: textures t1..t3 need t0 bound as well"; return false; }
-    if (e.w > 256 || e.h > 256) { *err = "vulkan draw: textures larger than 256x256 are not supported yet"; return false; }
+    if (e.w > 1024 || e.h > 1024) { *err = "vulkan draw: textures larger than 1024x1024 are not supported yet"; return false; }
     if (xi != (int)extra_in.size()) { *err = "vulkan draw: bind t1, t2, t3 in order without gaps"; return false; }
-    pnr::graphics::TexInput t; t.rgba = e.rgba.data(); t.w = e.w; t.h = e.h; t.linear = e.smp.linear; t.repeat = e.smp.wrap; t.levels = e.levels; t.mip_mode = e.smp.mip_linear ? 1 : 0; t.min_lod = std::max(0.f,e.smp.min_lod); t.max_lod = std::max(0.f,e.smp.max_lod); extra_in.push_back(t);
+    pnr::graphics::TexInput t; t.rgba = e.rgba.data(); t.byte_size=e.rgba.size(); t.w = e.w; t.h = e.h; t.linear = e.smp.linear; t.repeat = e.smp.wrap; t.levels = e.levels; t.mip_mode = e.smp.mip_linear ? 1 : 0; t.min_lod = std::max(0.f,e.smp.min_lod); t.max_lod = std::max(0.f,e.smp.max_lod); extra_in.push_back(t);
   }
   VkViewport viewport{vp.x, vp.y, vp.width, vp.height, vp.min_depth, vp.max_depth};
   VkRect2D scissor{{0,0},{rt->w,rt->h}};
