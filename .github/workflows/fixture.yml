@@ -53,6 +53,9 @@ jobs:
           x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -o veh.exe tests/fixtures/veh.cpp
           ls -l veh.exe
           x86_64-w64-mingw32-objdump -p veh.exe | sed -n '/DLL Name/p;/^Entry/p' || true
+      - name: Build the texture-copy fixture
+        run: |
+          x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o texture_copy.exe tests/fixtures/texture_copy.cpp -ld3d11
       - name: Build the Anyxbox tools (Linux)
         run: |
           mkdir -p obj
@@ -108,6 +111,10 @@ jobs:
           ./import_gap veh.exe || true
           ./run_exe --i-built-this veh.exe || true
           ANYXBOX_SEH_TRACE=1 ./run_exe --i-built-this veh.exe 2>&1 | head -40 || true
+      - name: Run separately compiled texture-copy fixture (strict)
+        run: |
+          ./import_gap texture_copy.exe
+          ./run_exe --i-built-this texture_copy.exe
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
@@ -131,6 +138,7 @@ jobs:
         with:
           name: fixture-exes
           path: |
+            texture_copy.exe
             triangle.exe
             hello_crt.exe
             tls_crt.exe
