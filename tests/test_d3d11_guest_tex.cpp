@@ -68,6 +68,7 @@ std::vector<uint8_t> build_guest() {
   a.on(CTX); a.b({0x31, 0xD2}); a.mov_r8d(1); a.lea(9, VB);
   a.lea(0, STRIDE); a.store_stack_rax(0x20); a.lea(0, OFFSET); a.store_stack_rax(0x28); a.vcall(18);
   a.on(CTX); a.load(2, IB); a.b({0x41, 0xB8, 57, 0, 0, 0}); a.zero_r9(); a.vcall(19);               // IASetIndexBuffer(ib, R16_UINT, 0)
+  a.on(VB);a.vcall(2);a.on(IB);a.vcall(2); // input buffers now context-owned
   a.on(CTX); a.mov_edx(4); a.vcall(24);
   a.on(CTX); a.load(2, VS); a.zero_r8(); a.zero_r9(); a.vcall(11);
   a.on(CTX); a.load(2, PS); a.zero_r8(); a.zero_r9(); a.vcall(9);
