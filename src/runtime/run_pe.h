@@ -9,6 +9,10 @@
 #include <vector>
 #include "syslayer/import_registry.h"
 namespace anyxbox {
+struct RunOptions {
+  // Explicit opt-in. Empty denies file opens. Read-only assets only, not an OS sandbox.
+  std::string asset_root;
+};
 struct RunResult {
   bool loaded = false;
   bool ran = false;
@@ -20,5 +24,6 @@ struct RunResult {
 // extra_imports (optional) is called with the registry before the image is bound, so a caller can add
 // more host libraries (for example d3d11.dll). Anything it registers must outlive the call.
 RunResult run_pe(const uint8_t* data, size_t size, bool i_trust_this_binary,
-                 const std::function<void(ImportRegistry&)>& extra_imports = nullptr);
+                 const std::function<void(ImportRegistry&)>& extra_imports = nullptr,
+                 const RunOptions& options = {});
 }
