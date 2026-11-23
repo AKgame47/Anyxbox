@@ -4,8 +4,8 @@ namespace anyxbox {
 std::string pe_report(const LoadedImage& img) {
   std::string s;
   s += img.ok ? "load: OK\n" : "load: FAILED (" + img.error + ")\n";
-  if (img.mem.empty()) return s;
-  s += "image size: " + std::to_string(img.mem.size()) + " bytes\n";
+  if (img.image_size == 0) return s;
+  s += "image size: " + std::to_string(img.image_size) + " bytes\n";
   s += "entry rva: " + std::to_string(img.entry_rva) + "\n";
   s += "relocations applied: " + std::to_string(img.reloc_count) + "\n";
   std::map<std::string, int> per;
