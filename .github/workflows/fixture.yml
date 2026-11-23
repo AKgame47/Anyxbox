@@ -92,6 +92,8 @@ jobs:
         run: sh tests/check_launcher_cli.sh ./run_exe
       - name: Verify explicit GPU and saved-frame requirements (strict)
         run: sh tests/check_launcher_outputs.sh ./run_exe
+      - name: Verify explicit window-open requirements (strict SDL under Xvfb)
+        run: xvfb-run -a sh tests/check_launcher_window.sh ./run_exe
       - name: Run every unit test and the committed-fixture checks (strict, fails the job)
         run: |
           mkdir -p tbin
@@ -252,6 +254,9 @@ jobs:
             draw-copy-frame*.ppm
             committed-draw-copy-frame*.ppm
             resource_interfaces.exe
+            launcher-window-denied.log
+            launcher-window-absent.log
+            launcher-window-success.log
             launcher-gpu-denied.log
             launcher-frame-absent.log
             launcher-frame-denied.log
