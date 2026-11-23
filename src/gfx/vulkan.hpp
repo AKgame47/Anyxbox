@@ -93,6 +93,7 @@ struct MeshInput {
   const std::vector<uint32_t>* indices = nullptr;
   bool depth = false;
   const TexInput* tex = nullptr;  // sampled at set 0 binding 0 (fragment stage)
+  const std::vector<uint8_t>* frag_ubo = nullptr;  // Anyxbox: fragment uniform buffer at set 1 binding 0 (1..16384 bytes)
   FrameSurface* shared_frame = nullptr;  // slice S13: persistent targets; null = per-draw
   bool depth_write = true;               // DB_DEPTH_CONTROL depth_write_enable
   // Slice S26 (DB_DEPTH_CONTROL func, bits 4..6): VK_COMPARE_OP_* value. The
@@ -203,7 +204,8 @@ public:
                                int32_t cull_mode = VK_CULL_MODE_NONE,
                                int32_t front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE,
                                int32_t depth_compare = VK_COMPARE_OP_LESS,
-                               const std::vector<uint32_t>* vertex_push = nullptr);  // Anyxbox: 1..32 words, vertex stage
+                               const std::vector<uint32_t>* vertex_push = nullptr,
+                               const std::vector<uint8_t>* frag_ubo = nullptr);  // Anyxbox: 1..32 words, vertex stage
 
   // Destroys a FrameSurface's Vulkan objects and zeroes it (slice S13).
   void destroy_frame(FrameSurface& s);
