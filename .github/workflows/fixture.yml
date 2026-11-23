@@ -53,6 +53,11 @@ jobs:
           x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -o veh.exe tests/fixtures/veh.cpp
           ls -l veh.exe
           x86_64-w64-mingw32-objdump -p veh.exe | sed -n '/DLL Name/p;/^Entry/p' || true
+      - name: Build the draw-copy fixture
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables \
+            -nostdlib -nostartfiles -Wl,-e,mainEntry -Itests/fixtures \
+            -o draw_copy.exe tests/fixtures/draw_copy.c -lkernel32 -luser32 -ld3d11
       - name: Build the texture-copy fixture
         run: |
           x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o texture_copy.exe tests/fixtures/texture_copy.cpp -ld3d11
@@ -111,6 +116,10 @@ jobs:
           ./import_gap veh.exe || true
           ./run_exe --i-built-this veh.exe || true
           ANYXBOX_SEH_TRACE=1 ./run_exe --i-built-this veh.exe 2>&1 | head -40 || true
+      - name: Verify independently compiled draw-copy frames (strict Vulkan required)
+        run: |
+          ./import_gap draw_copy.exe
+          ./tbin/test_fixture_draw_copy draw_copy.exe --require-vulkan draw-copy-frame
       - name: Run separately compiled texture-copy fixture (strict)
         run: |
           ./import_gap texture_copy.exe
@@ -138,6 +147,8 @@ jobs:
         with:
           name: fixture-exes
           path: |
+            draw_copy.exe
+            draw-copy-frame*.ppm
             texture_copy.exe
             triangle.exe
             hello_crt.exe
