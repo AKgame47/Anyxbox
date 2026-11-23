@@ -1,4 +1,5 @@
 #include "runtime/d3d11_runtime.h"
+#include <algorithm>
 #include <cstring>
 #include "shader/dxbc_spirv.h"
 #if defined(__x86_64__)
@@ -12,7 +13,7 @@ namespace {
 const int32_t S_OK_ = 0;
 const int32_t E_NOTIMPL_ = (int32_t)0x80004001, E_NOINTERFACE_ = (int32_t)0x80004002, E_FAIL_ = (int32_t)0x80004005,
               E_INVALIDARG_ = (int32_t)0x80070057;
-enum Kind : uint32_t { K_DEVICE, K_CONTEXT, K_BUFFER, K_TEXTURE, K_RTV, K_VS, K_PS, K_LAYOUT };
+enum Kind : uint32_t { K_DEVICE, K_CONTEXT, K_BUFFER, K_TEXTURE, K_RTV, K_VS, K_PS, K_LAYOUT, K_DEPTH, K_DSV, K_RS, K_DSS, K_BLEND, K_SWAPCHAIN };
 struct Obj {
   void** vtbl;            // must be first: guest code reads it
   uint32_t refs = 1;
@@ -21,6 +22,8 @@ struct Obj {
   ResourceId id = 0;      // buffer / texture / rtv id
   std::vector<uint32_t> spirv;
   std::vector<InputElement> layout;
+  RasterizerDesc rs; DepthStencilDesc ds; BlendDesc bl;
+  Obj* backbuffer = nullptr;   // swap chain only
 };
 D3D11Runtime* G(void* self) { return ((Obj*)self)->rt; }
 MSABI int32_t stub_notimpl() { return E_NOTIMPL_; }
@@ -42,9 +45,9 @@ MSABI uint32_t release(void* self) {
 
 struct D3D11Runtime::Impl {
   Obj device, context;
-  void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16];
+  void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* sc_vt[20];
   // bound state
-  Obj* vs = nullptr; Obj* ps = nullptr;
+  Obj* vs = nullptr; Obj* ps = nullptr; Obj* swapchain = nullptr;
   Impl() {}
 };
 
@@ -76,6 +79,14 @@ Format fmt_from_dxgi(uint32_t f) {
 MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* init, void** out) {
   D3D11Runtime* rt = G(self);
   if (!d) return E_INVALIDARG_;
+  if ((d->Format == 40 || (d->Format == 39 && (d->BindFlags & 0x40))) && (d->BindFlags & 0x40)) {   // D32_FLOAT (or typeless) depth
+    if (d->MipLevels > 1 || d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;
+    if (init && init->pSysMem) return E_INVALIDARG_;
+    ResourceId did = rt->dev.CreateDepthBuffer(d->Width, d->Height);
+    if (!did) return E_INVALIDARG_;
+    if (out) *out = make(rt, K_DEPTH, did);
+    return S_OK_;
+  }
   Format f = fmt_from_dxgi(d->Format);
   if (f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) return E_INVALIDARG_;
   if (d->MipLevels > 1 || d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;
@@ -100,6 +111,71 @@ MSABI int32_t dev_CreateRTV(void* self, void* res, const void* /*desc*/, void** 
   ResourceId id = rt->dev.CreateRenderTargetView(r->id);
   if (!id) return E_FAIL_;
   if (out) *out = make(rt, K_RTV, id);
+  return S_OK_;
+}
+MSABI int32_t dev_CreateDSV(void* self, void* res, const void* /*desc*/, void** out) {
+  D3D11Runtime* rt = G(self);
+  Obj* r = (Obj*)res;
+  if (!r || r->kind != K_DEPTH) return E_INVALIDARG_;
+  ResourceId id = rt->dev.CreateDepthStencilView(r->id);
+  if (!id) return E_FAIL_;
+  if (out) *out = make(rt, K_DSV, id);
+  return S_OK_;
+}
+bool conv_factor(uint32_t f, BlendFactor* o) {
+  switch (f) { case 1: *o = BlendFactor::Zero; return true; case 2: *o = BlendFactor::One; return true;
+    case 3: *o = BlendFactor::SrcColor; return true; case 4: *o = BlendFactor::InvSrcColor; return true;
+    case 5: *o = BlendFactor::SrcAlpha; return true; case 6: *o = BlendFactor::InvSrcAlpha; return true;
+    case 7: *o = BlendFactor::DestAlpha; return true; case 8: *o = BlendFactor::InvDestAlpha; return true;
+    case 9: *o = BlendFactor::DestColor; return true; case 10: *o = BlendFactor::InvDestColor; return true; }
+  return false;   // SRC_ALPHA_SAT, BLEND_FACTOR, dual source: not supported
+}
+bool conv_op(uint32_t f, BlendOp* o) {
+  switch (f) { case 1: *o = BlendOp::Add; return true; case 2: *o = BlendOp::Subtract; return true; case 3: *o = BlendOp::RevSubtract; return true;
+    case 4: *o = BlendOp::Min; return true; case 5: *o = BlendOp::Max; return true; }
+  return false;
+}
+bool conv_cmp(uint32_t f, Compare* o) {
+  if (f < 1 || f > 8) return false;
+  static const Compare m[8] = {Compare::Never, Compare::Less, Compare::Equal, Compare::LessEqual, Compare::Greater, Compare::NotEqual, Compare::GreaterEqual, Compare::Always};
+  *o = m[f - 1]; return true;
+}
+// D3D11_BLEND_DESC: AlphaToCoverage@0, Independent@4, RenderTarget[0] @8: Enable@0 Src@4 Dst@8 Op@12 SrcA@16 DstA@20 OpA@24 Mask(u8)@28
+MSABI int32_t dev_CreateBlendState(void* self, const uint8_t* d, void** out) {
+  D3D11Runtime* rt = G(self);
+  if (!d) return E_INVALIDARG_;
+  uint32_t u[8]; std::memcpy(u, d + 8, 28); uint8_t mask = d[8 + 28];
+  uint32_t a2c; std::memcpy(&a2c, d, 4);
+  if (a2c || mask != 0x0F) { rt->last_error = "blend state: alpha-to-coverage and partial write masks are not supported"; return E_NOTIMPL_; }
+  BlendDesc b; b.enable = u[0] != 0;
+  if (b.enable && !(conv_factor(u[1], &b.src) && conv_factor(u[2], &b.dst) && conv_op(u[3], &b.op) &&
+                    conv_factor(u[4], &b.src_a) && conv_factor(u[5], &b.dst_a) && conv_op(u[6], &b.op_a))) {
+    rt->last_error = "blend state: unsupported blend factor or operation"; return E_NOTIMPL_;
+  }
+  Obj* o = make(rt, K_BLEND, 0); o->bl = b; if (out) *out = o; else delete o;
+  return S_OK_;
+}
+// D3D11_DEPTH_STENCIL_DESC: DepthEnable@0 WriteMask@4 Func@8 StencilEnable@12
+MSABI int32_t dev_CreateDepthStencilState(void* self, const uint32_t* d, void** out) {
+  D3D11Runtime* rt = G(self);
+  if (!d) return E_INVALIDARG_;
+  if (d[3]) { rt->last_error = "depth-stencil state: stencil is not supported"; return E_NOTIMPL_; }
+  DepthStencilDesc ds; ds.depth_enable = d[0] != 0; ds.depth_write = d[1] != 0;
+  if (!conv_cmp(d[2], &ds.func)) return E_INVALIDARG_;
+  Obj* o = make(rt, K_DSS, 0); o->ds = ds; if (out) *out = o; else delete o;
+  return S_OK_;
+}
+// D3D11_RASTERIZER_DESC: Fill@0 Cull@4 FrontCCW@8 DepthBias@12 Clamp@16 Slope@20 DepthClip@24 Scissor@28 MS@32 AA@36
+MSABI int32_t dev_CreateRasterizerState(void* self, const uint32_t* d, void** out) {
+  D3D11Runtime* rt = G(self);
+  if (!d) return E_INVALIDARG_;
+  float clamp, slope; std::memcpy(&clamp, &d[4], 4); std::memcpy(&slope, &d[5], 4);
+  if (d[0] != 3 || d[3] != 0 || clamp != 0.f || slope != 0.f || d[7]) {
+    rt->last_error = "rasterizer state: only solid fill, no depth bias and no scissor are supported"; return E_NOTIMPL_;
+  }
+  if (d[1] < 1 || d[1] > 3) return E_INVALIDARG_;
+  RasterizerDesc r; r.cull = d[1] == 1 ? Cull::None : d[1] == 2 ? Cull::Front : Cull::Back; r.front_ccw = d[2] != 0;
+  Obj* o = make(rt, K_RS, 0); o->rs = r; if (out) *out = o; else delete o;
   return S_OK_;
 }
 MSABI int32_t dev_CreateInputLayout(void* self, const ElemDesc* e, uint32_t n, const void* /*bytecode*/, size_t /*len*/, void** out) {
@@ -158,9 +234,23 @@ MSABI void ctx_IASetPrimitiveTopology(void* self, uint32_t t) {
 MSABI void ctx_RSSetViewports(void* self, uint32_t n, const Viewport6* v) {
   if (n >= 1 && v) G(self)->ctx->RSSetViewport({v->x, v->y, v->w, v->h});
 }
-MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, void* /*dsv*/) {
+MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, void* dsv) {
   Obj* r = n >= 1 && rtvs ? (Obj*)rtvs[0] : nullptr;
-  G(self)->ctx->OMSetRenderTarget(r ? r->id : 0);
+  Obj* d = (Obj*)dsv;
+  G(self)->ctx->OMSetRenderTarget(r ? r->id : 0, d ? d->id : 0);
+}
+MSABI void ctx_OMSetBlendState(void* self, void* st, const float* /*factor*/, uint32_t /*mask*/) {
+  Obj* o = (Obj*)st; G(self)->ctx->OMSetBlendState(o ? o->bl : BlendDesc());
+}
+MSABI void ctx_OMSetDepthStencilState(void* self, void* st, uint32_t /*stencil_ref*/) {
+  Obj* o = (Obj*)st; G(self)->ctx->OMSetDepthStencilState(o ? o->ds : DepthStencilDesc());
+}
+MSABI void ctx_RSSetState(void* self, void* st) {
+  Obj* o = (Obj*)st; G(self)->ctx->RSSetState(o ? o->rs : RasterizerDesc());
+}
+MSABI void ctx_ClearDepthStencilView(void* self, void* dsv, uint32_t flags, float depth, uint8_t /*stencil*/) {
+  Obj* d = (Obj*)dsv;
+  if (d && (flags & 1)) { if (!G(self)->ctx->ClearDepthStencilView(d->id, depth)) G(self)->last_error = G(self)->ctx->last_error(); }
 }
 MSABI void ctx_VSSetConstantBuffers(void* self, uint32_t start, uint32_t n, void* const* bufs) {
   for (uint32_t i = 0; i < n; i++) { Obj* b = bufs ? (Obj*)bufs[i] : nullptr; G(self)->ctx->VSSetConstantBuffer(start + i, b ? b->id : 0); }
@@ -179,8 +269,13 @@ MSABI void ctx_Draw(void* self, uint32_t count, uint32_t start) {
 }
 }  // namespace
 
+namespace {
+MSABI int32_t sc_Present(void* self, uint32_t sync, uint32_t flags);
+MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* iid, void** out);
+}
 D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   ctx.reset(new DeviceContext(dev));
+  ctx->RSSetState(RasterizerDesc());   // D3D11 default: cull back, clockwise front
   Impl& I = *impl;
   for (auto& p : I.dev_vt) p = (void*)&stub_notimpl;
   for (auto& p : I.ctx_vt) p = (void*)&stub_notimpl;
@@ -189,18 +284,40 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   // slot numbers: ID3D11DeviceVtbl and ID3D11DeviceContextVtbl member order (mingw-w64 d3d11.h, cross-checked
   // against two public vtable listings; see docs/D3D11_VTABLES.md)
   I.dev_vt[3] = (void*)&dev_CreateBuffer; I.dev_vt[5] = (void*)&dev_CreateTexture2D; I.dev_vt[9] = (void*)&dev_CreateRTV;
-  I.dev_vt[11] = (void*)&dev_CreateInputLayout; I.dev_vt[12] = (void*)&dev_CreateVS; I.dev_vt[15] = (void*)&dev_CreatePS;
+  I.dev_vt[10] = (void*)&dev_CreateDSV; I.dev_vt[20] = (void*)&dev_CreateBlendState; I.dev_vt[21] = (void*)&dev_CreateDepthStencilState;
+  I.dev_vt[22] = (void*)&dev_CreateRasterizerState; I.dev_vt[11] = (void*)&dev_CreateInputLayout; I.dev_vt[12] = (void*)&dev_CreateVS; I.dev_vt[15] = (void*)&dev_CreatePS;
   I.dev_vt[37] = (void*)&dev_GetFeatureLevel; I.dev_vt[40] = (void*)&dev_GetImmediateContext;
   I.ctx_vt[7] = (void*)&ctx_VSSetConstantBuffers; I.ctx_vt[9] = (void*)&ctx_PSSetShader; I.ctx_vt[11] = (void*)&ctx_VSSetShader;
   I.ctx_vt[13] = (void*)&ctx_Draw; I.ctx_vt[16] = (void*)&ctx_PSSetConstantBuffers; I.ctx_vt[17] = (void*)&ctx_IASetInputLayout;
   I.ctx_vt[18] = (void*)&ctx_IASetVertexBuffers; I.ctx_vt[24] = (void*)&ctx_IASetPrimitiveTopology;
-  I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
+  I.ctx_vt[35] = (void*)&ctx_OMSetBlendState; I.ctx_vt[36] = (void*)&ctx_OMSetDepthStencilState; I.ctx_vt[43] = (void*)&ctx_RSSetState;
+  I.ctx_vt[53] = (void*)&ctx_ClearDepthStencilView; I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
+  for (auto& p : I.sc_vt) p = (void*)&stub_notimpl;
+  I.sc_vt[0] = (void*)&qi; I.sc_vt[1] = (void*)&addref; I.sc_vt[2] = (void*)&release;
+  I.sc_vt[8] = (void*)&sc_Present; I.sc_vt[9] = (void*)&sc_GetBuffer;
   I.device.vtbl = I.dev_vt; I.device.kind = K_DEVICE; I.device.rt = this;
   I.context.vtbl = I.ctx_vt; I.context.kind = K_CONTEXT; I.context.rt = this;
 }
 D3D11Runtime::~D3D11Runtime() {}
 
 namespace {
+// IDXGISwapChain: IUnknown 0..2, IDXGIObject 3..6 (GetParent 6), GetDevice 7, Present 8, GetBuffer 9, ...
+MSABI int32_t sc_Present(void* self, uint32_t /*sync*/, uint32_t /*flags*/) {
+  Obj* sc = (Obj*)self; D3D11Runtime* rt = sc->rt;
+  Device::Texture* t = rt->dev.texture(sc->backbuffer->id);
+  if (!t) return E_FAIL_;
+  rt->presented = t->px;
+  if (t->f == Format::B8G8R8A8_UNORM) for (size_t i = 0; i + 3 < rt->presented.size(); i += 4) std::swap(rt->presented[i], rt->presented[i + 2]);
+  rt->presented_w = t->w; rt->presented_h = t->h; rt->presents++;
+  if (rt->on_present) rt->on_present(rt->presented.data(), t->w, t->h);
+  return S_OK_;
+}
+MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* /*iid*/, void** out) {
+  Obj* sc = (Obj*)self;
+  if (!out) return E_INVALIDARG_;
+  if (index != 0) { *out = nullptr; return E_INVALIDARG_; }
+  sc->backbuffer->refs++; *out = sc->backbuffer; return S_OK_;
+}
 D3D11Runtime* g_rt = nullptr;   // one runtime per guest run; set by register_imports
 MSABI int32_t host_D3D11CreateDevice(void* /*adapter*/, uint32_t /*driver*/, void* /*software*/, uint32_t /*flags*/,
                                      const uint32_t* /*levels*/, uint32_t /*n*/, uint32_t /*sdk*/, void** dev,
@@ -211,9 +328,33 @@ MSABI int32_t host_D3D11CreateDevice(void* /*adapter*/, uint32_t /*driver*/, voi
   if (ctx) { g_rt->impl->context.refs++; *ctx = &g_rt->impl->context; }
   return S_OK_;
 }
+// D3D11CreateDeviceAndSwapChain: DXGI_SWAP_CHAIN_DESC Width@0 Height@4 Format@16 SampleCount@28 BufferCount@40 (72 bytes)
+MSABI int32_t host_D3D11CreateDeviceAndSwapChain(void* adapter, uint32_t driver, void* software, uint32_t flags, const uint32_t* levels,
+                                                 uint32_t nlevels, uint32_t sdk, const uint8_t* desc, void** swap, void** dev,
+                                                 uint32_t* level, void** ctx) {
+  if (!g_rt) return E_FAIL_;
+  if (swap) {
+    *swap = nullptr;
+    if (!desc) return E_INVALIDARG_;
+    uint32_t w, h, fmt, samples; std::memcpy(&w, desc, 4); std::memcpy(&h, desc + 4, 4); std::memcpy(&fmt, desc + 16, 4); std::memcpy(&samples, desc + 28, 4);
+    if (w == 0) w = 640;
+    if (h == 0) h = 480;   // 0 means "size of the window", which this headless runtime does not have
+    Format f = fmt == 0 ? Format::R8G8B8A8_UNORM : fmt_from_dxgi(fmt);
+    if ((f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) || samples > 1) return E_INVALIDARG_;
+    ResourceId tid = g_rt->dev.CreateTexture2D(w, h, f);
+    if (!tid) return E_INVALIDARG_;
+    Obj* sc = make(g_rt, K_SWAPCHAIN, 0); sc->vtbl = (void**)g_rt->impl->sc_vt;
+    sc->backbuffer = make(g_rt, K_TEXTURE, tid);
+    g_rt->impl->swapchain = sc;
+    *swap = sc;
+  }
+  int32_t hr = host_D3D11CreateDevice(adapter, driver, software, flags, levels, nlevels, sdk, dev, level, ctx);
+  return hr;
+}
 }  // namespace
 void D3D11Runtime::register_imports(ImportRegistry& reg) {
   g_rt = this;
   reg.add("d3d11.dll", "D3D11CreateDevice", (uint64_t)(uintptr_t)&host_D3D11CreateDevice);
+  reg.add("d3d11.dll", "D3D11CreateDeviceAndSwapChain", (uint64_t)(uintptr_t)&host_D3D11CreateDeviceAndSwapChain);
 }
 }  // namespace anyxbox
