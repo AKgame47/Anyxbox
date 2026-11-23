@@ -129,6 +129,27 @@ int main() {
     CHECK(!cx.VSSetConstantBuffer(1, buf)); CHECK(!cx.VSSetConstantBuffer(0, 999)); CHECK(cx.VSSetConstantBuffer(0, buf)); CHECK(cx.VSSetConstantBuffer(0, 0));
     std::printf("constant buffer rejection paths ok\n"); }
 
+  // ---- texture translation rejection paths ----
+  { auto ok = dxb::ps_sample(); auto r = dxbc_to_spirv(ok.data(), ok.size()); CHECK(r.ok);
+    auto lod = dxb::ps_sample(dxb::swz(2, 1, 0, 3), 0.0f); r = dxbc_to_spirv(lod.data(), lod.size()); CHECK(r.ok);
+    auto t1 = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 1, 0); r = dxbc_to_spirv(t1.data(), t1.size()); CHECK(!r.ok && r.error.find("t0") != std::string::npos);
+    auto s1 = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 0, 1); r = dxbc_to_spirv(s1.data(), s1.size()); CHECK(!r.ok && r.error.find("s0") != std::string::npos);
+    auto nd = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 0, 0, false); r = dxbc_to_spirv(nd.data(), nd.size()); CHECK(!r.ok && r.error.find("declared") != std::string::npos);
+    auto vt = dxb::shader(1, {}, {{"SV_Position", 0, 1, 0, 0xF}}, {dxb::ins(103, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}, false, 0, {1}), dxb::dcl_tex2d(0), dxb::ins(dxb::OP_RET, {})});
+    r = dxbc_to_spirv(vt.data(), vt.size()); CHECK(!r.ok && r.error.find("vertex") != std::string::npos);
+    auto half = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, {dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}), dxb::dcl_tex2d(0), dxb::ins(dxb::OP_MOV, {dxb::dst(dxb::T_OUTPUT, 0, 0xF), dxb::imm4(0, 0, 0, 1)}), dxb::ins(dxb::OP_RET, {})});
+    r = dxbc_to_spirv(half.data(), half.size()); CHECK(!r.ok && r.error.find("together") != std::string::npos);
+    auto badret = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, {dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}), dxb::dcl_tex2d(0, 0x4444), dxb::dcl_sampler(0), dxb::ins(dxb::OP_RET, {})});
+    r = dxbc_to_spirv(badret.data(), badret.size()); CHECK(!r.ok && r.error.find("float4") != std::string::npos);
+    auto cmp = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, {dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}), dxb::dcl_tex2d(0), dxb::dcl_sampler(0, 1), dxb::ins(dxb::OP_RET, {})});
+    r = dxbc_to_spirv(cmp.data(), cmp.size()); CHECK(!r.ok && r.error.find("comparison") != std::string::npos);
+    for (size_t n = 0; n < ok.size(); n++) CHECK(!dxbc_to_spirv(ok.data(), n).ok);
+    for (size_t i = 0; i < ok.size(); i++) for (int bit = 0; bit < 8; bit++) { auto x = ok; x[i] ^= (uint8_t)(1u << bit); (void)dxbc_to_spirv(x.data(), x.size()); }
+    d3d11::Device dv; d3d11::DeviceContext cx(dv); auto tx = dv.CreateTexture2D(2, 2, d3d11::Format::R8G8B8A8_UNORM);
+    uint8_t px[16] = {0}; CHECK(dv.UpdateTexture(tx, px, 16)); CHECK(!dv.UpdateTexture(tx, px, 15)); CHECK(!dv.UpdateTexture(77, px, 16));
+    CHECK(!cx.PSSetShaderResource(1, tx)); CHECK(!cx.PSSetShaderResource(0, 77)); CHECK(cx.PSSetShaderResource(0, tx)); CHECK(!cx.PSSetSampler(2, {}));
+    std::printf("texture rejection paths ok\n"); }
+
   // ---- translation output shape ----
   { auto r = dxbc_to_spirv(vsb.data(), vsb.size()); CHECK(r.ok && !r.is_pixel && r.words.size() > 40 && r.words[0] == 0x07230203);
     auto p = dxbc_to_spirv(psb.data(), psb.size()); CHECK(p.ok && p.is_pixel);
@@ -196,6 +217,64 @@ int main() {
       int d = 0; for (int k = 0; k < 3; k++) d = std::max(d, std::abs((int)a[i + k] - ex[k])); if (d > 4) badp++;
     }
     std::printf("pixel cbuffer variant %d: covered %d, mismatches %d\n", variant, covp, badp); CHECK(badp == 0 && covp > 1500);
+  }
+  // textures through the D3D11 model: full-target quad, translated shaders, CPU-evaluated expectation per pixel
+  {
+    struct VT { float x, y, z, w, r, g, b, a, u, v; };
+    const std::vector<d3d11::InputElement> lay = {{"POSITION", d3d11::Format::R32G32B32A32_FLOAT, 0}, {"COLOR", d3d11::Format::R32G32B32A32_FLOAT, 16}, {"TEXCOORD", d3d11::Format::R32G32_FLOAT, 32}};
+    auto run = [&](const std::vector<uint8_t>& psbytes, uint32_t tw, uint32_t th, const std::vector<uint8_t>& texels, d3d11::SamplerDesc sd, float uvs,
+                   d3d11::Format tf, auto expect, int tol, const char* name) -> int {
+      auto vsr = dxbc_to_spirv(dxb::vs_tex_pass().data(), dxb::vs_tex_pass().size()); auto psr = dxbc_to_spirv(psbytes.data(), psbytes.size());
+      if (!vsr.ok || !psr.ok) { std::printf("translate failed: %s | %s\n", vsr.error.c_str(), psr.error.c_str()); return -1; }
+      d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+      d3d11::Device dev; d3d11::DeviceContext ctx(dev); ctx.SetDrawBackend(&be);
+      auto rt = dev.CreateTexture2D(W, H, d3d11::Format::R8G8B8A8_UNORM); auto rtv = dev.CreateRenderTargetView(rt);
+      auto tex = dev.CreateTexture2D(tw, th, tf); if (!dev.UpdateTexture(tex, texels.data(), texels.size())) return -1;
+      ctx.IASetInputLayout(lay); ctx.IASetPrimitiveTopology(d3d11::Topology::TriangleList); ctx.RSSetViewport({0, 0, (float)W, (float)H}); ctx.OMSetRenderTarget(rtv);
+      if (!ctx.PSSetShaderResource(0, tex) || !ctx.PSSetSampler(0, sd)) return -1;
+      VT a{-1, 1, 0, 1, 1, 1, 1, 1, 0, 0}, b{1, 1, 0, 1, 1, 1, 1, 1, uvs, 0}, c{-1, -1, 0, 1, 1, 1, 1, 1, 0, uvs}, d{1, -1, 0, 1, 1, 1, 1, 1, uvs, uvs};
+      std::vector<VT> q = {a, b, c, b, d, c};
+      ctx.IASetVertexBuffer(dev.CreateBuffer(q.data(), q.size() * sizeof(VT)), sizeof(VT), 0);
+      const float navy[4] = {0.02f, 0.03f, 0.2f, 1}; ctx.ClearRenderTargetView(rtv, navy);
+      if (!ctx.Draw((uint32_t)q.size(), 0)) { std::printf("%s: draw failed: %s\n", name, ctx.last_error().c_str()); return -1; }
+      std::vector<uint8_t> img; dev.ReadTexture(rt, &img);
+      int bad = 0;
+      for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+        int e[3]; expect(x, y, e);
+        const uint8_t* p = &img[((size_t)y * W + x) * 4]; int dd = 0; for (int k = 0; k < 3; k++) dd = std::max(dd, std::abs((int)p[k] - e[k]));
+        if (dd > tol) { if (!bad) std::printf("%s: first bad px (%d,%d) got %d %d %d exp %d %d %d\n", name, x, y, p[0], p[1], p[2], e[0], e[1], e[2]); bad++; }
+      }
+      std::printf("%s: mismatches %d\n", name, bad); return bad;
+    };
+    // 8x8 pattern texture
+    std::vector<uint8_t> t8(8 * 8 * 4); for (int i = 0; i < 64; i++) { t8[i*4] = (uint8_t)((i * 37) & 255); t8[i*4+1] = (uint8_t)((i * 91 + 20) & 255); t8[i*4+2] = (uint8_t)((i * 53 + 100) & 255); t8[i*4+3] = 255; }
+    auto near_exp = [&](int x, int y, int* e) { int tx = x / 16, ty = y / 16; for (int k = 0; k < 3; k++) e[k] = t8[(ty * 8 + tx) * 4 + k]; };
+    CHECK(run(dxb::ps_sample(), 8, 8, t8, {false, false}, 1.0f, d3d11::Format::R8G8B8A8_UNORM, near_exp, 0, "nearest") == 0);
+    CHECK(run(dxb::ps_sample(dxb::swz(0, 1, 2, 3), 0.0f), 8, 8, t8, {false, false}, 1.0f, d3d11::Format::R8G8B8A8_UNORM, near_exp, 0, "nearest sample_l") == 0);
+    CHECK(run(dxb::ps_sample(dxb::swz(2, 1, 0, 3)), 8, 8, t8, {false, false}, 1.0f, d3d11::Format::R8G8B8A8_UNORM,
+              [&](int x, int y, int* e) { int tx = x / 16, ty = y / 16; for (int k = 0; k < 3; k++) e[k] = t8[(ty * 8 + tx) * 4 + (2 - k)]; }, 0, "swizzle zyxw") == 0);
+    // BGRA texture: the model's bytes are B,G,R,A, so the shader still sees the true colours
+    { std::vector<uint8_t> bgra = t8; for (int i = 0; i < 64; i++) std::swap(bgra[i*4], bgra[i*4+2]);
+      CHECK(run(dxb::ps_sample(), 8, 8, bgra, {false, false}, 1.0f, d3d11::Format::B8G8R8A8_UNORM, near_exp, 0, "bgra texture") == 0); }
+    // wrap: uv 0..2 over a 4x4 texture
+    { std::vector<uint8_t> t4(4 * 4 * 4); for (int i = 0; i < 16; i++) { t4[i*4] = (uint8_t)(i * 16); t4[i*4+1] = (uint8_t)(255 - i * 16); t4[i*4+2] = (uint8_t)(i * 7); t4[i*4+3] = 255; }
+      CHECK(run(dxb::ps_sample(), 4, 4, t4, {false, true}, 2.0f, d3d11::Format::R8G8B8A8_UNORM,
+                [&](int x, int y, int* e) { int tx = (x / 16) % 4, ty = (y / 16) % 4; for (int k = 0; k < 3; k++) e[k] = t4[(ty * 4 + tx) * 4 + k]; }, 0, "wrap") == 0); }
+    // linear: 2x1 texture across u
+    { std::vector<uint8_t> t2 = {250, 10, 0, 255,  0, 200, 100, 255};
+      CHECK(run(dxb::ps_sample(), 2, 1, t2, {true, false}, 1.0f, d3d11::Format::R8G8B8A8_UNORM,
+                [&](int x, int, int* e) { float u = (x + 0.5f) / W, f = (u - 0.25f) / 0.5f; f = f < 0 ? 0 : f > 1 ? 1 : f;
+                  for (int k = 0; k < 3; k++) e[k] = (int)std::lround(t2[k] * (1 - f) + t2[4 + k] * f); }, 4, "linear") == 0); }
+    // a texture bound with the pass-through shaders is an error, not a silent skip
+    { d3d11::VulkanDrawBackend be(vk); d3d11::Device dev; d3d11::DeviceContext ctx(dev); ctx.SetDrawBackend(&be);
+      auto rt = dev.CreateTexture2D(W, H, d3d11::Format::R8G8B8A8_UNORM); auto rtv = dev.CreateRenderTargetView(rt);
+      auto tex = dev.CreateTexture2D(2, 2, d3d11::Format::R8G8B8A8_UNORM);
+      ctx.IASetInputLayout(lay); ctx.IASetPrimitiveTopology(d3d11::Topology::TriangleList); ctx.RSSetViewport({0, 0, (float)W, (float)H}); ctx.OMSetRenderTarget(rtv);
+      CHECK(ctx.PSSetShaderResource(0, tex));
+      VT t[3] = {{-.5f,-.5f,0,1, 1,1,1,1, 0,0}, {.5f,-.5f,0,1, 1,1,1,1, 1,0}, {0,.5f,0,1, 1,1,1,1, 0,1}};
+      ctx.IASetVertexBuffer(dev.CreateBuffer(t, sizeof t), sizeof(VT), 0);
+      CHECK(!ctx.Draw(3, 0) && ctx.last_error().find("no shaders") != std::string::npos);
+      std::printf("texture without shaders rejected\n"); }
   }
   // an oversized constant buffer is an error, not a truncation
   { auto vcb = dxb::vs_cb_scale_offset(); auto vsr = dxbc_to_spirv(vcb.data(), vcb.size()), psr = dxbc_to_spirv(psb.data(), psb.size());
