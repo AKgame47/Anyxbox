@@ -33,6 +33,8 @@ class DrawBackend {
   virtual bool clear(Device& dev, ResourceId tex, const float rgba[4], std::string* err) = 0;
   virtual bool draw(Device& dev, ResourceId tex, const Viewport& vp, const std::vector<ClipVertex>& verts,
                     DrawStats* stats, std::string* err) = 0;
+  // Vertex-shader constant buffer 0 contents for the next draw (empty = none bound). Default: ignored.
+  virtual void set_vs_constants(const std::vector<uint8_t>& /*cb0*/) {}
 };
 
 class Device {
@@ -63,6 +65,8 @@ class DeviceContext {
   void IASetVertexBuffer(ResourceId buffer, uint32_t stride, uint32_t offset) { vb_ = buffer; stride_ = stride; vb_offset_ = offset; }
   void IASetPrimitiveTopology(Topology t) { topo_ = t; }
   void RSSetViewport(const Viewport& v) { vp_ = v; has_vp_ = true; }
+  // Only slot 0 exists for now; returns false (and sets last_error) for any other slot or an invalid buffer. 0 unbinds.
+  bool VSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   void OMSetRenderTarget(ResourceId rtv) { rtv_ = rtv; }
   bool ClearRenderTargetView(ResourceId rtv, const float rgba[4]);
   bool Draw(uint32_t vertex_count, uint32_t start_vertex);
@@ -73,7 +77,7 @@ class DeviceContext {
   Device& dev_;
   DrawBackend* backend_ = nullptr;
   std::vector<InputElement> layout_;
-  ResourceId vb_ = 0, rtv_ = 0;
+  ResourceId vb_ = 0, rtv_ = 0, vs_cb0_ = 0;
   uint32_t stride_ = 0, vb_offset_ = 0;
   Topology topo_ = Topology::Undefined;
   Viewport vp_; bool has_vp_ = false;
