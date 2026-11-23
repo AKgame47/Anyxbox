@@ -22,6 +22,19 @@ struct InputElement { std::string semantic; Format format; uint32_t offset; };
 struct Viewport { float x = 0, y = 0, width = 0, height = 0; };
 struct DrawStats { uint64_t triangles_in = 0, triangles_drawn = 0, pixels_written = 0; };
 
+struct ClipVertex { float x, y, z, w; float r, g, b, a; };  // D3D clip space (y up)
+
+class Device;
+// Pluggable draw path. The reference renderer is built in; the Vulkan backend lives in d3d11_vulkan.h.
+class DrawBackend {
+ public:
+  virtual ~DrawBackend() = default;
+  // Called after DeviceContext validated the draw. `tex` is the render target texture id.
+  virtual bool clear(Device& dev, ResourceId tex, const float rgba[4], std::string* err) = 0;
+  virtual bool draw(Device& dev, ResourceId tex, const Viewport& vp, const std::vector<ClipVertex>& verts,
+                    DrawStats* stats, std::string* err) = 0;
+};
+
 class Device {
  public:
   ResourceId CreateBuffer(const void* data, size_t bytes);           // 0 on failure
@@ -45,6 +58,7 @@ class Device {
 class DeviceContext {
  public:
   explicit DeviceContext(Device& d) : dev_(d) {}
+  void SetDrawBackend(DrawBackend* b) { backend_ = b; }  // null = built-in reference renderer
   void IASetInputLayout(const std::vector<InputElement>& layout) { layout_ = layout; }
   void IASetVertexBuffer(ResourceId buffer, uint32_t stride, uint32_t offset) { vb_ = buffer; stride_ = stride; vb_offset_ = offset; }
   void IASetPrimitiveTopology(Topology t) { topo_ = t; }
@@ -57,6 +71,7 @@ class DeviceContext {
  private:
   bool fail(const char* m) { err_ = m; return false; }
   Device& dev_;
+  DrawBackend* backend_ = nullptr;
   std::vector<InputElement> layout_;
   ResourceId vb_ = 0, rtv_ = 0;
   uint32_t stride_ = 0, vb_offset_ = 0;
