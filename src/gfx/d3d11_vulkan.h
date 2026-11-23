@@ -47,7 +47,13 @@ class VulkanDrawBackend : public DrawBackend {
  void set_ps_texture(const uint8_t* rgba, uint32_t w, uint32_t h, const SamplerDesc& s) override {
    tex_.clear(); if (rgba) tex_.assign(rgba, rgba + (size_t)w * h * 4);
    tex_w_ = w; tex_h_ = h; smp_ = s; }
+ // t1..t3: plain 2D RGBA8 up to 256x256, set 0 bindings 1..3. They need t0 bound as well.
+ void set_ps_texture_slot(uint32_t slot, const uint8_t* rgba, uint32_t w, uint32_t h, const SamplerDesc& s) override {
+   if (slot < 1 || slot > 3) return;
+   Extra& e = extra_[slot - 1]; e.rgba.clear(); if (rgba) e.rgba.assign(rgba, rgba + (size_t)w * h * 4);
+   e.w = w; e.h = h; e.smp = s; }
  private:
+  struct Extra { std::vector<uint8_t> rgba; uint32_t w = 0, h = 0; SamplerDesc smp; } extra_[3];
   PipelineState st_;
   std::vector<uint8_t> tex_; uint32_t tex_w_ = 0, tex_h_ = 0; SamplerDesc smp_;
   std::vector<uint8_t> ps_cb0_;
