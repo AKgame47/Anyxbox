@@ -655,3 +655,33 @@ evidence. Supported slots are t0..t3, not the full API. Other binding ownership,
 child/device lifetime, model allocation reclamation, thread safety, hazard
 handling and native host isolation remain incomplete. Runtime lifetime is still
 required. No physical-device/input or Xbox-game compatibility evidence is added.
+
+## Batch90: retain supported input-assembler buffers
+
+The sixteen supported vertex-buffer slots and single index binding now retain
+COM buffer references. Vertex batches acquire all incoming references before
+releasing old slots, preserving solely-context-owned cross-slot swaps. Partial
+updates preserve untouched slots. Index rebinding acquires the next reference
+before releasing the old one. Null binding, replacement and runtime teardown
+release held references. Out-of-range vertex batches refuse before any change;
+invalid non-null index formats continue to refuse without replacing the binding.
+Vertex strides/offsets remain required for nonempty batches; full optional-array,
+stream-output hazard and 32-slot semantics are not claimed.
+
+Existing interface unit checks exact caller-release/swap/rebind/partial-update/
+high-slot/index-replacement/unbind/refusal/teardown counts, including the same
+buffer held by multiple vertex slots and the index slot at teardown. Teardown
+uses saved static Release only, not calls through invalid runtime-owned vtables.
+Existing textured guest now releases caller vertex/index buffer references after
+binding before indexed draws. Reference execution draws four triangles and
+software Vulkan verifies eight texture quadrants. All 41 local sanitizer programs
+pass after full relink. No physical-device/input or Xbox-game evidence is added.
+
+The existing public-header probe adds vertex caller-release/swap/rebind and index
+retain/unbind checks; fresh CI requires its marker. Independent MinGW compilation
+and execution await CI. Retained run266 remains prior regression only. No new
+fixture/scene/CMake target/release build. Other bindings, device lifetime, model
+allocation reclamation, thread safety and native host isolation remain incomplete.
+Runtime lifetime is still required. References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetvertexbuffers
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetindexbuffer
