@@ -84,3 +84,9 @@ add_test(NAME dxbc COMMAND test_dxbc)
 # no new targets: tests/test_dxbc.cpp and src/shader sources are already in the batch 10 targets; no new files.
 
 # no new targets
+
+# Add to CMakeLists.txt
+add_executable(test_real_dxbc tests/test_real_dxbc.cpp)
+target_include_directories(test_real_dxbc PRIVATE tests)
+target_link_libraries(test_real_dxbc anyxbox_shader anyxbox_gfx)   # same libraries test_dxbc links
+add_test(NAME real_dxbc COMMAND test_real_dxbc)
