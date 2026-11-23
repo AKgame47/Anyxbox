@@ -36,6 +36,7 @@ struct LoadedImage {
   std::vector<SectionInfo> sections;
   std::vector<ImportRef> imports;
   TlsInfo tls;
+  uint32_t pdata_rva = 0, pdata_size = 0;  // exception directory (data directory 3): RUNTIME_FUNCTION table
   std::vector<std::string> unresolved;  // "dll!name" entries the resolver rejected
 };
 
