@@ -59,6 +59,11 @@ static std::vector<uint8_t> image(int filter, bool inner_raises = true, int faul
   w32(b, o + 16, 0x1100);                                                                   // entry = outer
   return b;
 }
+#define MS __attribute__((ms_abi))
+static int g_veh_calls = 0, g_veh_ret = 0; static uint32_t g_seen = 0;
+static MS int veh(uint64_t* p) { g_veh_calls++; g_seen = *(uint32_t*)p[0]; return g_veh_ret; }
+static int g_flt_calls = 0, g_flt_ret = 0;
+static MS int flt(uint64_t* p) { g_flt_calls++; g_seen = *(uint32_t*)p[0]; return g_flt_ret; }
 int main() {
   setvbuf(stdout, nullptr, _IONBF, 0);
   auto run = [&](int filter, bool raises = true, int fault = 0, uint32_t want = 0) { auto b = image(filter, raises, fault, want); return anyxbox::run_pe(b.data(), b.size(), true, [&](anyxbox::ImportRegistry& reg) {
@@ -86,6 +91,24 @@ int main() {
   CHECK(r.ran && r.exit_code == 0xC0000005u);                        // filter refuses: unhandled access violation ends the program with its code
   r = run(0, true, 2);
   CHECK(r.ran && r.exit_code == 42);                                 // a runtime that works after earlier faults (handlers stay installed)
+  // vectored handlers and the unhandled-exception filter
+  auto runh = [&](int filter, bool use_veh, bool use_flt, bool misaligned = false) { (void)misaligned; auto b = image(filter, true, 0, 0); return anyxbox::run_pe(b.data(), b.size(), true, [&](anyxbox::ImportRegistry& reg) {
+      reg.add("kernel32.dll", "__C_specific_handler", reg.resolve("msvcrt.dll", "__C_specific_handler", 0, false));
+      if (use_veh) ((uint64_t (MS *)(uint32_t, uint64_t))reg.resolve("kernel32.dll", "AddVectoredExceptionHandler", 0, false))(1, (uint64_t)(uintptr_t)&veh);
+      if (use_flt) ((uint64_t (MS *)(uint64_t))reg.resolve("kernel32.dll", "SetUnhandledExceptionFilter", 0, false))((uint64_t)(uintptr_t)&flt); }); };
+  g_veh_ret = -1; r = runh(1, true, false);
+  std::printf("  vectored continue: ran=%d exit=%u calls=%d seen=0x%X\n", r.ran, r.exit_code, g_veh_calls, g_seen);
+  CHECK(r.ran && r.exit_code == 1 && g_veh_calls == 1 && g_seen == 0xE0000001u);   // VEH said continue: RaiseException returned, no frame handler ran
+  g_veh_calls = 0; g_veh_ret = 0; r = runh(0, true, false);
+  CHECK(r.ran && r.exit_code == 42 && g_veh_calls == 1);             // VEH said continue-search: the frame handler still handled it
+  g_flt_ret = -1; r = runh(1, false, true);
+  CHECK(r.ran && r.exit_code == 1 && g_flt_calls == 1 && g_seen == 0xE0000001u);   // nothing handled it: the unhandled filter resumed execution
+  g_flt_ret = 0; g_flt_calls = 0; r = runh(1, false, true);
+  CHECK(r.ran && r.exit_code == 0xE0000001u && g_flt_calls == 1);   // filter refused: the program ends with the code
+  g_flt_calls = 0; r = runh(0, false, true);
+  CHECK(r.ran && r.exit_code == 42 && g_flt_calls == 0);             // a frame handler took it: the filter is not asked
+  r = run(0, false);
+  CHECK(r.ran && r.exit_code == 1);                                  // handlers do not leak into the next run
   std::puts("test_seh ok");
   return 0;
 }
