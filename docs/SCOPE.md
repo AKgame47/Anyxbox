@@ -55,3 +55,8 @@ tests/fixtures/scene.run.exe is the exe MinGW built in CI from tests/fixtures/sc
 ## Batch 33: PE TLS directory
 
 The loader reads data directory 9 (template, index slot, callbacks), validates every address against the image, and writes TLS index 0. Each thread that gets a TEB also gets its own copy of the template (raw bytes plus zero fill) at gs:[0x58][0]. TLS callbacks run with DLL_PROCESS_ATTACH before the entry point. Not done: thread attach/detach callbacks, more than one module's TLS, TlsAlloc slots inside the TEB. tests/fixtures/tls_crt.c is a MinGW __thread program that CI builds; it is not committed as a .run.exe until CI shows it runs.
+
+## Batch 35: LoadLibrary / GetProcAddress, TLS binary
+
+LoadLibraryA/W, GetModuleHandleA/W, GetProcAddress (by name or ordinal) and FreeLibrary work against the DLL sets Anyxbox itself provides (kernel32, user32, d3d11, msvcrt, ...). The module handle is a fake address per set; GetProcAddress returns the same function address an import of that name would get. A DLL Anyxbox does not provide fails with ERROR_MOD_NOT_FOUND (126); a missing function fails with ERROR_PROC_NOT_FOUND (127). No file is ever loaded from disk, so a game's own or third-party DLLs are not loaded.
+tests/fixtures/tls_crt.run.exe is the CI-built TLS program from run #44 (SHA-256 985a39579198e5e13ce6402c86366e862b048db19e12fe00bb5c2c2930b8ba3f); it prints "tls=42 zero=0".
