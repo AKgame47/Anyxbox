@@ -51,7 +51,7 @@ Status VulkanBackend::render_clip_mesh_rgba(
     const std::vector<uint32_t>& indices, bool depth, const float clear[4],
     std::vector<uint8_t>* image, FrameSurface* shared_frame, bool depth_write,
     const BlendState* blend, int32_t cull_mode, int32_t front_face, int32_t depth_compare,
-    const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo, const std::vector<uint8_t>* vert_ubo, const VkRect2D* scissor) {
+    const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo, const std::vector<uint8_t>* vert_ubo, const VkRect2D* scissor, const VkViewport* viewport) {
   if (!image) return Status::Fail(100, "vulkan", "clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 7 || vertices.size() / 7 > 65536)
     return Status::Fail(100, "vulkan", "clip mesh vertices must be float4 clip position + float3 colour (multiple of 7 floats, max 65536 vertices)");
@@ -60,7 +60,7 @@ Status VulkanBackend::render_clip_mesh_rgba(
   for (uint32_t i : indices)
     if (i >= vertices.size() / 7)
       return Status::Fail(100, "vulkan", "mesh index out of range of the vertex array");
-  MeshInput m; m.scissor = scissor;
+  MeshInput m; m.scissor = scissor; m.viewport = viewport;
   m.vertices = &vertices; m.pos_floats = 4; m.indices = &indices; m.depth = depth;
   m.shared_frame = shared_frame; m.depth_write = depth_write; m.blend = blend;
   m.cull_mode = cull_mode; m.front_face = front_face; m.depth_compare = depth_compare;
@@ -114,7 +114,7 @@ Status VulkanBackend::render_textured_clip_mesh_rgba(
     const std::vector<uint32_t>& indices, bool depth, const TexInput& tex,
     const float clear[4], std::vector<uint8_t>* image, FrameSurface* shared_frame,
     bool depth_write, const BlendState* blend, int32_t cull_mode, int32_t front_face,
-    int32_t depth_compare, const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo, const std::vector<uint8_t>* vert_ubo, const std::vector<TexInput>* extra_tex, const VkRect2D* scissor) {
+    int32_t depth_compare, const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo, const std::vector<uint8_t>* vert_ubo, const std::vector<TexInput>* extra_tex, const VkRect2D* scissor, const VkViewport* viewport) {
   if (!image) return Status::Fail(100, "vulkan", "textured clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 9 || vertices.size() / 9 > 65536)
     return Status::Fail(100, "vulkan", "textured clip mesh vertices must be float4 clip position + float3 colour + float2 uv (multiple of 9 floats, max 65536 vertices)");
@@ -123,7 +123,7 @@ Status VulkanBackend::render_textured_clip_mesh_rgba(
   for (uint32_t i : indices)
     if (i >= vertices.size() / 9)
       return Status::Fail(100, "vulkan", "mesh index out of range of the vertex array");
-  MeshInput m; m.scissor = scissor;
+  MeshInput m; m.scissor = scissor; m.viewport = viewport;
   m.vertices = &vertices; m.pos_floats = 4; m.extra_floats = 2; m.indices = &indices; m.depth = depth;
   m.extra_tex = extra_tex && !extra_tex->empty() ? extra_tex : nullptr;
   m.tex = &tex; m.shared_frame = shared_frame; m.depth_write = depth_write; m.blend = blend;
@@ -949,7 +949,7 @@ Status VulkanBackend::render_core(
   VkPipelineInputAssemblyStateCreateInfo ia{};
   ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
   ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  VkViewport vp{0, 0, (float)w, (float)h, 0.0f, 1.0f};
+  VkViewport vp = mesh && mesh->viewport ? *mesh->viewport : VkViewport{0, 0, (float)w, (float)h, 0.0f, 1.0f};
   VkRect2D sc = mesh && mesh->scissor ? *mesh->scissor : VkRect2D{{0, 0}, {w, h}};
   VkPipelineViewportStateCreateInfo vps{};
   vps.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1158,4 +1158,3 @@ Status VulkanBackend::render_core(
 }
 
 }  // namespace pnr::graphics
-
