@@ -66,9 +66,22 @@ jobs:
           for t in tests/test_*.cpp; do
             n=$(basename "$t" .cpp)
             g++ -std=c++17 -O1 -Isrc -Itests -Itests/fixtures "$t" obj/*.o -ldl -lpthread -o "tbin/$n" || { echo "BUILD FAIL $n"; fail=1; continue; }
-            if xvfb-run -a "tbin/$n" tests/fixtures > "tbin/$n.log" 2>&1; then echo "pass $n"; else echo "FAIL $n"; tail -5 "tbin/$n.log"; fail=1; fi
+            if xvfb-run -a "tbin/$n" tests/fixtures > "tbin/$n.log" 2>&1; then echo "pass $n"; else echo "FAIL $n"; cat "tbin/$n.log"; fail=1; fi
           done
           exit $fail
+      - name: Stack-protected hardware exception regression (strict)
+        run: |
+          g++ -std=c++17 -O1 -g -fstack-protector-all -Isrc -c src/runtime/seh.cpp -o obj/seh-protected.o
+          objs=$(find obj -name '*.o' ! -name 'src_runtime_seh.cpp.o' ! -name 'seh-protected.o')
+          g++ -std=c++17 -O1 -g -fstack-protector-all -Isrc -Itests tests/test_seh.cpp obj/seh-protected.o $objs -ldl -lpthread -o tbin/test_seh_protected
+          ./tbin/test_seh_protected > tbin/test_seh_protected.log 2>&1
+          rm obj/seh-protected.o
+      - name: Upload unit-test logs even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-logs
+          path: tbin/*.log
       - name: Import coverage of the real exe
         run: ./import_gap triangle.exe || true
       - name: Import coverage of the scene fixture
