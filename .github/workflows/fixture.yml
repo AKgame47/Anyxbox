@@ -22,6 +22,13 @@ jobs:
             -o triangle.exe tests/fixtures/triangle.c -lkernel32 -luser32 -ld3d11
           ls -l triangle.exe
           x86_64-w64-mingw32-objdump -p triangle.exe | sed -n '/DLL Name/p;/Entry point/p' || true
+      - name: Build the scene fixture (depth, index buffer, dynamic constant buffer, texture)
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables \
+            -nostdlib -nostartfiles -Wl,-e,mainEntry -Itests/fixtures \
+            -o scene.exe tests/fixtures/scene.c -lkernel32 -luser32 -ld3d11
+          ls -l scene.exe
+          x86_64-w64-mingw32-objdump -p scene.exe | sed -n '/DLL Name/p;/Entry point/p' || true
       - name: Build the C runtime fixture (default MinGW startup)
         run: |
           x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -o hello_crt.exe tests/fixtures/hello_crt.c
@@ -31,13 +38,15 @@ jobs:
         run: |
           mkdir -p obj
           # explicit list: the tree also holds files from the AnyPS5 import that no target builds (for example src/syslayer/services.cpp)
-          for f in src/gfx/d3d11_model.cpp src/gfx/d3d11_vulkan.cpp src/gfx/render.cpp src/gfx/vulkan.cpp src/loader/pe_header.cpp src/loader/pe_image.cpp src/loader/pe_report.cpp src/runtime/d3d11_runtime.cpp src/runtime/host_window.cpp src/runtime/kernel32.cpp src/runtime/msvcrt.cpp src/runtime/run_pe.cpp src/runtime/user32.cpp src/shader/dxbc.cpp src/shader/dxbc_spirv.cpp src/syslayer/import_registry.cpp src/syslayer/win32_file.cpp src/syslayer/win32_memory.cpp src/syslayer/win32_sync.cpp src/syslayer/win32_thread.cpp; do
+          for f in src/gfx/d3d11_model.cpp src/gfx/d3d11_vulkan.cpp src/gfx/render.cpp src/gfx/vulkan.cpp src/loader/pe_header.cpp src/loader/pe_image.cpp src/loader/pe_report.cpp src/runtime/d3d11_runtime.cpp src/runtime/host_window.cpp src/runtime/kernel32.cpp src/runtime/msvcrt.cpp src/runtime/run_pe.cpp src/runtime/teb.cpp src/runtime/user32.cpp src/shader/dxbc.cpp src/shader/dxbc_spirv.cpp src/syslayer/import_registry.cpp src/syslayer/win32_file.cpp src/syslayer/win32_memory.cpp src/syslayer/win32_sync.cpp src/syslayer/win32_thread.cpp; do
             g++ -std=c++17 -O1 -Isrc -c "$f" -o "obj/$(echo "$f" | tr / _).o"
           done
           g++ -std=c++17 -O1 -Isrc tools/import_gap.cpp obj/*.o -ldl -lpthread -o import_gap
           g++ -std=c++17 -O1 -g -Isrc tools/run_exe.cpp obj/*.o -ldl -lpthread -o run_exe
       - name: Import coverage of the real exe
         run: ./import_gap triangle.exe || true
+      - name: Import coverage of the scene fixture
+        run: ./import_gap scene.exe || true
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
@@ -51,9 +60,18 @@ jobs:
         run: x86_64-w64-mingw32-objdump -d -M intel hello_crt.exe | sed -n '1,90p' || true
       - name: Run the exe headless through Anyxbox
         run: ./run_exe --i-built-this triangle.exe || true
+      - name: Run the scene exe through Anyxbox with the software Vulkan driver
+        run: |
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 || true
+          ./run_exe --i-built-this scene.exe || true
+          ./run_exe --i-built-this scene.exe --gpu --save-frame scene.png || true
+          ./run_exe --i-built-this triangle.exe --gpu --save-frame triangle.png || true
       - uses: actions/upload-artifact@v4
         with:
           name: fixture-exes
           path: |
             triangle.exe
             hello_crt.exe
+            scene.exe
+            scene.png
+            triangle.png
