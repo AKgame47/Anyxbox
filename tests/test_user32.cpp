@@ -86,6 +86,22 @@ int main() {
   CHECK(rcls(wc) != 0);
   uint64_t h3 = cw(0, cn2, "x", 0, 0, 0, 64, 64, 0, 0, 0, nullptr); CHECK(h3);
   CHECK(((Show)(uintptr_t)reg2.resolve("user32.dll", "ShowWindow", 0, false))(h3, 1) == 0);
+  // wide-character variants
+  { User32Context h4; ImportRegistry r4; CHECK(user32_register(r4, h4));
+    auto rw = (RegEx)(uintptr_t)r4.resolve("user32.dll", "RegisterClassExW", 0, false);
+    auto cwx = (CreateFn)(uintptr_t)r4.resolve("user32.dll", "CreateWindowExW", 0, false);
+    static const uint16_t wname[] = {'W', 'i', 'd', 'e', 0}; static const uint16_t wtitle[] = {'T', 0xE9, 0};
+    uint8_t wcw[80] = {}; uint32_t cb2 = 80; uint64_t pr2 = (uint64_t)(uintptr_t)&proc, np = (uint64_t)(uintptr_t)wname;
+    std::memcpy(wcw, &cb2, 4); std::memcpy(wcw + 8, &pr2, 8); std::memcpy(wcw + 64, &np, 8);
+    CHECK(rw(wcw) != 0 && rw(wcw) == 0);
+    CHECK(h4.classes.count("Wide") == 1);
+    uint64_t hw2 = cwx(0, (const char*)wname, (const char*)wtitle, 0, 0, 0, 50, 50, 0, 0, 0, nullptr);
+    CHECK(hw2 && h4.windows[hw2].title == "T?" && h4.windows[hw2].cls == "Wide");
+    typedef int32_t (MS *MBW)(uint64_t, const uint16_t*, const uint16_t*, uint32_t);
+    CHECK(((MBW)(uintptr_t)r4.resolve("user32.dll", "MessageBoxW", 0, false))(0, wname, wtitle, 0) == 1 && h4.last_message_box == "T?: Wide");
+    typedef int32_t (MS *GetW)(MSG64*, uint64_t, uint32_t, uint32_t);
+    MSG64 mw; CHECK(((GetW)(uintptr_t)r4.resolve("user32.dll", "GetMessageW", 0, false))(&mw, 0, 0, 0) == 0);
+  }
   // key mapping
   CHECK(sdl_keycode_to_vk('a') == 'A' && sdl_keycode_to_vk('7') == '7' && sdl_keycode_to_vk(0x40000050) == 0x25 && sdl_keycode_to_vk(0x4000003A) == 0x70 && sdl_keycode_to_vk(0x7FFFFFFF) == 0);
   // SDL backend: optional
