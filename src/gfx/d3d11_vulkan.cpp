@@ -9,10 +9,11 @@ using namespace pnr::graphics;
 VulkanDrawBackend::~VulkanDrawBackend() {
   for (auto& kv : targets_) if (kv.second.has_surface) vk_.destroy_frame(kv.second.surf);
 }
-bool VulkanDrawBackend::clear(Device&, ResourceId tex, const float c[4], std::string*) {
+bool VulkanDrawBackend::clear(Device& dev, ResourceId tex, const float c[4], std::string*) {
   Target& t = targets_[tex];
   if (t.has_surface) { vk_.destroy_frame(t.surf); t.has_surface = false; }
   std::memcpy(t.clear, c, sizeof t.clear);
+  if (auto* rt=dev.texture(tex)) t.last_pixels=rt->px;
   return true;
 }
 bool VulkanDrawBackend::clear_depth(Device&, float value, std::string* err) {
@@ -54,6 +55,11 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   }
   if (kept.empty()) return true;
   Target& tg = targets_[tex];
+  bool changed = tg.last_pixels != rt->px;
+  std::vector<uint8_t> seed;
+  if (changed) {
+    seed=rt->px; if(rt->f==Format::B8G8R8A8_UNORM) for(size_t k=0;k<seed.size();k+=4) std::swap(seed[k],seed[k+2]);
+  }
   std::vector<uint32_t> vs(std::begin(clip_vert), std::end(clip_vert)), fs(std::begin(spin_frag), std::end(spin_frag));
   if (!vs_.empty() && !fs_.empty()) { vs = vs_; fs = fs_; }
   std::vector<uint32_t> push;
@@ -95,14 +101,17 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 3 * fpv, kept.begin() + (first + n) * 3 * fpv);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
+    tg.surf.upload_rgba = changed && first==0 ? &seed : nullptr;
     pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, extra_in.empty() ? nullptr : &extra_in, &scissor, &viewport)
       : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, &scissor, &viewport);
+    tg.surf.upload_rgba = nullptr;
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
   }
   if (img.size() != rt->px.size()) { *err = "vulkan draw: unexpected image size"; return false; }
   rt->px = img;
   if (rt->f == Format::B8G8R8A8_UNORM) for (size_t i = 0; i < rt->px.size(); i += 4) std::swap(rt->px[i], rt->px[i + 2]);
+  tg.last_pixels=rt->px;
   stats->triangles_drawn += total_tris;
   return true;
 }
