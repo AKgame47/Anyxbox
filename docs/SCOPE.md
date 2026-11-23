@@ -552,3 +552,19 @@ incomplete. Dynamic class instances are still ignored. No full COM or physical-d
 claim. References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vssetshader
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshader
+
+## Batch85: retain verified independent shader-binding regression
+
+Replaces the same retained resource probe with exact run248 bytes from source
+55e3fa0. Sixteen fixture executables remain. Fixture-slot checks exact output,
+zero exit, two translated shaders, no presents and empty D3D11 error. CI requires
+the shader-binding completion marker in both fresh and retained paths. All 41
+local sanitizer test programs pass. No production code, CMake target, new scene
+or release build is included in this retention step.
+
+The independent probe covers caller release, same-object rebind and unbind.
+Replacement and runtime teardown accounting remain covered by the interface unit;
+the retained probe does not newly establish them. Runtime lifetime is required
+for guest interface calls. Other binding/device ownership, model reclamation,
+thread safety and native host isolation remain incomplete. No physical-device,
+physical-input or Xbox-game compatibility claim follows from this step.
