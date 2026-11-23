@@ -1,6 +1,7 @@
 #include "runtime/d3d11_runtime.h"
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 #include "shader/dxbc_spirv.h"
 #if defined(__x86_64__)
 #define MSABI __attribute__((ms_abi))
@@ -26,7 +27,7 @@ struct Obj {
   RasterizerDesc rs; DepthStencilDesc ds; BlendDesc bl;
   Obj* backbuffer = nullptr;   // swap chain only
   SamplerDesc smp;
-  std::vector<uint8_t> shadow; bool mapped = false;   // Map/Unmap staging for buffers and textures
+  std::vector<uint8_t> shadow; bool mapped = false; uint32_t mapped_sub = 0;   // Map/Unmap staging for buffers and textures
 };
 D3D11Runtime* G(void* self) { return ((Obj*)self)->rt; }
 MSABI int32_t stub_notimpl() { return E_NOTIMPL_; }
@@ -92,33 +93,45 @@ MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* i
   }
   Format f = fmt_from_dxgi(d->Format);
   if (f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) return E_INVALIDARG_;
-  if (d->MipLevels > 1 || d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;   // MipLevels 0 (full chain) creates the single base level only
-  ResourceId id = rt->dev.CreateTexture2D(d->Width, d->Height, f);
+  if (d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;
+  ResourceId id = rt->dev.CreateTexture2D(d->Width, d->Height, f, d->MipLevels);
   if (!id) return E_INVALIDARG_;
-  if (init && init->pSysMem) {
-    // The model takes a tightly packed image; repack when the guest's row pitch differs.
-    std::vector<uint8_t> px((size_t)d->Width * d->Height * 4);
-    uint32_t pitch = init->pitch ? init->pitch : d->Width * 4;
-    if (pitch < d->Width * 4) return E_INVALIDARG_;
-    for (uint32_t y = 0; y < d->Height; y++)
-      std::memcpy(&px[(size_t)y * d->Width * 4], (const uint8_t*)init->pSysMem + (size_t)y * pitch, (size_t)d->Width * 4);
-    rt->dev.UpdateTexture(id, px.data(), px.size());
+  if (init) {
+    auto* tx = rt->dev.texture(id);
+    for (uint32_t l=0;l<=tx->mips.size();++l) {
+      uint32_t w = std::max(1u,d->Width>>l), h = std::max(1u,d->Height>>l);
+      if (!init[l].pSysMem) return E_INVALIDARG_;
+      uint32_t pitch = init[l].pitch ? init[l].pitch : w*4;
+      if (pitch < w*4) return E_INVALIDARG_;
+      std::vector<uint8_t> px((size_t)w*h*4);
+      for(uint32_t y=0;y<h;++y) std::memcpy(px.data()+(size_t)y*w*4,(const uint8_t*)init[l].pSysMem+(size_t)y*pitch,w*4);
+      rt->dev.UpdateTextureMip(id,l,px.data(),px.size());
+    }
   }
   if (out) *out = make(rt, K_TEXTURE, id);
   return S_OK_;
 }
-MSABI int32_t dev_CreateRTV(void* self, void* res, const void* /*desc*/, void** out) {
+MSABI int32_t dev_CreateRTV(void* self, void* res, const uint32_t* desc, void** out) {
   D3D11Runtime* rt = G(self);
   Obj* r = (Obj*)res;
   if (!r || r->kind != K_TEXTURE) return E_INVALIDARG_;
+  if (desc && (desc[1] != 4 || desc[2] != 0)) { rt->last_error = "render target view: only texture2D mip zero supported"; return E_NOTIMPL_; }
   ResourceId id = rt->dev.CreateRenderTargetView(r->id);
   if (!id) return E_FAIL_;
   if (out) *out = make(rt, K_RTV, id);
   return S_OK_;
 }
-MSABI int32_t dev_CreateSRV(void* self, void* res, const void* /*desc*/, void** out) {
+MSABI int32_t dev_CreateSRV(void* self, void* res, const uint32_t* desc, void** out) {
   Obj* r = (Obj*)res;
   if (!r || r->kind != K_TEXTURE) { G(self)->last_error = "shader resource view: only 2D textures are supported"; return E_NOTIMPL_; }
+  if (desc) {
+    auto* tx = G(self)->dev.texture(r->id);
+    uint32_t levels = (uint32_t)tx->mips.size()+1;
+    if (desc[1] != 4 || desc[2] != 0 || (desc[3] != ~0u && desc[3] != levels) ||
+        (desc[0] && fmt_from_dxgi(desc[0]) != tx->f)) {
+      G(self)->last_error = "shader resource view: mip subset/format reinterpretation unsupported"; return E_NOTIMPL_;
+    }
+  }
   Obj* o = make(G(self), K_SRV, r->id); if (out) *out = o; else delete o;
   return S_OK_;
 }
@@ -130,7 +143,10 @@ MSABI int32_t dev_CreateSampler(void* self, const uint32_t* d, void** out) {
   bool bad = f >= 0x80 || ((f & 0x14) != 0 && (f & 0x14) != 0x14);   // comparison / anisotropic / mixed min-mag filters
   bool u_ok = d[1] == 1 || d[1] == 3, v_ok = d[2] == 1 || d[2] == 3;   // WRAP or CLAMP; both axes must agree
   if (bad || !u_ok || !v_ok || d[1] != d[2]) { rt->last_error = "sampler state: only point or linear filters with WRAP or CLAMP (same on U and V) are supported"; return E_NOTIMPL_; }
-  Obj* o = make(rt, K_SAMPLER, 0); o->smp.linear = (f & 0x14) == 0x14; o->smp.wrap = d[1] == 1;
+  float bias, mn, mx; std::memcpy(&bias,d+4,4); std::memcpy(&mn,d+11,4); std::memcpy(&mx,d+12,4);
+  if (bias != 0) { rt->last_error = "sampler: nonzero mip bias unsupported"; return E_NOTIMPL_; }
+  if (!std::isfinite(mn) || !std::isfinite(mx) || mn > mx) return E_INVALIDARG_;
+  Obj* o = make(rt, K_SAMPLER, 0); o->smp.mip_linear = (f & 1) != 0; o->smp.min_lod = mn; o->smp.max_lod = mx; o->smp.linear = (f & 0x14) == 0x14; o->smp.wrap = d[1] == 1;
   if (out) *out = o; else delete o;
   return S_OK_;
 }
@@ -304,17 +320,17 @@ MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t b
   if (!rt->ctx->DrawIndexed(count, start, base)) rt->last_error = rt->ctx->last_error();
 }
 // Raw bytes of a buffer or texture resource, for Map / UpdateSubresource.
-std::vector<uint8_t>* res_bytes(D3D11Runtime* rt, Obj* o, uint32_t* row_pitch, uint32_t* height) {
+std::vector<uint8_t>* res_bytes(D3D11Runtime* rt, Obj* o, uint32_t* row_pitch, uint32_t* height, uint32_t sub = 0) {
   if (!o) return nullptr;
-  if (o->kind == K_BUFFER) { auto* b = rt->dev.buffer(o->id); if (row_pitch) *row_pitch = 0; if (height) *height = 0; return b ? const_cast<std::vector<uint8_t>*>(&b->data) : nullptr; }
-  if (o->kind == K_TEXTURE) { auto* t = rt->dev.texture(o->id); if (row_pitch) *row_pitch = t ? t->w * 4 : 0; if (height) *height = t ? t->h : 0; return t ? &t->px : nullptr; }
+  if (o->kind == K_BUFFER) { if (sub) return nullptr; auto* b = rt->dev.buffer(o->id); if (row_pitch) *row_pitch = 0; if (height) *height = 0; return b ? const_cast<std::vector<uint8_t>*>(&b->data) : nullptr; }
+  if (o->kind == K_TEXTURE) { auto* t = rt->dev.texture(o->id); if (!t || sub > t->mips.size()) return nullptr; if (row_pitch) *row_pitch = std::max(1u,t->w>>sub)*4; if (height) *height = std::max(1u,t->h>>sub); return sub ? &t->mips[sub-1] : &t->px; }
   return nullptr;
 }
 // UpdateSubresource(res, sub, box, data, rowPitch, depthPitch). Buffers: box is a byte range in left/right. Textures: a rect.
 MSABI void ctx_UpdateSubresource(void* self, void* res, uint32_t sub, const uint32_t* box, const void* data, uint32_t rowpitch, uint32_t /*depthpitch*/) {
   D3D11Runtime* rt = G(self); Obj* o = (Obj*)res; uint32_t pitch = 0, h = 0;
-  std::vector<uint8_t>* dst = res_bytes(rt, o, &pitch, &h);
-  if (!dst || !data || sub != 0) { rt->last_error = "UpdateSubresource: unsupported resource or subresource"; return; }
+  std::vector<uint8_t>* dst = res_bytes(rt, o, &pitch, &h, sub);
+  if (!dst || !data) { rt->last_error = "UpdateSubresource: unsupported resource or subresource"; return; }
   if (o->kind == K_BUFFER) {
     uint32_t l = box ? box[0] : 0, r = box ? box[3] : (uint32_t)dst->size();
     if (l > r || r > dst->size()) { rt->last_error = "UpdateSubresource: box outside the buffer"; return; }
@@ -330,19 +346,19 @@ MSABI void ctx_UpdateSubresource(void* self, void* res, uint32_t sub, const uint
 // Map(res, sub, mapType, flags, D3D11_MAPPED_SUBRESOURCE{pData, RowPitch, DepthPitch}). Staging copy, written back by Unmap.
 MSABI int32_t ctx_Map(void* self, void* res, uint32_t sub, uint32_t type, uint32_t /*flags*/, void** mapped) {
   D3D11Runtime* rt = G(self); Obj* o = (Obj*)res; uint32_t pitch = 0, h = 0;
-  std::vector<uint8_t>* src = res_bytes(rt, o, &pitch, &h);
-  if (!src || !mapped || sub != 0 || type < 1 || type > 5) return E_INVALIDARG_;
+  std::vector<uint8_t>* src = res_bytes(rt, o, &pitch, &h, sub);
+  if (!src || !mapped || type < 1 || type > 5) return E_INVALIDARG_;
   if (o->mapped) return E_FAIL_;
   o->shadow = *src;                                   // READ and READ_WRITE see the contents; DISCARD may too (contents are undefined)
-  o->mapped = true;
+  o->mapped = true; o->mapped_sub = sub;
   mapped[0] = o->shadow.data();
   uint32_t pitches[2] = {pitch, 0}; std::memcpy((uint8_t*)mapped + 8, pitches, 8);
   return S_OK_;
 }
-MSABI void ctx_Unmap(void* self, void* res, uint32_t /*sub*/) {
+MSABI void ctx_Unmap(void* self, void* res, uint32_t sub) {
   D3D11Runtime* rt = G(self); Obj* o = (Obj*)res;
-  std::vector<uint8_t>* dst = res_bytes(rt, o, nullptr, nullptr);
-  if (!dst || !o->mapped) return;
+  std::vector<uint8_t>* dst = res_bytes(rt, o, nullptr, nullptr, sub);
+  if (!dst || !o->mapped || sub != o->mapped_sub) return;
   if (o->shadow.size() == dst->size()) *dst = o->shadow;
   o->mapped = false; o->shadow.clear();
 }
