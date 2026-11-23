@@ -113,6 +113,21 @@ int main() {
     r = dxbc_to_spirv(m.data(), m.size()); CHECK(!r.ok && r.error.find("length") != std::string::npos);
     std::printf("rejection paths ok\n"); }
 
+  // ---- constant buffer rejection paths ----
+  { auto ok = dxb::vs_cb_scale_offset(); auto r = dxbc_to_spirv(ok.data(), ok.size()); CHECK(r.ok && r.words.size() > 50);
+    auto bad = dxb::vs_cb_scale_offset(2, 2);  r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("past the declared") != std::string::npos);
+    bad = dxb::vs_cb_scale_offset(9, 1);       r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("1 to 8") != std::string::npos);
+    bad = dxb::vs_cb_scale_offset(2, 1, true); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("dynamically") != std::string::npos);
+    bad = dxb::vs_cb_scale_offset(2, 1, false, 1); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("slot 0") != std::string::npos);
+    auto pcb = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, {dxb::dcl_cb(0, 1), dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}),
+                 dxb::ins(dxb::OP_MOV, {dxb::dst(dxb::T_OUTPUT, 0, 0xF), dxb::src_cb(0, 0)}), dxb::ins(dxb::OP_RET, {})});
+    r = dxbc_to_spirv(pcb.data(), pcb.size()); CHECK(!r.ok && r.error.find("pixel") != std::string::npos);
+    for (size_t n = 0; n < ok.size(); n++) CHECK(!dxbc_to_spirv(ok.data(), n).ok);
+    for (size_t i = 0; i < ok.size(); i++) for (int bit = 0; bit < 8; bit++) { auto x = ok; x[i] ^= (uint8_t)(1u << bit); (void)dxbc_to_spirv(x.data(), x.size()); }
+    d3d11::Device dv; d3d11::DeviceContext cx(dv); auto buf = dv.CreateBuffer("abcd", 4);
+    CHECK(!cx.VSSetConstantBuffer(1, buf)); CHECK(!cx.VSSetConstantBuffer(0, 999)); CHECK(cx.VSSetConstantBuffer(0, buf)); CHECK(cx.VSSetConstantBuffer(0, 0));
+    std::printf("constant buffer rejection paths ok\n"); }
+
   // ---- translation output shape ----
   { auto r = dxbc_to_spirv(vsb.data(), vsb.size()); CHECK(r.ok && !r.is_pixel && r.words.size() > 40 && r.words[0] == 0x07230203);
     auto p = dxbc_to_spirv(psb.data(), psb.size()); CHECK(p.ok && p.is_pixel);
@@ -134,6 +149,37 @@ int main() {
   std::printf("saturate shader: covered %d, mismatches %d\n", cov, bad); CHECK(bad == 0 && cov > 1500);
   bad = e2e(vk, vsb, dxb::ps_negabs(), [](float r, float g, float b, float* o) { o[0] = r; o[1] = g; o[2] = b; }, 3, &cov);
   std::printf("neg/abs shader: covered %d, mismatches %d\n", cov, bad); CHECK(bad == 0 && cov > 1500);
+  // constant buffer: pos = v0 * cb0[0] + cb0[1], changed between draws
+  for (int variant = 0; variant < 2; variant++) {
+    float cb[8] = {0.5f, 0.5f, 1, 1,  0.25f, -0.25f, 0, 0};
+    if (variant) { cb[0] = 0.3f; cb[1] = 0.6f; cb[4] = -0.3f; cb[5] = 0.2f; }
+    auto vcb = dxb::vs_cb_scale_offset(); auto vsr = dxbc_to_spirv(vcb.data(), vcb.size()), psr = dxbc_to_spirv(psb.data(), psb.size());
+    CHECK(vsr.ok && psr.ok);
+    d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+    const float navy[4] = {0.02f, 0.03f, 0.2f, 1};
+    std::vector<V> big = {{-1.6f,-1.6f,0,1, 1,0,0,1}, {1.6f,-1.6f,0,1, 0,1,0,1}, {0,1.6f,0,1, 0.2f,0.4f,1,1}};
+    std::vector<V> moved = big; for (auto& v : moved) { v.x = v.x * cb[0] + cb[4]; v.y = v.y * cb[1] + cb[5]; }
+    Rig gpu(&be), ref;
+    CHECK(gpu.ctx.VSSetConstantBuffer(0, gpu.dev.CreateBuffer(cb, sizeof cb)));
+    gpu.ctx.ClearRenderTargetView(gpu.rtv, navy); ref.ctx.ClearRenderTargetView(ref.rtv, navy);
+    CHECK(gpu.draw(big) && ref.draw(moved));
+    auto a = gpu.image(), b = ref.image(); Rig blank; blank.ctx.ClearRenderTargetView(blank.rtv, navy); auto c = blank.image();
+    int bad2 = 0, cov2 = 0;
+    for (size_t i = 0; i + 3 < a.size(); i += 4) {
+      bool cv = b[i] != c[i] || b[i + 1] != c[i + 1] || b[i + 2] != c[i + 2]; if (cv) cov2++;
+      int exp[3]; for (int k = 0; k < 3; k++) exp[k] = cv ? (int)std::lround(sat(0.5f * (0.299f * b[i] + 0.587f * b[i + 1] + 0.114f * b[i + 2]) / 255.f + 0.25f) * 255.f) : c[i + k];
+      int d = 0; for (int k = 0; k < 3; k++) d = std::max(d, std::abs((int)a[i + k] - exp[k])); if (d > 3) { if (!bad2) std::printf("first bad px %zu: gpu %d %d %d exp %d %d %d cov %d\n", i/4, a[i], a[i+1], a[i+2], exp[0], exp[1], exp[2], (int)cv); bad2++; }
+    }
+    std::printf("px(0,0) gpu %d %d %d  px(64,64) gpu %d %d %d ref %d %d %d\n", a[0], a[1], a[2], a[(64*W+64)*4], a[(64*W+64)*4+1], a[(64*W+64)*4+2], b[(64*W+64)*4], b[(64*W+64)*4+1], b[(64*W+64)*4+2]);
+    std::printf("cbuffer variant %d: covered %d, mismatches %d\n", variant, cov2, bad2); CHECK(bad2 == 0 && cov2 > 800);
+  }
+  // an oversized constant buffer is an error, not a truncation
+  { auto vcb = dxb::vs_cb_scale_offset(); auto vsr = dxbc_to_spirv(vcb.data(), vcb.size()), psr = dxbc_to_spirv(psb.data(), psb.size());
+    d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+    Rig gpu(&be); std::vector<uint8_t> big(256, 0); CHECK(gpu.ctx.VSSetConstantBuffer(0, gpu.dev.CreateBuffer(big.data(), big.size())));
+    std::vector<V> t = {{-0.5f,-0.5f,0,1, 1,0,0,1}, {0.5f,-0.5f,0,1, 0,1,0,1}, {0,0.5f,0,1, 0,0,1,1}};
+    CHECK(!gpu.draw(t) && gpu.ctx.last_error().find("128") != std::string::npos);
+    std::printf("oversized cbuffer rejected\n"); }
   std::printf("dxbc: all ok\n");
   return 0;
 }
