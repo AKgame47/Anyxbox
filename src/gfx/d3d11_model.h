@@ -66,7 +66,7 @@ class Device {
   ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f, uint32_t levels = 1);       // RGBA8 or BGRA8 only; max 16384
   bool UpdateBuffer(ResourceId buffer, const void* data, size_t bytes);   // whole buffer, same size
   bool UpdateTexture(ResourceId texture, const void* data, size_t bytes);   // whole texture, in the texture's own byte order
-  bool GenerateMips(ResourceId texture); // recursive area box filter for RGBA8/BGRA8
+  bool GenerateMips(ResourceId texture, uint32_t first = 0, uint32_t levels = ~0u); // recursive area box filter for RGBA8/BGRA8
   bool UpdateTextureMip(ResourceId texture, uint32_t level, const void* data, size_t bytes);
   ResourceId CreateDepthBuffer(uint32_t w, uint32_t h);               // 32-bit float depth, 0 on failure
   ResourceId CreateDepthStencilView(ResourceId depth_buffer);          // 0 on failure
@@ -111,7 +111,7 @@ class DeviceContext {
   void SetConstantLayout(std::vector<std::pair<uint32_t, uint32_t>> vs, std::vector<std::pair<uint32_t, uint32_t>> ps) { vs_layout_ = std::move(vs); ps_layout_ = std::move(ps); }
   bool VSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   bool PSSetConstantBuffer(uint32_t slot, ResourceId buffer);
-  bool PSSetShaderResource(uint32_t slot, ResourceId texture);   // slots 0..3; 0 unbinds
+  bool PSSetShaderResource(uint32_t slot, ResourceId texture, uint32_t first = 0, uint32_t levels = ~0u);   // slots 0..3; 0 unbinds
   bool PSSetSampler(uint32_t slot, const SamplerDesc& s);        // slots 0..3
   // Which sampler slot each texture slot is sampled with (SpirvResult::tex_sampler; -1 or never called = same number).
   void SetTexturePairing(const int pair[4]) { for (int i = 0; i < 4; i++) tex_pair_[i] = pair[i]; }
@@ -139,6 +139,7 @@ class DeviceContext {
   ResourceId dsv_ = 0;
   struct VBind { ResourceId buf = 0; uint32_t stride = 0, offset = 0; } vbs_[16];
   ResourceId rtv_ = 0, ps_texs_[4] = {};
+  uint32_t ps_first_[4] = {}, ps_levels_[4] = {~0u,~0u,~0u,~0u};
   int tex_pair_[4] = {-1, -1, -1, -1};
   ResourceId vs_cbs_[14] = {}, ps_cbs_[14] = {};
   std::vector<std::pair<uint32_t, uint32_t>> vs_layout_, ps_layout_;
