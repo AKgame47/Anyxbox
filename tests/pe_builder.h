@@ -35,8 +35,8 @@ inline std::vector<uint8_t> make(const std::vector<uint8_t>& code, const std::ve
   return b;
 }
 // Same program but split: .text (RVA 0x1000, read+exec) and .data (RVA 0x2000, read+write, zero-filled).
-inline std::vector<uint8_t> make2(const std::vector<uint8_t>& code, const std::vector<std::string>& imports) {
-  auto b = make(code, imports);
+inline std::vector<uint8_t> make2(const std::vector<uint8_t>& code, const std::vector<std::string>& imports, const std::string& dll = "kernel32.dll") {
+  auto b = make(code, imports, dll);
   size_t c=0x84, o=c+20, s=o+240;
   w16(b,c+2,2); w32(b,o+56,0x3000);
   w32(b,s+36,0x60000020u);
