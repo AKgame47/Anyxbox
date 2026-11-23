@@ -32,6 +32,7 @@ struct VulkanDeviceInfo {
 struct TexInput {
   const uint8_t* rgba = nullptr;
   uint32_t w = 0, h = 0;
+  size_t byte_size = 0; // zero means legacy caller did not supply storage length
   bool linear = false;
   bool repeat = false;
   // Slice S23: stage as VK_FORMAT_R8G8B8A8_SRGB so the host sampler does the
@@ -97,7 +98,7 @@ struct MeshInput {
   bool depth = false;
   const TexInput* tex = nullptr;  // sampled at set 0 binding 0 (fragment stage)
   const std::vector<uint8_t>* frag_ubo = nullptr;  // Anyxbox: fragment uniform buffer at set 1 binding 0 (1..16384 bytes)
-  // Anyxbox: extra textures t1..t3 (needs `tex` as t0): plain 2D RGBA8, one level, at set 0 bindings 1..3, up to 256x256. Each carries its own
+  // Anyxbox: extra textures t1..t3 (needs `tex` as t0): plain 2D RGBA8, packed mip chains, at set 0 bindings 1..3, up to 1024x1024. Each carries its own
   // sampler (linear/repeat). Other TexInput fields are ignored for extras.
   const std::vector<TexInput>* extra_tex = nullptr;
   const std::vector<uint8_t>* vert_ubo = nullptr;  // Anyxbox: vertex uniform buffer at set 1 binding 1 (1..16384 bytes)
@@ -350,7 +351,7 @@ private:
   X(vkDestroyFramebuffer) X(vkCreateGraphicsPipelines) \
   X(vkCmdBeginRenderPass) X(vkCmdEndRenderPass) X(vkCmdDraw) \
   X(vkCmdCopyImageToBuffer) X(vkCmdBindVertexBuffers) X(vkResetFences) \
-  X(vkGetPhysicalDeviceFormatProperties) X(vkCmdBindIndexBuffer) X(vkCmdDrawIndexed) \
+  X(vkGetPhysicalDeviceImageFormatProperties) X(vkGetPhysicalDeviceFormatProperties) X(vkCmdBindIndexBuffer) X(vkCmdDrawIndexed) \
   X(vkCreateSampler) X(vkDestroySampler) X(vkCmdPipelineBarrier) X(vkCmdCopyBufferToImage)
 #define PNR_VK_MEMBER(name) void* name = nullptr;
   PNR_VK_LIST(PNR_VK_MEMBER)
