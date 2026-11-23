@@ -613,3 +613,29 @@ refusal remain interface-unit coverage. Other bindings, child/device lifetime,
 model allocation reclamation, thread safety, hazard unbinding and host isolation
 remain incomplete. Runtime lifetime remains required for guest interface calls.
 No physical-device/input or Xbox-game compatibility evidence is added.
+
+## Batch88: retain pixel shader resource view bindings
+
+PSSetShaderResources retains SRVs per supported slot t0..t3. The incoming batch
+is copied and retained in full before old references are released, making cross-slot
+swaps safe even when only the context owns those views. Partial updates leave other
+slots alone. Null input arrays unbind the requested slots. Runtime teardown releases
+each held slot reference. An out-of-range request is refused before any binding
+change, with overflow-safe range checks; full 128-slot D3D11 support is not claimed.
+
+Existing interface unit checks caller release, cross-slot swap/rebind, partial and
+high-slot replacement, repeated bindings, range refusal, unbind and teardown reference
+counts. Teardown uses saved static Release only; guest calls through runtime-owned
+vtables still require runtime lifetime. Existing guest textured draw now releases
+caller SRV and texture references after binding before each draw. Reference execution
+draws four triangles; software Vulkan verifies all eight texture quadrants. All 41
+local sanitizer programs pass after full relink. No physical-device/input claim.
+
+The existing public-header probe adds caller-release/cross-slot-swap/rebind/unbind
+checks and fresh CI requires its marker. Independent MinGW compilation/execution
+awaits CI. Retained run257 remains earlier regression only. No new fixture, scene,
+CMake target or release build. This covers only supported pixel SRV ownership.
+Other binding ownership, child/device lifetime, model allocation reclamation, thread
+safety, output/input hazard auto-unbinding and host isolation remain incomplete.
+Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshaderresources
