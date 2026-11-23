@@ -18,6 +18,7 @@ struct Kernel32Context {
   VirtualMemory vm;
   std::unique_ptr<MappedFolder> folder;   // null = file functions fail
   uint64_t image_base = 0;                // returned by GetModuleHandle(NULL)
+  std::vector<uint64_t> tls_callbacks;     // loaded image callbacks; copied into each CreateThread launch
   uint64_t image_size = 0;                // mapped size of the main image; VirtualProtect only changes pages inside it or inside VirtualAlloc regions
   std::string* out = nullptr;             // captured stdout/stderr
   const ImportRegistry* registry = nullptr;  // set by kernel32_register: LoadLibrary/GetProcAddress resolve against it
