@@ -1,6 +1,7 @@
 #include <csignal>
+#include <cerrno>
 #include <cstdio>
-#include <fcntl.h>
+#include <cstdlib>
 #include <sys/wait.h>
 #include <unistd.h>
 #include "pe_builder.h"
@@ -16,12 +17,17 @@ static void rip(std::vector<uint8_t>& c, uint32_t target, uint32_t tail = 0){ em
 static bool crashes(const std::vector<uint8_t>& img) {
   pid_t p = fork();
   if (p == 0) {
-    int nul = open("/dev/null", O_WRONLY); dup2(nul, 2); dup2(nul, 1);
     auto r = anyxbox::run_pe(img.data(), img.size(), true);
     // a fault in guest code is now an unhandled guest exception: the program ends with the exception code (0xC...)
-    _exit(r.ran && (r.exit_code & 0xF0000000u) != 0xC0000000u ? 0 : 3);
+    bool normal = r.ran && (r.exit_code & 0xF0000000u) != 0xC0000000u;
+    std::fprintf(stderr, "protection child: loaded=%d ran=%d exit=0x%08x error=%s\n", r.loaded, r.ran, r.exit_code, r.error.c_str());
+    _exit(normal ? 0 : 3);
   }
-  int st = 0; waitpid(p, &st, 0);
+  if (p < 0) { std::perror("fork"); std::abort(); }
+  int st = 0; pid_t waited;
+  do { waited = waitpid(p, &st, 0); } while (waited < 0 && errno == EINTR);
+  if (waited != p) { std::perror("waitpid"); std::abort(); }
+  if (WIFSIGNALED(st)) std::fprintf(stderr,"protection child signal=%d\n",WTERMSIG(st));
   return !(WIFEXITED(st) && WEXITSTATUS(st) == 0);
 }
 int main() {
@@ -49,7 +55,7 @@ int main() {
   // D: control: same code as B but with the single read+write+exec section does not fault
   { std::vector<uint8_t> c;
     emit(c, {0xC7,0x05}); rip(c, 0x1100, 4); emit32(c, 0);
-    emit(c, {0xC3});
+    emit(c, {0x31,0xC0,0xC3}); // xor eax,eax; ret: a normal control return must have a defined exit code
     auto img = make(c, {});
     CHECK(!crashes(img)); }
   // E: a section not aligned to a page is refused cleanly
