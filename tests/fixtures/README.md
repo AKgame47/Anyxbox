@@ -89,3 +89,10 @@ Default four frames for CI. Build with `-DFRAMES=3600` for a bounded interactive
 `test_fixture_keyboard_scene` supplies scripted host events after each present: right-down, right-up,
 then right-down followed by focus-loss. It verifies movement and identical stopped frames after release/focus-loss.
 Scripted event tests are not physical-keyboard evidence. Independent MinGW compilation/run awaits CI.
+
+Retained `keyboard_scene.run.exe` is the exact run-202 artifact, source commit 5c1a2e7:
+https://github.com/AKgame47/Anyxbox/actions/runs/45253435150/job/137968855839
+15999 bytes; SHA-256 `96dde17e0c7abf209c660568bc59ecc0a460a7e0a66787f09f5d18343a1d3471`.
+Directory-mode keyboard verifier checks source calls and this retained PE with scripted host input.
+CI requires Vulkan for fresh and retained paths and retains all four frames from each.
+Fixture-slot checks default root denial and rooted execution, not movement pixels.
