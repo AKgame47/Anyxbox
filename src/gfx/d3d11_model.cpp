@@ -123,13 +123,13 @@ bool DeviceContext::PSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
 }
 
 bool DeviceContext::PSSetShaderResource(uint32_t slot, ResourceId tex) {
-  if (slot != 0) return fail("PSSetShaderResource: only slot 0 is supported");
+  if (slot >= 4) return fail("PSSetShaderResource: slot must be 0..3");
   if (tex != 0 && !dev_.texture(tex)) return fail("PSSetShaderResource: invalid texture");
-  ps_tex_ = tex; return true;
+  ps_texs_[slot] = tex; return true;
 }
 bool DeviceContext::PSSetSampler(uint32_t slot, const SamplerDesc& s) {
-  if (slot != 0) return fail("PSSetSampler: only slot 0 is supported");
-  ps_smp_ = s; return true;
+  if (slot >= 4) return fail("PSSetSampler: slot must be 0..3");
+  ps_smps_[slot] = s; return true;
 }
 
 bool DeviceContext::Draw(uint32_t count, uint32_t start) { return draw_impl(count, start, false, 0); }
@@ -228,12 +228,19 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
     };
     backend_->set_vs_constants(pack(vs_cbs_, vs_layout_));
     backend_->set_ps_constants(pack(ps_cbs_, ps_layout_));
-    { const Device::Texture* tx = ps_tex_ ? dev_.texture(ps_tex_) : nullptr;
+    int top_used = -1; for (int q = 0; q < 4; q++) if (tex_pair_[q] >= 0) top_used = q;   // highest texture slot the shader samples
+    for (uint32_t ts = 0; ts < 4; ts++) {
+      const SamplerDesc& smp = ps_smps_[tex_pair_[ts] >= 0 ? tex_pair_[ts] : ts];
+      const Device::Texture* tx = ps_texs_[ts] ? dev_.texture(ps_texs_[ts]) : nullptr;
+      std::vector<uint8_t> rgba;
       if (tx) {
-        std::vector<uint8_t> rgba = tx->px;
+        rgba = tx->px;
         if (tx->f == Format::B8G8R8A8_UNORM) for (size_t i = 0; i + 3 < rgba.size(); i += 4) std::swap(rgba[i], rgba[i + 2]);
-        backend_->set_ps_texture(rgba.data(), tx->w, tx->h, ps_smp_);
-      } else backend_->set_ps_texture(nullptr, 0, 0, ps_smp_);
+      }
+      uint32_t tw = tx ? tx->w : 0, th = tx ? tx->h : 0;
+      if (!tx && (int)ts <= top_used) { rgba.assign(4, 0); tw = th = 1; }   // an unbound slot that the shader (or a higher slot) needs reads as zeros, like D3D
+      const uint8_t* data = rgba.empty() ? nullptr : rgba.data();
+      if (ts == 0) backend_->set_ps_texture(data, tw, th, smp); else backend_->set_ps_texture_slot(ts, data, tw, th, smp);
     }
     if (!backend_->draw(dev_, dev_.rtv_texture(rtv_), vp_, cv, &stats_, &err_)) { if (err_.empty()) err_ = "draw: backend failed"; return false; }
     return true;
