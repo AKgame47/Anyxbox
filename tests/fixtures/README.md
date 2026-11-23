@@ -255,3 +255,13 @@ Batch98 extends only the fresh public-header probe with ClearState shared VS/PS
 constant-buffer release and repeated-clear checks. Retained run301 stays unchanged
 and lacks the marker. Independent MinGW compilation/execution awaits CI. This is
 not independent coverage of every pipeline default or every released binding kind.
+
+Batch99 replaces the same resource_interfaces.run.exe with exact run313 output,
+source tip d437ba3. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45292165689/job/138103397400
+512791 bytes; SHA256 34f5b6d5e177d28227715723a0dfe0d73c2af14ef99d0f5ef723bcb7599fad95.
+It includes all eleven completion markers, adding repeated ClearState/shared
+VS/PS buffer release. Exact output, zero exit, two translated shaders, zero presents
+and empty error are required. Fresh and retained CI require the ClearState marker.
+Other binding-category release remains unit evidence; rendered defaults/backend
+reuse are not established. Earlier provenance above is historical.
