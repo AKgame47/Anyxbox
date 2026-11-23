@@ -47,6 +47,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   kernel32_register(reg, k32);
   MsvcrtContext crt;
   crt.out = &out;
+  crt.exit_fn = [](uint32_t c) { host_ExitProcess(c); };
   msvcrt_register(reg, crt);
   if (extra_imports) extra_imports(reg);
   reg.add("kernel32.dll", "ExitProcess", (uint64_t)(uintptr_t)&host_ExitProcess);
@@ -72,7 +73,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
     }
   }
   std::jmp_buf jb;
-  k32.image_base = img.actual_base;
+  k32.image_base = img.actual_base; k32.image_size = len;
   g_exit = &jb; g_exit_code = 0;
   EntryFn fn = (EntryFn)(uintptr_t)(img.actual_base + img.entry_rva);
   volatile bool exited = false;
