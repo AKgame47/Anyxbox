@@ -126,3 +126,10 @@ API references for this backend:
 - https://wiki.libsdl.org/SDL2/SDL_GameControllerButton
 - https://wiki.libsdl.org/SDL2/SDL_GameControllerUpdate
 - https://wiki.libsdl.org/SDL2/SDL_JoystickAttachVirtual
+
+## Batch 48: D3D11 scissor rectangles
+- CreateRasterizerState accepts ScissorEnable. RSSetScissorRects (context vtable slot 45) binds zero or one rectangle; zero resets to the default empty rectangle. Multiple rectangles and inverted bounds produce a diagnostic, not silent truncation.
+- Reference and Vulkan drawing obey the enabled rectangle; bounds clip to the target, right/bottom are excluded, and clear operations remain independent of the scissor. The Vulkan render area stays the full target so clearing still initializes pixels outside the scissor.
+- Six model cases check edges, empty/default state, disabled scissor, negative bounds, an entirely off-target rectangle, and moving scissors across successive draws while preserving prior contents. They compared against local software Vulkan with zero pixel mismatches. A hand-built PE tests the COM state object and context call.
+- CI installs the software Vulkan driver before strict tests, rather than only for later fixture rendering. Check logs for actual device execution; physical GPU validation remains absent.
+- API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-rssetscissorrects and https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-getting-started
