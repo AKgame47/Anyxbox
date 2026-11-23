@@ -231,3 +231,8 @@ add_executable(test_vulkan_capabilities tests/test_vulkan_capabilities.cpp)
 target_include_directories(test_vulkan_capabilities PRIVATE tests)
 target_link_libraries(test_vulkan_capabilities PRIVATE anyxbox_shader anyxbox_gfx)
 add_test(NAME vulkan_capabilities COMMAND test_vulkan_capabilities)
+
+add_executable(test_fixture_keyboard_scene tests/test_fixture_keyboard_scene.cpp)
+target_include_directories(test_fixture_keyboard_scene PRIVATE tests tests/fixtures)
+target_link_libraries(test_fixture_keyboard_scene PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
+add_test(NAME fixture_keyboard_scene COMMAND test_fixture_keyboard_scene ${CMAKE_SOURCE_DIR}/tests/fixtures)
