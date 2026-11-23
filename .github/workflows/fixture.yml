@@ -207,6 +207,7 @@ jobs:
           grep -q 'pixel SRV bindings: caller release, cross-slot swap, rebind and unbind references ok' resource-interfaces.log
           grep -q 'input buffers: vertex caller release, swap, rebind and index retain/unbind references ok' resource-interfaces.log
           grep -q 'constant buffers: VS/PS caller release, cross-slot swap, rebind and unbind references ok' resource-interfaces.log
+          grep -q 'pixel samplers: caller release, cross-slot swap, rebind and unbind references ok' resource-interfaces.log
       - name: Verify retained resource interface probe (strict)
         run: |
           ./import_gap tests/fixtures/resource_interfaces.run.exe
