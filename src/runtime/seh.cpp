@@ -372,12 +372,18 @@ MSABI int32_t s_C_specific_handler(uint8_t* rec, uint64_t frame, uint8_t* ctx, D
 }  // namespace
 
 // ---- hardware faults inside guest code become guest exceptions ----
-// The signal handler does not run guest handlers itself. It builds a CONTEXT and an EXCEPTION_RECORD below the faulting stack pointer
-// and resumes the thread in fault_dispatch(), which dispatches like RaiseException. Faults outside guest images go to the previous handler.
+// Save the fault in thread-local storage, then let sigreturn resume in fault_dispatch. Do not write below the faulting RSP
+// while the signal handler is active: that area contains the Linux signal frame and the handler stack.
 namespace {
 struct sigaction g_old[4];
 const int kSigs[4] = {SIGSEGV, SIGFPE, SIGILL, SIGBUS};
-[[noreturn]] void fault_dispatch(uint8_t* rec, uint8_t* ctx) {
+struct FaultPending { alignas(16) uint8_t ctx[CTX_SIZE]; uint8_t rec[0xA0]; };
+thread_local FaultPending t_fault;
+[[noreturn]] void fault_dispatch() {
+  // Copy before invoking callbacks, which may themselves fault and reuse t_fault.
+  alignas(16) uint8_t ctx[CTX_SIZE], rec[0xA0];
+  std::memcpy(ctx, t_fault.ctx, sizeof ctx);
+  std::memcpy(rec, t_fault.rec, sizeof rec);
   if (!raise_full(rec, ctx)) _exit(1);
   if (__asan_handle_no_return) __asan_handle_no_return();
   anyxbox_seh_restore(ctx);   // handler chose EXCEPTION_CONTINUE_EXECUTION: resume at the faulting instruction
@@ -404,9 +410,8 @@ void on_fault(int sig, siginfo_t* si, void* ucv) {
   }
   if (!guest || !active) { chain(sig, si, ucv); return; }
   uint64_t rsp = (uint64_t)g[REG_RSP];
-  uint64_t base = (rsp - 0x300 - 0x580) & ~0xFull;
-  uint8_t* ctx = (uint8_t*)(uintptr_t)base; uint8_t* rec = ctx + CTX_SIZE;
-  std::memset(ctx, 0, CTX_SIZE + 0xA0);
+  uint8_t* ctx = t_fault.ctx; uint8_t* rec = t_fault.rec;
+  std::memset(ctx, 0, CTX_SIZE); std::memset(rec, 0, 0xA0);
   const int map[16] = {REG_RAX, REG_RCX, REG_RDX, REG_RBX, REG_RSP, REG_RBP, REG_RSI, REG_RDI, REG_R8, REG_R9, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15};
   for (int i = 0; i < 16; i++) R(ctx, i) = (uint64_t)g[map[i]];
   RIP(ctx) = rip;
@@ -421,8 +426,10 @@ void on_fault(int sig, siginfo_t* si, void* ucv) {
   else if (sig == SIGFPE) { code = si->si_code == FPE_INTDIV ? 0xC0000094u : si->si_code == FPE_INTOVF ? 0xC0000095u : si->si_code == FPE_FLTDIV ? 0xC000008Eu : 0xC0000090u; }
   else if (sig == SIGILL) code = 0xC000001D;
   std::memcpy(rec, &code, 4); std::memcpy(rec + 16, &rip, 8); std::memcpy(rec + 24, &nparams, 4); std::memcpy(rec + 32, &p0, 8); std::memcpy(rec + 40, &p1, 8);
-  uint64_t sp = base - 8; *(uint64_t*)(uintptr_t)sp = 0;   // fake return address: fault_dispatch never returns
-  g[REG_RSP] = (greg_t)sp; g[REG_RIP] = (greg_t)(uintptr_t)&fault_dispatch; g[REG_RDI] = (greg_t)(uintptr_t)rec; g[REG_RSI] = (greg_t)(uintptr_t)ctx;
+  // Enter with SysV call alignment and leave the interrupted red zone untouched. No return-address write here: sigreturn still
+  // needs the current signal frame intact. fault_dispatch is noreturn and starts using this stack only after sigreturn completes.
+  g[REG_RSP] = (greg_t)(((rsp - 128) & ~0xFull) - 8);
+  g[REG_RIP] = (greg_t)(uintptr_t)&fault_dispatch;
 }
 }  // namespace
 void seh_install_fault_handlers() {
