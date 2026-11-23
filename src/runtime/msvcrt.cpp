@@ -171,6 +171,12 @@ MSABI uint64_t m_fwrite(const void* b, uint64_t sz, uint64_t n, void* f) {
   return n;
 }
 MSABI int m_fputc(int c, void* f) { if (!is_out(f)) return -1; if (C->out) C->out->push_back((char)c); return c & 0xFF; }
+MSABI void* m_memchr(const void* p, int c, uint64_t n) { return n ? const_cast<void*>(std::memchr(p, c, (size_t)n)) : nullptr; }
+MSABI int m_fputs(const char* s, void* f) { if (!s || !is_out(f)) return -1; if (C->out) C->out->append(s); return 1; }
+// low-level file descriptors: only 0 (stdin, always at end of file), 1 and 2 (captured output) exist
+MSABI int m__write(int fd, const void* b, unsigned n) { if ((fd != 1 && fd != 2) || (!b && n)) return -1; if (C->out && n) C->out->append((const char*)b, n); return (int)n; }
+MSABI int m__read(int fd, void*, unsigned) { return fd == 0 ? 0 : -1; }
+MSABI int m__close(int fd) { return fd >= 0 && fd <= 2 ? 0 : -1; }
 MSABI int m_vfprintf(void* f, const char* fmt, __builtin_ms_va_list ap) {
   if (!is_out(f) || !fmt) return -1;
   std::string s = format(fmt, ap);
@@ -204,6 +210,7 @@ bool msvcrt_register(ImportRegistry& r, MsvcrtContext& ctx) {
     r.add(d, "localeconv", A(&m_localeconv)); r.add(d, "__lconv_init", A(&m___lconv_init)); r.add(d, "___lc_codepage_func", A(&m____lc_codepage_func));
     r.add(d, "___mb_cur_max_func", A(&m____mb_cur_max_func)); r.add(d, "wcslen", A(&m_wcslen)); r.add(d, "__C_specific_handler", A(&m___C_specific_handler));
     r.add(d, "__iob_func", A(&m___iob_func)); r.add(d, "fwrite", A(&m_fwrite)); r.add(d, "fputc", A(&m_fputc));
+    r.add(d, "memchr", A(&m_memchr)); r.add(d, "fputs", A(&m_fputs)); r.add(d, "_write", A(&m__write)); r.add(d, "_read", A(&m__read)); r.add(d, "_close", A(&m__close));
     r.add(d, "vfprintf", A(&m_vfprintf)); r.add(d, "fprintf", A(&m_fprintf));
     // data imports: the registry value is the address of the variable
     r.add(d, "_fmode", (uint64_t)(uintptr_t)&g_fmode); r.add(d, "_commode", (uint64_t)(uintptr_t)&g_commode);
