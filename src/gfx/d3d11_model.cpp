@@ -67,6 +67,30 @@ ResourceId Device::CreateTexture2D(uint32_t w, uint32_t h, Format f, uint32_t le
   t.w = w; t.h = h; t.f = f; t.px.assign((size_t)w * h * 4, 0);
   textures_.push_back(std::move(t)); return (ResourceId)textures_.size();
 }
+bool Device::GenerateMips(ResourceId id) {
+  auto* t = texture(id); if (!t) return false;
+  uint32_t sw = t->w, sh = t->h;
+  const std::vector<uint8_t>* src = &t->px;
+  for (auto& dst : t->mips) {
+    uint32_t dw = std::max(1u,sw/2), dh = std::max(1u,sh/2);
+    // Area-weighted box reduction includes the final row/column of odd dimensions.
+    for(uint32_t y=0;y<dh;++y) for(uint32_t x=0;x<dw;++x) {
+      double lo_x = (double)x*sw/dw, hi_x = (double)(x+1)*sw/dw;
+      double lo_y = (double)y*sh/dh, hi_y = (double)(y+1)*sh/dh;
+      double sum[4] = {}, weight = 0;
+      for(uint32_t sy=(uint32_t)lo_y;sy<(uint32_t)std::ceil(hi_y);++sy)
+        for(uint32_t sx=(uint32_t)lo_x;sx<(uint32_t)std::ceil(hi_x);++sx) {
+          double w = (std::min(hi_x,(double)sx+1)-std::max(lo_x,(double)sx)) *
+                     (std::min(hi_y,(double)sy+1)-std::max(lo_y,(double)sy));
+          for(int k=0;k<4;++k) sum[k] += (*src)[((size_t)sy*sw+sx)*4+k]*w;
+          weight += w;
+        }
+      for(int k=0;k<4;++k) dst[((size_t)y*dw+x)*4+k] = (uint8_t)std::lround(sum[k]/weight);
+    }
+    src = &dst; sw = dw; sh = dh;
+  }
+  return true;
+}
 bool Device::UpdateTextureMip(ResourceId id, uint32_t level, const void* data, size_t bytes) {
   auto* t = texture(id); if (!t || level > t->mips.size() || !data) return false;
   auto& dst = level ? t->mips[level-1] : t->px;
