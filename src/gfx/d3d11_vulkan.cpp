@@ -46,13 +46,14 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
     if (cb0_.size() > 128) { *err = "vulkan draw: constant buffer 0 larger than 128 bytes is not supported yet"; return false; }
     push.assign((cb0_.size() + 3) / 4, 0); std::memcpy(push.data(), cb0_.data(), cb0_.size());
   }
+  if (ps_cb0_.size() > 16384) { *err = "vulkan draw: pixel constant buffer 0 larger than 16384 bytes is not supported"; return false; }
   const size_t total_tris = kept.size() / 21, chunk = 9999;   // backend limit: 30000 indices per call
   std::vector<uint8_t> img;
   for (size_t first = 0; first < total_tris; first += chunk) {
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 21, kept.begin() + (first + n) * 21);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
-    pnr::Status s = vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, false, tg.clear, &img, &tg.surf, true, nullptr, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_COMPARE_OP_LESS, push.empty() ? nullptr : &push);
+    pnr::Status s = vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, false, tg.clear, &img, &tg.surf, true, nullptr, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_COMPARE_OP_LESS, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_);
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
   }
