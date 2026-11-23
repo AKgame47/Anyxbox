@@ -191,8 +191,8 @@ Status VulkanBackend::render_textured_mesh_frames_rgba(
   for (uint32_t i : indices)
     if (i >= vertices.size() / 8)
       return Status::Fail(100, "vulkan", "mesh index out of range of the vertex array");
-  if (tex.rgba == nullptr || tex.w == 0 || tex.h == 0 || tex.w > 256 || tex.h > 256)
-    return Status::Fail(100, "vulkan", "texture must be 1..256 per side with pixel data");
+  if (tex.rgba == nullptr || tex.w == 0 || tex.h == 0 || tex.w > 1024 || tex.h > 1024)
+    return Status::Fail(100, "vulkan", "texture must be 1..1024 per side with pixel data");
   if (fp.empty() || fp.size() > 64)
     return Status::Fail(100, "vulkan", "frame count must be 1..64");
   for (auto& p : fp)
@@ -217,8 +217,8 @@ Status VulkanBackend::render_lit_textured_mesh_frames_rgba(
   for (uint32_t i : indices)
     if (i >= vertices.size() / 11)
       return Status::Fail(100, "vulkan", "mesh index out of range of the vertex array");
-  if (tex.rgba == nullptr || tex.w == 0 || tex.h == 0 || tex.w > 256 || tex.h > 256)
-    return Status::Fail(100, "vulkan", "texture must be 1..256 per side with pixel data");
+  if (tex.rgba == nullptr || tex.w == 0 || tex.h == 0 || tex.w > 1024 || tex.h > 1024)
+    return Status::Fail(100, "vulkan", "texture must be 1..1024 per side with pixel data");
   if (fp.empty() || fp.size() > 64)
     return Status::Fail(100, "vulkan", "frame count must be 1..64");
   for (auto& p : fp)
@@ -605,19 +605,33 @@ Status VulkanBackend::render_core(
   // Slice S19: mip chain extents/byte count (level l tightly pitched at
   // max(1,w>>l) x max(1,h>>l)); valid only while tex != nullptr.
   // Slice S27: each level holds tex->layers tightly packed array slices.
-  uint32_t levels = 1, lw[9], lh[9], ld[9];
+  uint32_t levels = 1, lw[11], lh[11], ld[11];
   uint32_t layers = 1;
   uint32_t tex_depth = 1;
   size_t tex_bytes = 0;
   struct ExtraTex { VkImage img = 0; VkBuffer stage = 0; };
   std::vector<ExtraTex> extras;
   std::vector<VkDescriptorImageInfo> extra_infos;
+  auto image_limits=[&](const TexInput& input,uint32_t mip,uint32_t slices,uint32_t depth,size_t bytes)->Status {
+    if(bytes>64u*1024u*1024u || (input.byte_size && input.byte_size<bytes))
+      return Status::Fail(100,"vulkan","sampled texture exceeds 64 MiB upload budget or supplied byte length");
+    VkImageFormatProperties cap{};
+    VkResult q=fn<VkResult (*)(VkPhysicalDevice,int32_t,int32_t,int32_t,VkFlags,VkFlags,VkImageFormatProperties*)>(vkGetPhysicalDeviceImageFormatProperties)(
+      phys_,input.srgb?VK_FORMAT_R8G8B8A8_SRGB:VK_FORMAT_R8G8B8A8_UNORM,
+      depth>1?VK_IMAGE_TYPE_3D:VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
+      VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,input.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&cap);
+    if(q!=VK_SUCCESS || input.w>cap.maxExtent.width || input.h>cap.maxExtent.height || depth>cap.maxExtent.depth ||
+       mip>cap.maxMipLevels || slices>cap.maxArrayLayers || !(cap.sampleCounts&VK_SAMPLE_COUNT_1_BIT) || bytes>cap.maxResourceSize)
+      return Status::Fail(100,"vulkan","sampled texture exceeds device image-format capabilities");
+    return Status::Ok();
+  };
   if (mesh && mesh->extra_tex && !tex) return Status::Fail(100, "vulkan", "extra textures need texture t0 as well");
   if (tex) {
-    if (!tex->rgba || tex->w == 0 || tex->h == 0 || tex->w > 256 || tex->h > 256)
-      return Status::Fail(100, "vulkan", "texture must be 1..256 per side with pixel data");
+    if (!tex->rgba || tex->w == 0 || tex->h == 0 || tex->w > 1024 || tex->h > 1024)
+      return Status::Fail(100, "vulkan", "texture must be 1..1024 per side with pixel data");
     levels = tex->levels ? tex->levels : 1;
-    if (levels > 9) return Status::Fail(100, "vulkan", "texture mip levels exceed 9");
+    uint32_t full=1;for(uint32_t n=std::max(tex->w,std::max(tex->h,tex->depth));n>1;n>>=1) ++full;
+    if (levels > full || levels>11) return Status::Fail(100,"vulkan","texture mip count exceeds full chain");
     layers = tex->layers ? tex->layers : 1;
     if (layers > 256) return Status::Fail(100, "vulkan", "texture array slices exceed 256");
     if (tex->cube && (layers != 6 || tex->w != tex->h))
@@ -634,6 +648,7 @@ Status VulkanBackend::render_core(
       ld[l] = (tex_depth >> l) ? (tex_depth >> l) : 1;
       tex_bytes += (size_t)lw[l] * lh[l] * ld[l] * 4 * layers;
     }
+    if(Status check=image_limits(*tex,levels,layers,tex_depth,tex_bytes);!check) return check;
     // Slice S23: sRGB guest textures stage as SRGB images so the host sampler
     // does the sRGB -> linear conversion in hardware.
     const int32_t tex_vk_format = tex->srgb ? (int32_t)VK_FORMAT_R8G8B8A8_SRGB
@@ -699,7 +714,7 @@ Status VulkanBackend::render_core(
     if (mesh->extra_tex) {
       if (mesh->extra_tex->size() > 3) return Status::Fail(100, "vulkan", "at most 3 extra textures (t1..t3)");
       for (const TexInput& et : *mesh->extra_tex) {
-        if (!et.rgba || et.w == 0 || et.h == 0 || et.w > 256 || et.h > 256) return Status::Fail(100, "vulkan", "extra texture must be 1..256 per side with pixel data");
+        if (!et.rgba || et.w == 0 || et.h == 0 || et.w > 1024 || et.h > 1024) return Status::Fail(100, "vulkan", "extra texture must be 1..1024 per side with pixel data");
         const int32_t efmt = et.srgb ? (int32_t)VK_FORMAT_R8G8B8A8_SRGB : (int32_t)VK_FORMAT_R8G8B8A8_UNORM;
         VkFormatProperties ep{};
         fn<void (*)(VkPhysicalDevice, int32_t, VkFormatProperties*)>(vkGetPhysicalDeviceFormatProperties)(phys_, efmt, &ep);
@@ -709,6 +724,7 @@ Status VulkanBackend::render_core(
         for (uint32_t n = std::max(et.w,et.h); n > 1; n >>= 1) ++full;
         if (el > full) return Status::Fail(100,"vulkan","extra texture mip count exceeds full chain");
         size_t bytes = 0; for(uint32_t l=0;l<el;++l) bytes += (size_t)std::max(1u,et.w>>l)*std::max(1u,et.h>>l)*4;
+        if(Status check=image_limits(et,el,1,1,bytes);!check) return check;
         ExtraTex ex;
         if (Status st = host_buffer(et.rgba, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "extra texture staging", &ex.stage); !st.ok) return st;
         VkImageCreateInfo eci{};
@@ -1116,7 +1132,7 @@ Status VulkanBackend::render_core(
     b1.image = timg; b1.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, levels, 0, layers};
     using BarrierFn = void (*)(VkCommandBuffer, VkFlags, VkFlags, VkFlags, uint32_t, const void*, uint32_t, const void*, uint32_t, const VkImageMemoryBarrier*);
     fn<BarrierFn>(vkCmdPipelineBarrier)(ucmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b1);
-    VkBufferImageCopy tr[9];
+    VkBufferImageCopy tr[11];
     uint32_t nreg = 0;
     size_t level_off = 0;
     for (uint32_t l = 0; l < levels; ++l) {
@@ -1138,7 +1154,7 @@ Status VulkanBackend::render_core(
       uint32_t el = et.levels ? et.levels : 1;
       VkImageMemoryBarrier e1 = b1; e1.image = extras[xi].img; e1.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, el, 0, 1};
       fn<BarrierFn>(vkCmdPipelineBarrier)(ucmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &e1);
-      VkBufferImageCopy ec[9]{}; size_t off = 0;
+      VkBufferImageCopy ec[11]{}; size_t off = 0;
       for(uint32_t l=0;l<el;++l) {
         uint32_t ew = std::max(1u,et.w>>l), eh = std::max(1u,et.h>>l);
         ec[l].bufferOffset = off; ec[l].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,l,0,1}; ec[l].imageExtent = {ew,eh,1}; off += (size_t)ew*eh*4;
