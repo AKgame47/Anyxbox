@@ -40,13 +40,13 @@ class VulkanDrawBackend : public DrawBackend {
  void set_vs_constants(const std::vector<uint8_t>& cb0) override { cb0_ = cb0; }
  // cb0 for the pixel shader is bound as a Vulkan uniform buffer (set 1, binding 0), up to 16384 bytes.
  void set_ps_constants(const std::vector<uint8_t>& cb0) override { ps_cb0_ = cb0; }
- // Texture t0 + sampler s0 are bound as a combined image sampler at set 0, binding 0 (RGBA8, up to 256x256, optional packed mip chain).
+ // Texture t0 + sampler s0 are bound as a combined image sampler at set 0, binding 0 (RGBA8, up to 1024x1024, optional packed mip chain).
  // TEXCOORD (float2) travels as vertex attribute location 2. Needs custom shaders (SetShaders): the pass-through
  // pair cannot sample, so drawing with a texture bound and no shaders is an error.
  void set_ps_texture(const uint8_t* rgba, uint32_t w, uint32_t h, const SamplerDesc& s) override {
    tex_.clear(); if (rgba) tex_.assign(rgba, rgba + (size_t)w * h * 4);
    tex_w_ = w; tex_h_ = h; smp_ = s; }
- // t1..t3: 2D RGBA8 with optional mip chains, up to 256x256, set 0 bindings 1..3. They need t0 bound as well.
+ // t1..t3: 2D RGBA8 with optional mip chains, up to 1024x1024, set 0 bindings 1..3. They need t0 bound as well.
  void set_ps_texture_slot(uint32_t slot, const uint8_t* rgba, uint32_t w, uint32_t h, const SamplerDesc& s) override {
    if (slot < 1 || slot > 3) return;
    Extra& e = extra_[slot - 1]; e.rgba.clear(); if (rgba) e.rgba.assign(rgba, rgba + (size_t)w * h * 4);
