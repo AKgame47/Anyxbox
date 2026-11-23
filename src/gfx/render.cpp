@@ -51,7 +51,7 @@ Status VulkanBackend::render_clip_mesh_rgba(
     const std::vector<uint32_t>& indices, bool depth, const float clear[4],
     std::vector<uint8_t>* image, FrameSurface* shared_frame, bool depth_write,
     const BlendState* blend, int32_t cull_mode, int32_t front_face, int32_t depth_compare,
-    const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo) {
+    const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo, const std::vector<uint8_t>* vert_ubo) {
   if (!image) return Status::Fail(100, "vulkan", "clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 7 || vertices.size() / 7 > 65536)
     return Status::Fail(100, "vulkan", "clip mesh vertices must be float4 clip position + float3 colour (multiple of 7 floats, max 65536 vertices)");
@@ -67,6 +67,10 @@ Status VulkanBackend::render_clip_mesh_rgba(
   if (frag_ubo && !frag_ubo->empty()) {
     if (frag_ubo->size() > 16384) return Status::Fail(100, "vulkan", "fragment uniform buffer is limited to 16384 bytes");
     m.frag_ubo = frag_ubo;
+  }
+  if (vert_ubo && !vert_ubo->empty()) {
+    if (vert_ubo->size() > 16384) return Status::Fail(100, "vulkan", "vertex uniform buffer is limited to 16384 bytes");
+    m.vert_ubo = vert_ubo;
   }
   std::vector<std::vector<uint8_t>> frames;
   std::vector<std::vector<uint32_t>> push_frames;
@@ -110,7 +114,7 @@ Status VulkanBackend::render_textured_clip_mesh_rgba(
     const std::vector<uint32_t>& indices, bool depth, const TexInput& tex,
     const float clear[4], std::vector<uint8_t>* image, FrameSurface* shared_frame,
     bool depth_write, const BlendState* blend, int32_t cull_mode, int32_t front_face,
-    int32_t depth_compare, const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo) {
+    int32_t depth_compare, const std::vector<uint32_t>* vertex_push, const std::vector<uint8_t>* frag_ubo, const std::vector<uint8_t>* vert_ubo) {
   if (!image) return Status::Fail(100, "vulkan", "textured clip mesh render needs an output image");
   if (vertices.empty() || vertices.size() % 9 || vertices.size() / 9 > 65536)
     return Status::Fail(100, "vulkan", "textured clip mesh vertices must be float4 clip position + float3 colour + float2 uv (multiple of 9 floats, max 65536 vertices)");
@@ -126,6 +130,10 @@ Status VulkanBackend::render_textured_clip_mesh_rgba(
   if (frag_ubo && !frag_ubo->empty()) {
     if (frag_ubo->size() > 16384) return Status::Fail(100, "vulkan", "fragment uniform buffer is limited to 16384 bytes");
     m.frag_ubo = frag_ubo;
+  }
+  if (vert_ubo && !vert_ubo->empty()) {
+    if (vert_ubo->size() > 16384) return Status::Fail(100, "vulkan", "vertex uniform buffer is limited to 16384 bytes");
+    m.vert_ubo = vert_ubo;
   }
   std::vector<std::vector<uint32_t>> push_frames;
   if (vertex_push && !vertex_push->empty()) {
@@ -717,10 +725,17 @@ Status VulkanBackend::render_core(
   VkDescriptorSetLayout ulayout = 0, elayout = 0;
   VkDescriptorSet uset = 0;
   VkBuffer ubuf = 0;
-  if (mesh && mesh->frag_ubo) {
-    std::vector<uint8_t> padded = *mesh->frag_ubo;
-    padded.resize((padded.size() + 15) & ~(size_t)15, 0);
-    if (Status s = host_buffer(padded.data(), padded.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, "uniform", &ubuf); !s.ok) return s;
+  if (mesh && (mesh->frag_ubo || mesh->vert_ubo)) {
+    std::vector<uint8_t> padded, vpadded;
+    VkBuffer vbuf = 0;
+    if (mesh->frag_ubo) {
+      padded = *mesh->frag_ubo; padded.resize((padded.size() + 15) & ~(size_t)15, 0);
+      if (Status s = host_buffer(padded.data(), padded.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, "uniform", &ubuf); !s.ok) return s;
+    }
+    if (mesh->vert_ubo) {
+      vpadded = *mesh->vert_ubo; vpadded.resize((vpadded.size() + 15) & ~(size_t)15, 0);
+      if (Status s = host_buffer(vpadded.data(), vpadded.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, "vertex uniform", &vbuf); !s.ok) return s;
+    }
     auto make_layout = [&](uint32_t nb, const VkDescriptorSetLayoutBinding* b, VkDescriptorSetLayout* out, const char* what) -> Status {
       VkDescriptorSetLayoutCreateInfo d{};
       d.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO; d.bindingCount = nb; d.pBindings = b;
@@ -731,10 +746,12 @@ Status VulkanBackend::render_core(
       undo.push_back([&, l] { fn<void (*)(VkDevice, VkDescriptorSetLayout, void*)>(vkDestroyDescriptorSetLayout)(device_, l, nullptr); });
       return Status::Ok();
     };
-    VkDescriptorSetLayoutBinding ub{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-    if (Status s = make_layout(1, &ub, &ulayout, "uniform"); !s.ok) return s;
+    VkDescriptorSetLayoutBinding ubs[2]; uint32_t nub = 0;
+    if (mesh->frag_ubo) ubs[nub++] = VkDescriptorSetLayoutBinding{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    if (mesh->vert_ubo) ubs[nub++] = VkDescriptorSetLayoutBinding{1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+    if (Status s = make_layout(nub, ubs, &ulayout, "uniform"); !s.ok) return s;
     if (!tex) if (Status s = make_layout(0, nullptr, &elayout, "empty set 0"); !s.ok) return s;
-    VkDescriptorPoolSize dps{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+    VkDescriptorPoolSize dps{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nub};
     VkDescriptorPoolCreateInfo dpci{};
     dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets = 1; dpci.poolSizeCount = 1; dpci.pPoolSizes = &dps;
@@ -748,12 +765,16 @@ Status VulkanBackend::render_core(
     dai.descriptorPool = dpool; dai.descriptorSetCount = 1; dai.pSetLayouts = &ulayout;
     r = fn<VkResult (*)(VkDevice, const VkDescriptorSetAllocateInfo*, VkDescriptorSet*)>(vkAllocateDescriptorSets)(device_, &dai, &uset);
     if (r != VK_SUCCESS) return vkfail("vkAllocateDescriptorSets (uniform)", r);
-    VkDescriptorBufferInfo dbi{ubuf, 0, (VkDeviceSize)padded.size()};
-    VkWriteDescriptorSet uw{};
-    uw.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    uw.dstSet = uset; uw.dstBinding = 0; uw.descriptorCount = 1;
-    uw.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; uw.pBufferInfo = &dbi;
-    fn<void (*)(VkDevice, uint32_t, const VkWriteDescriptorSet*, uint32_t, void*)>(vkUpdateDescriptorSets)(device_, 1, &uw, 0, nullptr);
+    VkDescriptorBufferInfo dbi[2]; VkWriteDescriptorSet uw[2]{}; uint32_t nw = 0;
+    auto add_write = [&](uint32_t binding, VkBuffer buf, size_t sz) {
+      dbi[nw] = VkDescriptorBufferInfo{buf, 0, (VkDeviceSize)sz};
+      uw[nw].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      uw[nw].dstSet = uset; uw[nw].dstBinding = binding; uw[nw].descriptorCount = 1;
+      uw[nw].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; uw[nw].pBufferInfo = &dbi[nw]; nw++;
+    };
+    if (mesh->frag_ubo) add_write(0, ubuf, padded.size());
+    if (mesh->vert_ubo) add_write(1, vbuf, vpadded.size());
+    fn<void (*)(VkDevice, uint32_t, const VkWriteDescriptorSet*, uint32_t, void*)>(vkUpdateDescriptorSets)(device_, nw, uw, 0, nullptr);
   }
 
   // --- render pass: clear on load, store, end in TRANSFER_SRC ---
