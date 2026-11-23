@@ -215,6 +215,10 @@ typedef struct VkInstanceCreateInfo {
   const char* const* ppEnabledExtensionNames;
 } VkInstanceCreateInfo;
 typedef struct VkExtent3D { uint32_t width, height, depth; } VkExtent3D;
+typedef struct VkImageFormatProperties {
+  VkExtent3D maxExtent; uint32_t maxMipLevels, maxArrayLayers; VkFlags sampleCounts;
+  VkDeviceSize maxResourceSize;
+} VkImageFormatProperties;
 typedef struct VkQueueFamilyProperties {
   VkFlags queueFlags; uint32_t queueCount; uint32_t timestampValidBits;
   VkExtent3D minImageTransferGranularity;
