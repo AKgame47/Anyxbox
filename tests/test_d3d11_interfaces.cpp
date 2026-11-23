@@ -30,6 +30,18 @@ int main(){
   CHECK(((CB)vt(dev)[3])(dev,bd,nullptr,&buf)==0);
   CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&tex)==0);
   td[4]=40;td[8]=0x40;CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&depth)==0);
+  using Desc=void(MS*)(void*,void*);
+  uint32_t outdesc[12];for(auto& x:outdesc)x=0xdeadbeefu;
+  ((Desc)vt(buf)[10])(buf,outdesc);CHECK(std::memcmp(outdesc,bd,sizeof(bd))==0&&outdesc[6]==0xdeadbeefu);
+  auto checktex=[&](void* obj,const uint32_t* expected){
+    for(auto& x:outdesc)x=0xdeadbeefu;
+    ((Desc)vt(obj)[10])(obj,outdesc);
+    return std::memcmp(outdesc,expected,44)==0&&outdesc[11]==0xdeadbeefu;
+  };
+  CHECK(checktex(depth,td));td[4]=28;td[8]=8;CHECK(checktex(tex,td));
+  td[2]=0;td[7]=3;td[8]=0;td[9]=0x20000;void* staging=nullptr;
+  CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&staging)==0);td[2]=3;CHECK(checktex(staging,td));
+  ((Desc)vt(staging)[10])(staging,nullptr);((R)vt(staging)[2])(staging);
   void* objects[]={dev,ctx,buf,tex,depth};
   for(unsigned k=0;k<5;++k){
     void* obj=objects[k];uint32_t refs=((R)vt(obj)[1])(obj);CHECK(((R)vt(obj)[2])(obj)==refs-1);
@@ -49,9 +61,10 @@ int main(){
   using Swap=int32_t(MS*)(void*,void*,const uint32_t*,void**);
   using GetBuffer=int32_t(MS*)(void*,uint32_t,const uint8_t*,void**);
   void* factory=nullptr;CHECK(((Factory)(uintptr_t)reg.resolve("dxgi.dll","CreateDXGIFactory",0,false))(ids[0],&factory)==0);
-  uint32_t desc[18]={4,4};desc[4]=28;desc[7]=1;
+  uint32_t desc[18]={4,4};desc[4]=87;desc[7]=1;desc[9]=0x30;
   void* swap=nullptr;CHECK(((Swap)vt(factory)[10])(factory,dev,desc,&swap)==0);
   void* back=nullptr;CHECK(((GetBuffer)vt(swap)[9])(swap,0,ids[4],&back)==0&&back);
+  const uint32_t backdesc[]={4,4,1,1,87,1,0,0,0x28,0,0};CHECK(checktex(back,backdesc));
   uint32_t br=((R)vt(back)[1])(back);((R)vt(back)[2])(back);
   for(unsigned i=0;i<7;++i){
     void* out=(void*)1;auto hr=((GetBuffer)vt(swap)[9])(swap,0,ids[i],&out);
@@ -63,5 +76,6 @@ int main(){
   CHECK(((GetBuffer)vt(swap)[9])(swap,0,ids[4],nullptr)==(int32_t)0x80070057);
   ((R)vt(back)[2])(back);((R)vt(swap)[2])(swap);((R)vt(factory)[2])(factory);
   for(auto* o:objects)((R)vt(o)[2])(o);
+  puts("resource GetDesc: buffer/color/depth/staging/full-mip/backbuffer fields and output extents ok");
   puts("D3D11 interface identity, type, GetDevice, swapchain interface refusal and balanced reference paths ok");
 }
