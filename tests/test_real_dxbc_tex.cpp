@@ -107,6 +107,27 @@ int main() {
     std::printf("real cb-relative-addressing shaders through Vulkan: indices 0..7, %d wrong\n", bad2);
     CHECK(bad2 == 0);
   }
+  // ---- vkd3d "break at the end of a loop block" PS: loop, itof, ge, breakc_nz, ne, if_nz, continue, iadd, break, endloop, cb0 floats.
+  // Output is (tmp,0,0,0) in an 8-bit target, so only "tmp == 0" versus "tmp >= 1" is observable here (7 clamps to 1).
+  {
+    auto lps = shader::dxbc_to_spirv((const uint8_t*)wine_loop_ps, sizeof wine_loop_ps);
+    if (!lps.ok) { std::printf("real loop ps translate failed: %s\n", lps.error.c_str()); return 1; }
+    be.SetShaders(vs.words, lps.words);
+    ctx.SetConstantLayout({}, lps.cb_layout);
+    CHECK(lps.cb_layout.size() == 1 && lps.cb_layout[0].first == 0 && lps.cb_layout[0].second == 1);
+    const float black[4] = {0, 0, 0, 1};
+    struct Case { float x, y; int expect_r; } cases[] = {{7, 2, 255}, {7, 8, 255}, {3, 0, 255}, {0, 0, 0}, {0, 9, 0}, {1, 5, 255}, {-2, 0, 0}};
+    for (auto& k : cases) {
+      float cb[4] = {k.x, k.y, 0, 0};
+      ctx.PSSetConstantBuffer(0, dev.CreateBuffer(cb, sizeof cb));
+      ctx.ClearRenderTargetView(rtv, black);
+      if (!ctx.Draw(6, 0)) { std::printf("loop draw failed: %s\n", ctx.last_error().c_str()); return 1; }
+      dev.ReadTexture(rt, &im);
+      const uint8_t* p = &im[((size_t)239 * W + 319) * 4];
+      std::printf("real loop shader, src0=(%g,%g): r=%d expected %d\n", k.x, k.y, p[0], k.expect_r);
+      CHECK(std::abs(p[0] - k.expect_r) <= 2 && p[1] == 0 && p[2] == 0);
+    }
+  }
   std::printf("real dxbc tex: all ok\n");
   return 0;
 }
