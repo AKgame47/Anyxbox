@@ -132,6 +132,31 @@ LoadedImage load_pe_image(const uint8_t* data, size_t size, const ImportResolver
       }
     }
   }
+  // TLS directory (9)
+  uint32_t trva, tsz; dir(9, trva, tsz);
+  if (tsz) {
+    if (tsz < 40 || !m.ok(trva, 40)) return fail(r, "tls directory out of range");
+    uint64_t b = r.actual_base;
+    auto inimg = [&](uint64_t va, uint64_t len) { return va >= b && va - b <= image_size && len <= image_size - (va - b); };
+    r.tls.start_va = m.u64(trva); r.tls.end_va = m.u64(trva + 8); r.tls.index_va = m.u64(trva + 16);
+    uint64_t cb = m.u64(trva + 24); r.tls.zero_fill = m.u32(trva + 32);
+    if (r.tls.end_va < r.tls.start_va || (r.tls.end_va - r.tls.start_va) > (1u << 24) || r.tls.zero_fill > (1u << 24)) return fail(r, "bad tls template size");
+    if (!inimg(r.tls.start_va, r.tls.end_va - r.tls.start_va)) return fail(r, "tls template out of range");
+    if (!inimg(r.tls.index_va, 4)) return fail(r, "tls index out of range");
+    uint32_t zero = 0; std::memcpy(r.base + (r.tls.index_va - b), &zero, 4);
+    if (cb) {
+      if (!inimg(cb, 8)) return fail(r, "tls callbacks out of range");
+      for (uint64_t at = cb;; at += 8) {
+        if (!inimg(at, 8)) return fail(r, "tls callback list not terminated");
+        uint64_t fn = m.u64(at - b);
+        if (!fn) break;
+        if (!inimg(fn, 1)) return fail(r, "tls callback out of range");
+        if (r.tls.callbacks.size() >= 64) return fail(r, "too many tls callbacks");
+        r.tls.callbacks.push_back(fn);
+      }
+    }
+    r.tls.present = true;
+  }
   r.ok = r.unresolved.empty();
   if (!r.ok) r.error = "unresolved imports";
   return r;
