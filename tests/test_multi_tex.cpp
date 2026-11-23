@@ -42,9 +42,23 @@ int main() {
     uint8_t replacement[4]={44,55,66,255}; slot<void (MS *)(void*,void*,uint32_t,const uint32_t*,const void*,uint32_t,uint32_t)>(ctx,48)(ctx,tex,2,nullptr,replacement,4,0);
     CHECK(map(ctx,tex,2,1,0,&mapped)==0);CHECK(*(uint8_t*)mapped.p==44);unmap(ctx,tex,2);
     void* srv=nullptr; uint32_t view[4]={28,4,0,~0u}; auto srvfn=slot<int32_t (MS *)(void*,void*,const uint32_t*,void**)>(dev,7);
-    CHECK(srvfn(dev,tex,view,&srv)==0); slot<uint32_t (MS *)(void*)>(srv,2)(srv);
+    CHECK(srvfn(dev,tex,view,&srv)==0);
+    auto generate=slot<void (MS *)(void*,void*)>(ctx,54);
+    generate(ctx,srv); // flags absent: must leave the existing mip contents alone
+    CHECK(map(ctx,tex,2,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==44); unmap(ctx,tex,2);
+    slot<uint32_t (MS *)(void*)>(srv,2)(srv);
     view[2]=1; CHECK(srvfn(dev,tex,view,&srv)<0); rt.last_error.clear();
     slot<uint32_t (MS *)(void*)>(tex,2)(tex);
+    desc[8]=0x28; desc[10]=1; CHECK((slot<int32_t (MS *)(void*,const uint32_t*,const Init*,void**)>(dev,5)(dev,desc,nullptr,&tex)==0));
+    view[2]=0; CHECK(srvfn(dev,tex,view,&srv)==0);
+    uint8_t solid[64]; std::memset(solid,120,sizeof solid);
+    auto update=slot<void (MS *)(void*,void*,uint32_t,const uint32_t*,const void*,uint32_t,uint32_t)>(ctx,48);
+    update(ctx,tex,0,nullptr,solid,16,0); generate(ctx,srv);
+    CHECK(map(ctx,tex,2,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==120); unmap(ctx,tex,2);
+    std::memset(solid,80,sizeof solid); update(ctx,tex,0,nullptr,solid,16,0); generate(ctx,srv);
+    CHECK(map(ctx,tex,1,1,0,&mapped)==0); CHECK(*(uint8_t*)mapped.p==80); unmap(ctx,tex,1);
+    slot<uint32_t (MS *)(void*)>(srv,2)(srv); slot<uint32_t (MS *)(void*)>(tex,2)(tex);
+    std::puts("COM GenerateMips flag gate and regeneration passed");
     std::puts("COM mip initialization, row pitch, subresource update/map and SRV limits passed");
   }
 
@@ -128,8 +142,8 @@ int main() {
     }
     std::printf("%s: %d wrong\n", variant == 0 ? "unbound t0/t1 read zeros" : "t0 clamp + t2 wrap, two samplers", bad); CHECK(bad == 0);
   }
-  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<5;++mode) {
-    float lod = mode == 3 ? 1.5f : mode == 4 ? 0.f : (float)mode;
+  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<6;++mode) {
+    float lod = mode == 3 ? 1.5f : mode == 4 ? 0.f : mode == 5 ? 2.f : (float)mode;
     auto pb = dxb::ps_sample(dxb::swz(0,1,2,3),lod,slotno,0,false);
     // Add declarations before sample instructions through the builder's normal list construction.
     if(slotno) {
@@ -140,6 +154,10 @@ int main() {
     d3d11::Device dev; d3d11::DeviceContext ctx(dev); ctx.SetDrawBackend(&be); ctx.SetTexturePairing(psr.tex_sampler);
     auto tex=dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,0); CHECK(tex && dev.texture(tex)->mips.size()==2);
     for(uint32_t l=0;l<3;++l) { std::vector<uint8_t> bytes((4u>>l)*(4u>>l)*4,0); for(size_t i=0;i<bytes.size();i+=4) {bytes[i+l]=255;bytes[i+3]=255;} CHECK(dev.UpdateTextureMip(tex,l,bytes.data(),bytes.size())); }
+    if(mode==5) {
+      std::vector<uint8_t> checker(64,0); for(size_t i=0;i<16;++i) {checker[i*4]=(i%2)?200:0;checker[i*4+1]=60;checker[i*4+3]=255;}
+      CHECK(dev.UpdateTexture(tex,checker.data(),checker.size()) && dev.GenerateMips(tex));
+    }
     CHECK(!dev.UpdateTextureMip(tex,3,"",1)); CHECK(!dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,4));
     auto rt=dev.CreateTexture2D(W,H,d3d11::Format::R8G8B8A8_UNORM); auto rtv=dev.CreateRenderTargetView(rt);
     CHECK(ctx.PSSetShaderResource(slotno,tex)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
@@ -148,7 +166,7 @@ int main() {
     ctx.IASetVertexBuffer(dev.CreateBuffer(q.data(),q.size()*sizeof(VT)),sizeof(VT),0); const float black[4]={0,0,0,1}; CHECK(ctx.ClearRenderTargetView(rtv,black));
     if(!ctx.Draw(6,0)) {std::printf("mip error %s\n",ctx.last_error().c_str());return 1;}
     std::vector<uint8_t> img; CHECK(dev.ReadTexture(rt,&img)); auto* p=&img[((size_t)10*W+9)*4];
-    int er=mode==0?255:0,eg=mode==1||mode==4?255:mode==3?128:0,eb=mode==2?255:mode==3?128:0;
+    int er=mode==5?100:mode==0?255:0,eg=mode==5?60:mode==1||mode==4?255:mode==3?128:0,eb=mode==2?255:mode==3?128:0;
     std::printf("mip t%u mode %d got %u %u %u\n",slotno,mode,p[0],p[1],p[2]); CHECK(std::abs(p[0]-er)<=1 && std::abs(p[1]-eg)<=1 && std::abs(p[2]-eb)<=1);
     if(std::getenv("ANYXBOX_MIP_PREVIEW") && mode==1) { FILE* f=std::fopen("/downloads/mip-green.ppm","wb");if(f){std::fprintf(f,"P6\n%d %d\n255\n",W,H);for(size_t k=0;k<img.size();k+=4) std::fwrite(img.data()+k,1,3,f);std::fclose(f);} }
   }
