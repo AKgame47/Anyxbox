@@ -116,4 +116,11 @@ inline std::vector<uint8_t> vs_cb_scale_offset(uint32_t declared = 2, uint32_t r
      ins(OP_MOV, {dst(T_OUTPUT, 1, 0x7), src(T_INPUT, 1, swz(0, 1, 2, 0))}),
      ins(OP_MOV, {dst(T_OUTPUT, 1, 0x8), imm1(1)}), ins(OP_RET, {})});
 }
+// ps: o0 = sat(v1 * cb0[0] + cb0[1]) (alpha forced to 1); colours come from the vertex colour
+inline std::vector<uint8_t> ps_cb_tint(uint32_t declared = 2) {
+  return shader(0, {{"COLOR", 0, 0, 1, 0xF}}, {{"SV_Target", 0, 0, 0, 0xF}},
+    {dcl_cb(0, declared), ins(98, {dst(T_INPUT, 1, 0xF)}, false, 2), ins(101, {dst(T_OUTPUT, 0, 0xF)}),
+     ins(OP_MAD, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 1), src_cb(0, 0), src_cb(0, 1)}, true),
+     ins(OP_MOV, {dst(T_OUTPUT, 0, 0x8), imm1(1)}), ins(OP_RET, {})});
+}
 }  // namespace dxb
