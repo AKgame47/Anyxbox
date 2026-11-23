@@ -20,5 +20,7 @@
 #include "shader/dxbc.h"
 namespace anyxbox { namespace shader {
 struct SpirvResult { bool ok = false; std::string error; std::vector<uint32_t> words; bool is_pixel = false; };
-SpirvResult dxbc_to_spirv(const uint8_t* dxbc, size_t size);
+// vulkan_flip_y: negate clip-space y at the end of a vertex shader (D3D clip y is up, the Vulkan backend's is down).
+// Leave it true for shaders given to VulkanDrawBackend::SetShaders.
+SpirvResult dxbc_to_spirv(const uint8_t* dxbc, size_t size, bool vulkan_flip_y = true);
 }}
