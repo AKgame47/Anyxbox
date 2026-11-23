@@ -18,7 +18,7 @@ enum class Format { Unknown, R8G8B8A8_UNORM, B8G8R8A8_UNORM, R32G32_FLOAT, R32G3
 enum class Topology { Undefined, TriangleList };
 using ResourceId = uint32_t;  // 0 = invalid
 
-struct InputElement { std::string semantic; Format format; uint32_t offset; };
+struct InputElement { std::string semantic; Format format; uint32_t offset; uint32_t slot = 0; };   // slot: vertex buffer slot 0..15 (per-vertex data only)
 struct Viewport { float x = 0, y = 0, width = 0, height = 0; };
 struct DrawStats { uint64_t triangles_in = 0, triangles_drawn = 0, pixels_written = 0; };
 
@@ -92,10 +92,17 @@ class DeviceContext {
   explicit DeviceContext(Device& d) : dev_(d) { state_.rs.cull = Cull::None; }
   void SetDrawBackend(DrawBackend* b) { backend_ = b; }  // null = built-in reference renderer
   void IASetInputLayout(const std::vector<InputElement>& layout) { layout_ = layout; }
-  void IASetVertexBuffer(ResourceId buffer, uint32_t stride, uint32_t offset) { vb_ = buffer; stride_ = stride; vb_offset_ = offset; }
+  void IASetVertexBuffer(ResourceId buffer, uint32_t stride, uint32_t offset) { vbs_[0] = {buffer, stride, offset}; }
+  bool IASetVertexBufferSlot(uint32_t slot, ResourceId buffer, uint32_t stride, uint32_t offset) {
+    if (slot >= 16) return fail("IASetVertexBuffer: slot must be 0..15");
+    vbs_[slot] = {buffer, stride, offset}; return true; }
   void IASetPrimitiveTopology(Topology t) { topo_ = t; }
   void RSSetViewport(const Viewport& v) { vp_ = v; has_vp_ = true; }
   // Only slot 0 exists for now; returns false (and sets last_error) for any other slot or an invalid buffer. 0 unbinds.
+  // Constant buffer slots 0..13. With a layout set (from SpirvResult::cb_layout) the buffers bound to the declared slots are
+  // packed into one blob, slot after slot, each cut or zero-padded to its declared register count (see shader/dxbc_spirv.h);
+  // an unbound slot reads as zeros. With no layout (empty) the backend gets slot 0's bytes as they are.
+  void SetConstantLayout(std::vector<std::pair<uint32_t, uint32_t>> vs, std::vector<std::pair<uint32_t, uint32_t>> ps) { vs_layout_ = std::move(vs); ps_layout_ = std::move(ps); }
   bool VSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   bool PSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   bool PSSetShaderResource(uint32_t slot, ResourceId texture);   // slot 0 only; 0 unbinds
@@ -121,9 +128,11 @@ class DeviceContext {
   ResourceId ib_ = 0; bool ib32_ = false; uint32_t ib_offset_ = 0;
   PipelineState state_;
   ResourceId dsv_ = 0;
-  ResourceId vb_ = 0, rtv_ = 0, vs_cb0_ = 0, ps_cb0_ = 0, ps_tex_ = 0;
+  struct VBind { ResourceId buf = 0; uint32_t stride = 0, offset = 0; } vbs_[16];
+  ResourceId rtv_ = 0, ps_tex_ = 0;
+  ResourceId vs_cbs_[14] = {}, ps_cbs_[14] = {};
+  std::vector<std::pair<uint32_t, uint32_t>> vs_layout_, ps_layout_;
   SamplerDesc ps_smp_;
-  uint32_t stride_ = 0, vb_offset_ = 0;
   Topology topo_ = Topology::Undefined;
   Viewport vp_; bool has_vp_ = false;
   std::string err_;
