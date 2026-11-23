@@ -5,6 +5,7 @@
 #include "syslayer/import_registry.h"
 #include "runtime/kernel32.h"
 #include "runtime/msvcrt.h"
+#include "runtime/teb.h"
 #if defined(__linux__) && defined(__x86_64__)
 #include <sys/mman.h>
 #define ANYXBOX_CAN_RUN 1
@@ -77,8 +78,10 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   g_exit = &jb; g_exit_code = 0;
   EntryFn fn = (EntryFn)(uintptr_t)(img.actual_base + img.entry_rva);
   volatile bool exited = false;
+  teb_install(img.actual_base);
   if (setjmp(jb) == 0) { res.exit_code = fn(); } else { exited = true; res.exit_code = g_exit_code; }
   (void)exited;
+  teb_restore();
   g_exit = nullptr;
   res.ran = true; res.output = out;
   munmap(mem, len);
