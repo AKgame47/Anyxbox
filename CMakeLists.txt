@@ -209,3 +209,8 @@ add_test(NAME seh COMMAND test_seh)
 # batch 38: no new tests or src files (test_seh and test_protections changed; seh.cpp changed)
 
 # batch 39: no new tests or src files. import_gap and test_fixture_slot now include runtime/seh.h (already linked through anyxbox_runtime).
+
+add_executable(test_fixture_draw_copy tests/test_fixture_draw_copy.cpp)
+target_include_directories(test_fixture_draw_copy PRIVATE tests tests/fixtures)
+target_link_libraries(test_fixture_draw_copy PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
+add_test(NAME fixture_draw_copy COMMAND test_fixture_draw_copy ${CMAKE_SOURCE_DIR}/tests/fixtures)
