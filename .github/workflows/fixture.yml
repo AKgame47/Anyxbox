@@ -194,6 +194,13 @@ jobs:
           cat resource-interfaces.log
           grep -q 'loaded=1 ran=1 exit=0' resource-interfaces.log
           grep -q 'resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok' resource-interfaces.log
+      - name: Verify retained resource interface probe (strict)
+        run: |
+          ./import_gap tests/fixtures/resource_interfaces.run.exe
+          ./run_exe --i-built-this tests/fixtures/resource_interfaces.run.exe > retained-resource-interfaces.log
+          cat retained-resource-interfaces.log
+          grep -q 'loaded=1 ran=1 exit=0' retained-resource-interfaces.log
+          grep -q 'resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok' retained-resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
@@ -242,6 +249,7 @@ jobs:
             committed-draw-copy-frame*.ppm
             resource_interfaces.exe
             resource-interfaces.log
+            retained-resource-interfaces.log
             texture_copy.exe
             triangle.exe
             hello_crt.exe
