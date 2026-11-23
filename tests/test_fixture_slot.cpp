@@ -58,20 +58,27 @@ int main(int argc, char** argv) {
         User32Context u; D3D11Runtime rt;
         auto r = run_pe(data.data(), data.size(), true, [&](ImportRegistry& reg) { user32_register(reg, u); rt.register_imports(reg); });
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
-        if (n == "asset_read.run.exe") {
-          CHECK(r.ran && r.loaded && r.exit_code == 10 && r.output.empty());
+        if (n == "asset_read.run.exe" || n == "asset_scene.run.exe") {
+          CHECK(r.ran && r.loaded && r.exit_code == (n=="asset_read.run.exe"?10u:40u) && r.output.empty());
           char temp[]="/tmp/anyxbox-assets-XXXXXX";
           char* root=::mkdtemp(temp);CHECK(root);
           std::filesystem::create_directories(std::string(root)+"/data");
           {std::ofstream asset(std::string(root)+"/data/message.txt",std::ios::binary);asset<<"Anyxbox rooted asset\n";CHECK(asset.good());}
+          if(n=="asset_scene.run.exe") {
+            std::ofstream tex(std::string(root)+"/data/texture.rgba",std::ios::binary);
+            const uint32_t colors[]={0xff0000ffu,0xff00ff00u,0xffff0000u,0xffffffffu};
+            for(unsigned y=0;y<512;++y)for(unsigned x=0;x<512;++x)tex.write((const char*)&colors[(y>=256?2:0)+(x>=256?1:0)],4);
+            CHECK(tex.good());
+          }
           RunOptions opts;opts.asset_root=root;
-          auto allowed=run_pe(data.data(),data.size(),true,nullptr,opts);
-          CHECK(allowed.loaded && allowed.ran && allowed.exit_code==0 && allowed.output=="Anyxbox rooted asset\n");
+          User32Context rooted_u;D3D11Runtime rooted_rt;
+          auto allowed=run_pe(data.data(),data.size(),true,[&](ImportRegistry& reg) {user32_register(reg,rooted_u);rooted_rt.register_imports(reg);},opts);
+          CHECK(allowed.loaded && allowed.ran && allowed.exit_code==0 && allowed.output==(n=="asset_read.run.exe"?"Anyxbox rooted asset\n":""));
           std::ifstream asset(std::string(root)+"/data/message.txt",std::ios::binary);
           std::string contents((std::istreambuf_iterator<char>(asset)),{});
           CHECK(contents=="Anyxbox rooted asset\n");
           std::filesystem::remove_all(root);
-          std::puts("  rooted asset bytes verified; writes refused; default denied");
+          std::puts(n=="asset_read.run.exe"?"  rooted asset bytes verified; writes refused; default denied":"  rooted 512 texture scene executed; default denied; pixels checked by dedicated Vulkan test");
         } else CHECK(r.ran && r.loaded && r.exit_code == 0);
         if (n.find("draw_copy.") == 0 || n.find("draw_region.") == 0 || n.find("draw_update.") == 0 || n.find("draw_map.") == 0) {
           CHECK(r.output.empty() && rt.presents == 2 && rt.shaders_translated == 4 && rt.last_error.empty());
