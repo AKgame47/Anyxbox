@@ -190,3 +190,10 @@ add_test(NAME tls COMMAND test_tls)
 # batch 34: no new tests or src files (test_kernel32 changed; registry count now 54)
 
 # batch 35: no new tests or src files (test_kernel32 registry count now 59)
+
+target_sources(anyxbox_runtime PRIVATE src/runtime/devices.cpp)
+# batch 36: NEW SOURCE FILE src/runtime/devices.cpp (+ devices.h). Add it to the same library that holds src/runtime/kernel32.cpp (anyxbox_runtime) if sources are listed explicitly.
+add_executable(test_devices tests/test_devices.cpp)
+target_include_directories(test_devices PRIVATE tests)
+target_link_libraries(test_devices PRIVATE anyxbox_runtime anyxbox_loader)
+add_test(NAME devices COMMAND test_devices)
