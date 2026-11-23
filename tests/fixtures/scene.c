@@ -39,6 +39,10 @@ IMPORT(uint64_t, "kernel32.dll", CreateFileA, (const char*,uint32_t,uint32_t,voi
 IMPORT(uint32_t, "kernel32.dll", ReadFile, (uint64_t,void*,uint32_t,uint32_t*,void*))
 IMPORT(uint32_t, "kernel32.dll", CloseHandle, (uint64_t))
 #endif
+#ifdef KEYBOARD_SCENE_FIXTURE
+IMPORT(uint16_t, "user32.dll", GetAsyncKeyState, (int))
+IMPORT(void, "kernel32.dll", Sleep, (uint32_t))
+#endif
 #define VT(o) (*(void***)(o))
 typedef int32_t (MS *F_Present)(void*, uint32_t, uint32_t);
 typedef int32_t (MS *F_GetBuffer)(void*, uint32_t, const void*, void**);
@@ -188,6 +192,9 @@ MS uint32_t entry(void) {
   const float clear[4] = {0.05f, 0.05f, 0.15f, 1.0f};
   const uint32_t stride = 40, offset = 0;
   int frames = 0, quit = 0;
+#ifdef KEYBOARD_SCENE_FIXTURE
+  float movement=0;
+#endif
   while (!quit && frames < FRAMES) {
     MSGX msg;
     while (PeekMessageA(&msg, 0, 0, 0, 1)) {
@@ -195,6 +202,13 @@ MS uint32_t entry(void) {
       DispatchMessageA(&msg);
     }
     if (quit) break;
+#ifdef KEYBOARD_SCENE_FIXTURE
+    if(GetAsyncKeyState(0x1b)&0x8000) break;
+    if(GetAsyncKeyState(0x27)&0x8000) movement+=0.2f;
+    if(GetAsyncKeyState(0x25)&0x8000) movement-=0.2f;
+    if(movement>0.6f)movement=0.6f;
+    if(movement< -0.2f)movement= -0.2f;
+#endif
     ((F_OMSetRT)VT(ctx)[33])(ctx, 1, &rtv, dsv);
     ((F_RSSetVP)VT(ctx)[44])(ctx, 1, vp);
 #ifdef DRAW_COPY_FIXTURE
@@ -217,7 +231,11 @@ MS uint32_t entry(void) {
     ((F_SetShader)VT(ctx)[9])(ctx, ps_cb, 0, 0);
     ((F_SetSlots)VT(ctx)[7])(ctx, 0, 1, &vcb);
     ((F_SetSlots)VT(ctx)[16])(ctx, 0, 1, &pcb);
+#ifdef KEYBOARD_SCENE_FIXTURE
+    if (!map_write4(ctx, vcb, 1, 1, 1, 1, movement, 0, 0, 0)) return 23;
+#else
     if (!map_write4(ctx, vcb, 1, 1, 1, 1, 0, 0, 0, 0)) return 23;        /* position = v * scale + offset */
+#endif
     if (!map_write4(ctx, pcb, 1, 1, 1, 1, 0, 0, 0, 0)) return 24;        /* colour = v * scale + offset */
     ((F_DrawIndexed)VT(ctx)[12])(ctx, 6, 0, 0);
     /* far quad: shifted right by 0.5, tinted orange (green channel +0.5). It is drawn second, so depth must keep the near quad in front. */
@@ -296,6 +314,9 @@ MS uint32_t entry(void) {
       ((Copy)VT(ctx)[47])(ctx, bb, surface);
 #endif
     }
+#endif
+#ifdef KEYBOARD_SCENE_FIXTURE
+    Sleep(16);
 #endif
     frames++;
   }
