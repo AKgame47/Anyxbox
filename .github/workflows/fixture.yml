@@ -77,6 +77,8 @@ jobs:
       - name: Build the texture-copy fixture
         run: |
           x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o texture_copy.exe tests/fixtures/texture_copy.cpp -ld3d11
+      - name: Build the public-header resource interface probe
+        run: x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o resource_interfaces.exe tests/fixtures/resource_interfaces.cpp -ld3d11
       - name: Build the Anyxbox tools (Linux)
         run: |
           mkdir -p obj
@@ -185,6 +187,13 @@ jobs:
         run: |
           ./import_gap texture_copy.exe
           ./run_exe --i-built-this texture_copy.exe
+      - name: Verify the independently compiled resource interface probe (strict)
+        run: |
+          ./import_gap resource_interfaces.exe
+          ./run_exe --i-built-this resource_interfaces.exe > resource-interfaces.log
+          cat resource-interfaces.log
+          grep -q 'loaded=1 ran=1 exit=0' resource-interfaces.log
+          grep -q 'resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok' resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
@@ -231,6 +240,8 @@ jobs:
             draw_copy.exe
             draw-copy-frame*.ppm
             committed-draw-copy-frame*.ppm
+            resource_interfaces.exe
+            resource-interfaces.log
             texture_copy.exe
             triangle.exe
             hello_crt.exe
