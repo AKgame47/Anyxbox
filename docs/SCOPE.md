@@ -482,3 +482,14 @@ native-host-privilege limits remain. No new graphics or physical-device claim.
 References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11buffer-getdesc
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11texture2d-getdesc
+
+## Batch81: retain verified independent descriptor regression
+
+Replaces the old resource-interface fixture with exact run230 bytes, not an additional
+probe variant. The retained file now establishes its independent public-header GetDesc
+checks alongside its earlier interface operations. Fixture-slot requires both markers,
+zero exit/no graphics/empty error. CI requires the new descriptor marker in both fresh
+and retained paths. All41 local sanitizer programs pass, still sixteen retained guest
+binaries. No production/CMake/target change. Accepted descriptor fields still do not
+implement unsupported features; all earlier lifetime/ownership/thread-safety limits
+remain. No new visual claim.
