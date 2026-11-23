@@ -191,11 +191,11 @@ MSABI int32_t dev_CreateRasterizerState(void* self, const uint32_t* d, void** ou
   D3D11Runtime* rt = G(self);
   if (!d) return E_INVALIDARG_;
   float clamp, slope; std::memcpy(&clamp, &d[4], 4); std::memcpy(&slope, &d[5], 4);
-  if (d[0] != 3 || d[3] != 0 || clamp != 0.f || slope != 0.f || d[7]) {
-    rt->last_error = "rasterizer state: only solid fill, no depth bias and no scissor are supported"; return E_NOTIMPL_;
+  if (d[0] != 3 || d[3] != 0 || clamp != 0.f || slope != 0.f) {
+    rt->last_error = "rasterizer state: only solid fill, no depth bias are supported"; return E_NOTIMPL_;
   }
   if (d[1] < 1 || d[1] > 3) return E_INVALIDARG_;
-  RasterizerDesc r; r.cull = d[1] == 1 ? Cull::None : d[1] == 2 ? Cull::Front : Cull::Back; r.front_ccw = d[2] != 0;
+  RasterizerDesc r; r.cull = d[1] == 1 ? Cull::None : d[1] == 2 ? Cull::Front : Cull::Back; r.front_ccw = d[2] != 0; r.scissor_enable = d[7] != 0;
   Obj* o = make(rt, K_RS, 0); o->rs = r; if (out) *out = o; else delete o;
   return S_OK_;
 }
@@ -253,6 +253,12 @@ MSABI void ctx_IASetPrimitiveTopology(void* self, uint32_t t) {
 }
 MSABI void ctx_RSSetViewports(void* self, uint32_t n, const Viewport6* v) {
   if (n >= 1 && v) G(self)->ctx->RSSetViewport({v->x, v->y, v->w, v->h});
+}
+MSABI void ctx_RSSetScissorRects(void* self, uint32_t n, const ScissorRect* rects) {
+  auto rt = G(self);
+  if (n > 1 || (n && !rects)) { rt->last_error = "scissor: only zero or one rectangle is supported"; return; }
+  if (n && (rects->left > rects->right || rects->top > rects->bottom)) { rt->last_error = "scissor: inverted rectangle"; return; }
+  rt->ctx->RSSetScissorRect(n ? *rects : ScissorRect());
 }
 MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, void* dsv) {
   Obj* r = n >= 1 && rtvs ? (Obj*)rtvs[0] : nullptr;
@@ -395,6 +401,7 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   I.ctx_vt[8] = (void*)&ctx_PSSetShaderResources; I.ctx_vt[10] = (void*)&ctx_PSSetSamplers; I.ctx_vt[12] = (void*)&ctx_DrawIndexed;
   I.ctx_vt[14] = (void*)&ctx_Map; I.ctx_vt[15] = (void*)&ctx_Unmap; I.ctx_vt[19] = (void*)&ctx_IASetIndexBuffer; I.ctx_vt[48] = (void*)&ctx_UpdateSubresource;
   I.ctx_vt[35] = (void*)&ctx_OMSetBlendState; I.ctx_vt[36] = (void*)&ctx_OMSetDepthStencilState; I.ctx_vt[43] = (void*)&ctx_RSSetState;
+  I.ctx_vt[45] = (void*)&ctx_RSSetScissorRects;
   I.ctx_vt[53] = (void*)&ctx_ClearDepthStencilView; I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
   for (auto& p : I.sc_vt) p = (void*)&stub_notimpl;
   I.sc_vt[0] = (void*)&qi; I.sc_vt[1] = (void*)&addref; I.sc_vt[2] = (void*)&release;
