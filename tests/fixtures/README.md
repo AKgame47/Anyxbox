@@ -131,3 +131,8 @@ https://github.com/AKgame47/Anyxbox/actions/runs/45270749667/job/138029577328
 It covers52 imports and includes the GetDesc completion marker. Fixture-slot requires
 both markers/exact output and zero graphics activity; CI requires GetDesc in fresh and
 retained paths. The earlier run212 notes above describe superseded binary provenance.
+
+Batch82 extends fresh resource_interfaces.cpp with concrete/base view identity and
+GetResource checks for RTV/SRV/DSV, including resource use after releasing the original
+caller reference and view. Retained run230 is unchanged; new independent evidence
+awaits CI and must not be attributed to that older binary.
