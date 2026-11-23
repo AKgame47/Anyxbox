@@ -42,6 +42,8 @@ struct Operand {
   bool neg = false, abs = false;
   uint32_t index[3] = {0, 0, 0};
   uint32_t imm[4] = {0, 0, 0, 0};
+  bool has_rel = false;                // last index is relative: index[last] + (temp rel_reg).rel_comp read as an integer
+  uint32_t rel_reg = 0, rel_comp = 0;
 };
 struct Instruction {
   uint32_t opcode = 0;
