@@ -79,8 +79,9 @@ struct D3D11Runtime::Impl {
   Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr; Obj* swapchain = nullptr;
   Obj* srvs[4] = {};Obj* vbs[16] = {};Obj* ib = nullptr;
   Obj* vs_cbs[14] = {};Obj* ps_cbs[14] = {};
+  Obj* samplers[4] = {};
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);for(auto* cb:vs_cbs)if(cb)release(cb);for(auto* cb:ps_cbs)if(cb)release(cb);}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);for(auto* srv:srvs)if(srv)release(srv);for(auto* vb:vbs)if(vb)release(vb);if(ib)release(ib);for(auto* cb:vs_cbs)if(cb)release(cb);for(auto* cb:ps_cbs)if(cb)release(cb);for(auto* sampler:samplers)if(sampler)release(sampler);}
 };
 
 namespace {
@@ -371,10 +372,14 @@ MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void
   }
 }
 MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const* smps) {
-  for (uint32_t i = 0; i < n; i++) {
-    Obj* o = smps ? (Obj*)smps[i] : nullptr;
-    if (start + i >= 4) { if (o) G(self)->last_error = "only sampler slots s0..s3 are supported"; continue; }
-    G(self)->ctx->PSSetSampler(start + i, o ? o->smp : SamplerDesc());
+  auto* rt=G(self);
+  if(start>4 || n>4-start){rt->last_error="PSSetSamplers: slots must lie within s0..s3";return;}
+  Obj* next[4]={};
+  for(uint32_t i=0;i<n;++i){next[i]=smps?(Obj*)smps[i]:nullptr;if(next[i])addref(next[i]);}
+  for(uint32_t i=0;i<n;++i){
+    auto* old=rt->impl->samplers[start+i];rt->impl->samplers[start+i]=next[i];
+    rt->ctx->PSSetSampler(start+i,next[i]?next[i]->smp:SamplerDesc());
+    if(old)release(old);
   }
 }
 MSABI void ctx_IASetIndexBuffer(void* self, void* buf, uint32_t fmt, uint32_t offset) {
