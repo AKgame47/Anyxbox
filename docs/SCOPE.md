@@ -272,3 +272,37 @@ Input references: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf
 - Added a test wrapper around the existing scene/verifier, not another guest scene. A real SDL window opens/presents all four frames. SDL_PushEvent sends synthetic right-down/up/focus-loss through production SDL_PollEvent translation and user32 polling, then the existing movement/stopped-frame pixel assertions run.
 - Runs source calls and retained independent PE; strict CI additionally runs freshly compiled and retained executables with Xvfb and required Vulkan/SDL. Test clears unrelated Xvfb events between presents before injecting its sequence.
 - No production changes. This is synthetic SDL event-route coverage with software Vulkan, not physical keyboard or uncontrolled desktop-focus behavior. Frame capture verifies rendered pixels, not screenshot parity of the SDL window.
+
+## Batch 72: resource interface discovery, not another scene
+
+The existing D3D11 device/context, buffer, color texture and depth texture now answer
+QueryInterface for their concrete interface, IUnknown and the applicable supported
+ID3D11DeviceChild/ID3D11Resource base interfaces. Successful queries preserve object
+identity and add one reference. Unsupported queries clear the output and return
+E_NOINTERFACE. Device children and the immediate context expose GetDevice with an
+added reference. Buffer/texture GetType reports BUFFER/TEXTURE2D. Separate resource
+and generic-child vtables keep resource slot 7 from colliding with other child methods.
+Swapchain GetBuffer now respects the requested interface instead of returning a texture
+for arbitrary IDs. The old hand-built state test now supplies a real texture IID.
+
+Local ASan/UBSan regression: all 41 test programs pass, including a source-call
+interface matrix, failed/null query paths, balanced query/GetDevice reference deltas,
+color/depth/buffer type checks and GetBuffer interface acceptance/refusal. Leak checks
+remain disabled, as in prior batches. This does not establish complete COM object
+lifetime correctness. Child objects still do not keep their creating device alive;
+state-binding and resource destruction ownership remain incomplete. Runtime ownership
+keeps device/context storage alive during the guest run. No thread-safety claim.
+
+The public-header resource_interfaces.cpp probe is a new independently compiled PE
+CI requirement, not a new visual scene. It requests the same supported identities and
+checks type/GetDevice/unsupported-interface behavior. Local Windows cross-compilation
+is unavailable, so independent compiler/binary execution remains pending CI. Other
+concrete child interface IDs, DXGI IDs, descriptor/private-data/eviction-priority
+methods and versioned interfaces remain outside this slice. GetDevice/GetType are
+implemented, not a claim that every method in the advertised base interface works.
+
+Interface IDs were checked against public mingw-w64 d3d11.h:
+https://github.com/mingw-w64/mingw-w64/blob/master/mingw-w64-headers/include/d3d11.h
+API behavior references:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicechild-getdevice
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11resource-gettype
