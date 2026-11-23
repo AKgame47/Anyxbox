@@ -71,16 +71,24 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   if (!img.ok) { res.error = img.error; munmap(mem, len); return res; }
   // This launcher accepts executable entry points only. Check the declared section
   // extent, not rounded mprotect pages: padding and headers are not entry code.
-  bool executable_entry=false;
-  if(img.entry_rva!=0 && img.entry_rva<img.image_size) {
+  auto executable_rva=[&](uint64_t rva) {
+    if(rva==0 || rva>=img.image_size)return false;
     for(const auto& sc:img.sections) {
-      if((sc.flags & 0x20000000u) && img.entry_rva>=sc.rva &&
-         (uint64_t)img.entry_rva-sc.rva<sc.size) {executable_entry=true;break;}
+      if((sc.flags & 0x20000000u) && rva>=sc.rva && rva-sc.rva<sc.size)return true;
     }
-  }
-  if(!executable_entry) {
+    return false;
+  };
+  if(!executable_rva(img.entry_rva)) {
     res.error="entry point is not within an executable section";
     munmap(mem,len);return res;
+  }
+  // Validate the entire list first. No valid earlier callback may execute before a
+  // later invalid address is discovered. These addresses are also reused on threads.
+  for(uint64_t callback:img.tls.callbacks) {
+    if(callback<img.actual_base || !executable_rva(callback-img.actual_base)) {
+      res.error="TLS callback is not within an executable section";
+      munmap(mem,len);return res;
+    }
   }
   res.loaded = true;
   // Protections: headers read-only, each section by its own flags. Data sections stay non-executable
