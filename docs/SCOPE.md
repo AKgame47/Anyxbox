@@ -93,3 +93,6 @@ import_gap and test_fixture_slot now register the same function sets as run_pe (
 - Handlers and the filter are cleared when a program ends.
 - Not done: a context edit by a handler during a software RaiseException is ignored (execution resumes after the call); the filter's second-chance semantics for a debugger are not modeled.
 - New fixture source tests/fixtures/veh.cpp (built by CI only until its exe is committed).
+
+## Batch 43: CI runs the unit tests
+- fixture.yml now compiles and runs every tests/test_*.cpp against the CI object list (strict, no `|| true`), so the committed fixture assertions (test_fixture_slot) are checked by CI. veh.run.exe is committed.
