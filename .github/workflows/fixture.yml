@@ -150,6 +150,7 @@ jobs:
         run: |
           ./import_gap keyboard_scene.exe
           ./tbin/test_fixture_keyboard_scene keyboard_scene.exe --require-vulkan keyboard-scene-frame
+          ./tbin/test_fixture_keyboard_scene tests/fixtures/keyboard_scene.run.exe --require-vulkan committed-keyboard-scene-frame
       - name: Verify independent file-backed 512 texture scene (strict Vulkan required)
         run: |
           ./import_gap asset_scene.exe
@@ -205,6 +206,7 @@ jobs:
           path: |
             keyboard_scene.exe
             keyboard-scene-frame*.ppm
+            committed-keyboard-scene-frame*.ppm
             asset_scene.exe
             asset-scene-frame*.ppm
             committed-asset-scene-frame*.ppm
