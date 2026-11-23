@@ -132,7 +132,13 @@ bool DeviceContext::PSSetSampler(uint32_t slot, const SamplerDesc& s) {
   ps_smp_ = s; return true;
 }
 
-bool DeviceContext::Draw(uint32_t count, uint32_t start) {
+bool DeviceContext::Draw(uint32_t count, uint32_t start) { return draw_impl(count, start, false, 0); }
+bool DeviceContext::DrawIndexed(uint32_t count, uint32_t start, int32_t base) { return draw_impl(count, start, true, base); }
+bool DeviceContext::IASetIndexBuffer(ResourceId buffer, bool index32, uint32_t offset) {
+  if (buffer != 0 && !dev_.buffer(buffer)) return fail("IASetIndexBuffer: invalid buffer");
+  ib_ = buffer; ib32_ = index32; ib_offset_ = offset; return true;
+}
+bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int32_t base_vertex) {
   err_.clear();
   if (topo_ != Topology::TriangleList) return fail("draw: only TriangleList is supported");
   auto* rt = dev_.texture(dev_.rtv_texture(rtv_));
@@ -148,8 +154,28 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
   auto* vb = dev_.buffer(vb_);
   if (!vb) return fail("draw: no valid vertex buffer bound");
   if (stride_ == 0 || count % 3 != 0) return fail("draw: stride is 0 or vertex count is not a multiple of 3");
-  uint64_t need = (uint64_t)vb_offset_ + (uint64_t)stride_ * ((uint64_t)start + count);
-  if (need > vb->data.size()) return fail("draw: vertex fetch runs past the end of the buffer");
+  const Device::Buffer* ib = nullptr;
+  if (indexed) {
+    ib = dev_.buffer(ib_);
+    if (!ib) return fail("draw: no valid index buffer bound");
+    uint64_t isz = ib32_ ? 4 : 2;
+    if ((uint64_t)ib_offset_ + isz * ((uint64_t)start + count) > ib->data.size()) return fail("draw: index fetch runs past the end of the index buffer");
+  } else {
+    uint64_t need = (uint64_t)vb_offset_ + (uint64_t)stride_ * ((uint64_t)start + count);
+    if (need > vb->data.size()) return fail("draw: vertex fetch runs past the end of the buffer");
+  }
+  // vertex index for each of the `count` fetches, validated against the vertex buffer
+  std::vector<uint32_t> vidx(count);
+  for (uint32_t i = 0; i < count; i++) {
+    int64_t v;
+    if (indexed) {
+      const uint8_t* q = ib->data.data() + ib_offset_ + (size_t)(ib32_ ? 4 : 2) * (start + i);
+      uint32_t raw = 0; std::memcpy(&raw, q, ib32_ ? 4 : 2);
+      v = (int64_t)raw + base_vertex;
+    } else v = (int64_t)start + i;
+    if (v < 0 || (uint64_t)vb_offset_ + (uint64_t)stride_ * ((uint64_t)v + 1) > vb->data.size()) return fail("draw: vertex fetch runs past the end of the buffer");
+    vidx[i] = (uint32_t)v;
+  }
   const InputElement* pos = nullptr; const InputElement* col = nullptr; const InputElement* tc = nullptr;
   for (auto& e : layout_) {
     uint32_t n = fmt_floats(e.format);
@@ -162,7 +188,7 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
   if (!pos) return fail("draw: input layout has no POSITION element");
 
   auto fetch = [&](uint32_t i, V& v) {
-    const uint8_t* base = vb->data.data() + vb_offset_ + (size_t)stride_ * (start + i);
+    const uint8_t* base = vb->data.data() + vb_offset_ + (size_t)stride_ * vidx[i];
     float p[4] = {0, 0, 0, 1};
     std::memcpy(p, base + pos->offset, fmt_floats(pos->format) * 4);
     v.x = p[0]; v.y = p[1]; v.z = p[2]; v.w = p[3];
