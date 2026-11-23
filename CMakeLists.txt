@@ -102,3 +102,13 @@ add_executable(test_d3d11_guest tests/test_d3d11_guest.cpp)
 target_include_directories(test_d3d11_guest PRIVATE tests)
 target_link_libraries(test_d3d11_guest anyxbox_d3d11_rt anyxbox_gfx)
 add_test(NAME d3d11_guest COMMAND test_d3d11_guest)
+
+# Batch 17: depth/blend/cull state tests and the swap chain guest test. anyxbox_d3d11_rt already exists (batch 16).
+add_executable(test_d3d11_state tests/test_d3d11_state.cpp)
+target_include_directories(test_d3d11_state PRIVATE tests)
+target_link_libraries(test_d3d11_state anyxbox_shader anyxbox_gfx)
+add_test(NAME d3d11_state COMMAND test_d3d11_state)
+add_executable(test_d3d11_guest_state tests/test_d3d11_guest_state.cpp)
+target_include_directories(test_d3d11_guest_state PRIVATE tests)
+target_link_libraries(test_d3d11_guest_state anyxbox_d3d11_rt anyxbox_gfx)
+add_test(NAME d3d11_guest_state COMMAND test_d3d11_guest_state)
