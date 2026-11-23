@@ -685,3 +685,19 @@ allocation reclamation, thread safety and native host isolation remain incomplet
 Runtime lifetime is still required. References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetvertexbuffers
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetindexbuffer
+
+## Batch91: retain verified independent input-buffer regression
+
+Replaces the same resource probe with exact run275 bytes from source 9bdbde5.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports and
+direct execution passes all seven markers, zero exit, two translated shaders,
+zero presents and empty error. Fixture-slot requires exact combined output and
+retained CI requires the input-buffer marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Retained independent input-buffer checks cover vertex caller release/cross-slot
+swap/rebind and index retain/unbind. Partial/index replacement, refusal and
+teardown remain unit evidence. Sixteen vertex slots and one index binding only;
+optional-array/full-slot/hazard semantics remain limited. Other binding ownership,
+child/device lifetime, reclamation, thread safety and host isolation remain
+incomplete. Runtime lifetime required. No physical-device/input/game evidence added.
