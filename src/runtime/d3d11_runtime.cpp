@@ -21,6 +21,7 @@ struct Obj {
   Kind kind;
   D3D11Runtime* rt;
   uint32_t usage = 0, bind_flags = 0;
+  uint32_t descriptor[11] = {}; // public buffer(6) or texture2D(11) UINT fields
   uint32_t first_mip = 0, mip_count = ~0u; // SRV range
   ResourceId id = 0;      // buffer / texture / rtv id
   std::vector<uint32_t> spirv;
@@ -80,6 +81,9 @@ MSABI void child_GetDevice(void* self,void** out){
   if(out){auto* d=&G(self)->impl->device;d->refs++;*out=d;}
 }
 MSABI void resource_GetType(void* self,uint32_t* out){if(out)*out=((Obj*)self)->kind==K_BUFFER?1:3;}
+MSABI void resource_GetDesc(void* self,void* out){
+  if(out)std::memcpy(out,((Obj*)self)->descriptor,((Obj*)self)->kind==K_BUFFER?24:44);
+}
 // ---- ID3D11Device ----
 struct BufDesc { uint32_t ByteWidth, Usage, BindFlags, CPUAccessFlags, MiscFlags, StructureByteStride; };
 struct SubData { const void* pSysMem; uint32_t pitch, slice; };
@@ -92,7 +96,7 @@ MSABI int32_t dev_CreateBuffer(void* self, const BufDesc* d, const SubData* init
   const void* src = init && init->pSysMem ? init->pSysMem : (z.assign(d->ByteWidth, 0), z.data());
   ResourceId id = rt->dev.CreateBuffer(src, d->ByteWidth);
   if (!id) return E_FAIL_;
-  if (out) { auto* o=make(rt,K_BUFFER,id); o->usage=d->Usage; o->bind_flags=d->BindFlags; *out=o; }
+  if (out) { auto* o=make(rt,K_BUFFER,id); o->usage=d->Usage; o->bind_flags=d->BindFlags; std::memcpy(o->descriptor,d,sizeof(*d)); *out=o; }
   return S_OK_;
 }
 Format fmt_from_dxgi(uint32_t f) {
@@ -108,7 +112,10 @@ MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* i
     if (init && init->pSysMem) return E_INVALIDARG_;
     ResourceId did = rt->dev.CreateDepthBuffer(d->Width, d->Height);
     if (!did) return E_INVALIDARG_;
-    if (out) *out = make(rt, K_DEPTH, did);
+    if (out) {
+      auto* o=make(rt,K_DEPTH,did);o->usage=d->Usage;o->bind_flags=d->BindFlags;
+      std::memcpy(o->descriptor,d,sizeof(*d));o->descriptor[2]=1;o->descriptor[3]=1;o->descriptor[5]=1;*out=o;
+    }
     return S_OK_;
   }
   Format f = fmt_from_dxgi(d->Format);
@@ -129,7 +136,7 @@ MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* i
       rt->dev.UpdateTextureMip(id,l,px.data(),px.size());
     }
   }
-  if (out) { auto* o=make(rt,K_TEXTURE,id); o->usage=d->Usage; o->bind_flags=d->BindFlags; *out=o; }
+  if (out) { auto* o=make(rt,K_TEXTURE,id); o->usage=d->Usage; o->bind_flags=d->BindFlags; std::memcpy(o->descriptor,d,sizeof(*d)); o->descriptor[2]=(uint32_t)rt->dev.texture(id)->mips.size()+1; o->descriptor[3]=1; o->descriptor[5]=1; *out=o; }
   return S_OK_;
 }
 MSABI int32_t dev_CreateRTV(void* self, void* res, const uint32_t* desc, void** out) {
@@ -481,6 +488,7 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   // against two public vtable listings; see docs/D3D11_VTABLES.md)
   I.child_vt[3]=I.resource_vt[3]=I.ctx_vt[3]=(void*)&child_GetDevice;
   I.resource_vt[7]=(void*)&resource_GetType;
+  I.resource_vt[10]=(void*)&resource_GetDesc;
   I.dev_vt[3] = (void*)&dev_CreateBuffer; I.dev_vt[5] = (void*)&dev_CreateTexture2D; I.dev_vt[9] = (void*)&dev_CreateRTV;
   I.dev_vt[7] = (void*)&dev_CreateSRV; I.dev_vt[23] = (void*)&dev_CreateSampler; I.dev_vt[10] = (void*)&dev_CreateDSV; I.dev_vt[20] = (void*)&dev_CreateBlendState; I.dev_vt[21] = (void*)&dev_CreateDepthStencilState;
   I.dev_vt[22] = (void*)&dev_CreateRasterizerState; I.dev_vt[11] = (void*)&dev_CreateInputLayout; I.dev_vt[12] = (void*)&dev_CreateVS; I.dev_vt[15] = (void*)&dev_CreatePS;
@@ -538,6 +546,10 @@ int32_t create_swapchain(const uint8_t* desc, void** swap) {
   if (!tid) return E_INVALIDARG_;
   Obj* sc = make(g_rt, K_SWAPCHAIN, 0); sc->vtbl = (void**)g_rt->impl->sc_vt;
   sc->backbuffer = make(g_rt, K_TEXTURE, tid);
+  uint32_t usage;std::memcpy(&usage,desc+36,4);
+  auto* back=sc->backbuffer;back->bind_flags=((usage&0x20)?0x20u:0u)|((usage&0x10)?8u:0u);
+  const uint32_t realized[]={w,h,1,1,fmt?fmt:28u,1,0,0,back->bind_flags,0,0};
+  std::memcpy(back->descriptor,realized,sizeof(realized));
   g_rt->impl->swapchain = sc;
   *swap = sc;
   return S_OK_;
