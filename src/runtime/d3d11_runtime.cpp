@@ -13,7 +13,7 @@ namespace {
 const int32_t S_OK_ = 0;
 const int32_t E_NOTIMPL_ = (int32_t)0x80004001, E_NOINTERFACE_ = (int32_t)0x80004002, E_FAIL_ = (int32_t)0x80004005,
               E_INVALIDARG_ = (int32_t)0x80070057;
-enum Kind : uint32_t { K_DEVICE, K_CONTEXT, K_BUFFER, K_TEXTURE, K_RTV, K_VS, K_PS, K_LAYOUT, K_DEPTH, K_DSV, K_RS, K_DSS, K_BLEND, K_SWAPCHAIN };
+enum Kind : uint32_t { K_DEVICE, K_CONTEXT, K_BUFFER, K_TEXTURE, K_RTV, K_VS, K_PS, K_LAYOUT, K_DEPTH, K_DSV, K_RS, K_DSS, K_BLEND, K_SWAPCHAIN, K_SRV, K_SAMPLER };
 struct Obj {
   void** vtbl;            // must be first: guest code reads it
   uint32_t refs = 1;
@@ -24,6 +24,8 @@ struct Obj {
   std::vector<InputElement> layout;
   RasterizerDesc rs; DepthStencilDesc ds; BlendDesc bl;
   Obj* backbuffer = nullptr;   // swap chain only
+  SamplerDesc smp;
+  std::vector<uint8_t> shadow; bool mapped = false;   // Map/Unmap staging for buffers and textures
 };
 D3D11Runtime* G(void* self) { return ((Obj*)self)->rt; }
 MSABI int32_t stub_notimpl() { return E_NOTIMPL_; }
@@ -89,7 +91,7 @@ MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* i
   }
   Format f = fmt_from_dxgi(d->Format);
   if (f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) return E_INVALIDARG_;
-  if (d->MipLevels > 1 || d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;
+  if (d->MipLevels > 1 || d->ArraySize > 1 || d->SCount > 1) return E_NOTIMPL_;   // MipLevels 0 (full chain) creates the single base level only
   ResourceId id = rt->dev.CreateTexture2D(d->Width, d->Height, f);
   if (!id) return E_INVALIDARG_;
   if (init && init->pSysMem) {
@@ -111,6 +113,24 @@ MSABI int32_t dev_CreateRTV(void* self, void* res, const void* /*desc*/, void** 
   ResourceId id = rt->dev.CreateRenderTargetView(r->id);
   if (!id) return E_FAIL_;
   if (out) *out = make(rt, K_RTV, id);
+  return S_OK_;
+}
+MSABI int32_t dev_CreateSRV(void* self, void* res, const void* /*desc*/, void** out) {
+  Obj* r = (Obj*)res;
+  if (!r || r->kind != K_TEXTURE) { G(self)->last_error = "shader resource view: only 2D textures are supported"; return E_NOTIMPL_; }
+  Obj* o = make(G(self), K_SRV, r->id); if (out) *out = o; else delete o;
+  return S_OK_;
+}
+// D3D11_SAMPLER_DESC: Filter@0 AddressU@4 AddressV@8 AddressW@12
+MSABI int32_t dev_CreateSampler(void* self, const uint32_t* d, void** out) {
+  D3D11Runtime* rt = G(self);
+  if (!d) return E_INVALIDARG_;
+  uint32_t f = d[0];
+  bool bad = f >= 0x80 || ((f & 0x14) != 0 && (f & 0x14) != 0x14);   // comparison / anisotropic / mixed min-mag filters
+  bool u_ok = d[1] == 1 || d[1] == 3, v_ok = d[2] == 1 || d[2] == 3;   // WRAP or CLAMP; both axes must agree
+  if (bad || !u_ok || !v_ok || d[1] != d[2]) { rt->last_error = "sampler state: only point or linear filters with WRAP or CLAMP (same on U and V) are supported"; return E_NOTIMPL_; }
+  Obj* o = make(rt, K_SAMPLER, 0); o->smp.linear = (f & 0x14) == 0x14; o->smp.wrap = d[1] == 1;
+  if (out) *out = o; else delete o;
   return S_OK_;
 }
 MSABI int32_t dev_CreateDSV(void* self, void* res, const void* /*desc*/, void** out) {
@@ -248,6 +268,74 @@ MSABI void ctx_OMSetDepthStencilState(void* self, void* st, uint32_t /*stencil_r
 MSABI void ctx_RSSetState(void* self, void* st) {
   Obj* o = (Obj*)st; G(self)->ctx->RSSetState(o ? o->rs : RasterizerDesc());
 }
+MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void* const* srvs) {
+  for (uint32_t i = 0; i < n; i++) {
+    Obj* o = srvs ? (Obj*)srvs[i] : nullptr;
+    if (start + i != 0) { if (o) G(self)->last_error = "only shader resource slot t0 is supported"; continue; }
+    G(self)->ctx->PSSetShaderResource(0, o ? o->id : 0);
+  }
+}
+MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const* smps) {
+  for (uint32_t i = 0; i < n; i++) {
+    Obj* o = smps ? (Obj*)smps[i] : nullptr;
+    if (start + i != 0) { if (o) G(self)->last_error = "only sampler slot s0 is supported"; continue; }
+    G(self)->ctx->PSSetSampler(0, o ? o->smp : SamplerDesc());
+  }
+}
+MSABI void ctx_IASetIndexBuffer(void* self, void* buf, uint32_t fmt, uint32_t offset) {
+  Obj* b = (Obj*)buf;
+  if (b && fmt != 57 && fmt != 42) { G(self)->last_error = "index buffer format must be R16_UINT or R32_UINT"; return; }
+  G(self)->ctx->IASetIndexBuffer(b ? b->id : 0, fmt == 42, offset);
+}
+MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t base) {
+  D3D11Runtime* rt = G(self);
+  Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
+  if (vs && ps && rt->on_shaders) rt->on_shaders(vs->spirv, ps->spirv);
+  if (!rt->ctx->DrawIndexed(count, start, base)) rt->last_error = rt->ctx->last_error();
+}
+// Raw bytes of a buffer or texture resource, for Map / UpdateSubresource.
+std::vector<uint8_t>* res_bytes(D3D11Runtime* rt, Obj* o, uint32_t* row_pitch, uint32_t* height) {
+  if (!o) return nullptr;
+  if (o->kind == K_BUFFER) { auto* b = rt->dev.buffer(o->id); if (row_pitch) *row_pitch = 0; if (height) *height = 0; return b ? const_cast<std::vector<uint8_t>*>(&b->data) : nullptr; }
+  if (o->kind == K_TEXTURE) { auto* t = rt->dev.texture(o->id); if (row_pitch) *row_pitch = t ? t->w * 4 : 0; if (height) *height = t ? t->h : 0; return t ? &t->px : nullptr; }
+  return nullptr;
+}
+// UpdateSubresource(res, sub, box, data, rowPitch, depthPitch). Buffers: box is a byte range in left/right. Textures: a rect.
+MSABI void ctx_UpdateSubresource(void* self, void* res, uint32_t sub, const uint32_t* box, const void* data, uint32_t rowpitch, uint32_t /*depthpitch*/) {
+  D3D11Runtime* rt = G(self); Obj* o = (Obj*)res; uint32_t pitch = 0, h = 0;
+  std::vector<uint8_t>* dst = res_bytes(rt, o, &pitch, &h);
+  if (!dst || !data || sub != 0) { rt->last_error = "UpdateSubresource: unsupported resource or subresource"; return; }
+  if (o->kind == K_BUFFER) {
+    uint32_t l = box ? box[0] : 0, r = box ? box[3] : (uint32_t)dst->size();
+    if (l > r || r > dst->size()) { rt->last_error = "UpdateSubresource: box outside the buffer"; return; }
+    std::memcpy(dst->data() + l, data, r - l);
+  } else {
+    uint32_t l = box ? box[0] : 0, t = box ? box[1] : 0, r = box ? box[3] : pitch / 4, b = box ? box[4] : h;
+    if (l > r || t > b || r > pitch / 4 || b > h) { rt->last_error = "UpdateSubresource: box outside the texture"; return; }
+    uint32_t sp = rowpitch ? rowpitch : (r - l) * 4;
+    if (sp < (r - l) * 4) { rt->last_error = "UpdateSubresource: row pitch too small"; return; }
+    for (uint32_t y = t; y < b; y++) std::memcpy(dst->data() + (size_t)y * pitch + (size_t)l * 4, (const uint8_t*)data + (size_t)(y - t) * sp, (size_t)(r - l) * 4);
+  }
+}
+// Map(res, sub, mapType, flags, D3D11_MAPPED_SUBRESOURCE{pData, RowPitch, DepthPitch}). Staging copy, written back by Unmap.
+MSABI int32_t ctx_Map(void* self, void* res, uint32_t sub, uint32_t type, uint32_t /*flags*/, void** mapped) {
+  D3D11Runtime* rt = G(self); Obj* o = (Obj*)res; uint32_t pitch = 0, h = 0;
+  std::vector<uint8_t>* src = res_bytes(rt, o, &pitch, &h);
+  if (!src || !mapped || sub != 0 || type < 1 || type > 5) return E_INVALIDARG_;
+  if (o->mapped) return E_FAIL_;
+  o->shadow = *src;                                   // READ and READ_WRITE see the contents; DISCARD may too (contents are undefined)
+  o->mapped = true;
+  mapped[0] = o->shadow.data();
+  uint32_t pitches[2] = {pitch, 0}; std::memcpy((uint8_t*)mapped + 8, pitches, 8);
+  return S_OK_;
+}
+MSABI void ctx_Unmap(void* self, void* res, uint32_t /*sub*/) {
+  D3D11Runtime* rt = G(self); Obj* o = (Obj*)res;
+  std::vector<uint8_t>* dst = res_bytes(rt, o, nullptr, nullptr);
+  if (!dst || !o->mapped) return;
+  if (o->shadow.size() == dst->size()) *dst = o->shadow;
+  o->mapped = false; o->shadow.clear();
+}
 MSABI void ctx_ClearDepthStencilView(void* self, void* dsv, uint32_t flags, float depth, uint8_t /*stencil*/) {
   Obj* d = (Obj*)dsv;
   if (d && (flags & 1)) { if (!G(self)->ctx->ClearDepthStencilView(d->id, depth)) G(self)->last_error = G(self)->ctx->last_error(); }
@@ -284,12 +372,14 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   // slot numbers: ID3D11DeviceVtbl and ID3D11DeviceContextVtbl member order (mingw-w64 d3d11.h, cross-checked
   // against two public vtable listings; see docs/D3D11_VTABLES.md)
   I.dev_vt[3] = (void*)&dev_CreateBuffer; I.dev_vt[5] = (void*)&dev_CreateTexture2D; I.dev_vt[9] = (void*)&dev_CreateRTV;
-  I.dev_vt[10] = (void*)&dev_CreateDSV; I.dev_vt[20] = (void*)&dev_CreateBlendState; I.dev_vt[21] = (void*)&dev_CreateDepthStencilState;
+  I.dev_vt[7] = (void*)&dev_CreateSRV; I.dev_vt[23] = (void*)&dev_CreateSampler; I.dev_vt[10] = (void*)&dev_CreateDSV; I.dev_vt[20] = (void*)&dev_CreateBlendState; I.dev_vt[21] = (void*)&dev_CreateDepthStencilState;
   I.dev_vt[22] = (void*)&dev_CreateRasterizerState; I.dev_vt[11] = (void*)&dev_CreateInputLayout; I.dev_vt[12] = (void*)&dev_CreateVS; I.dev_vt[15] = (void*)&dev_CreatePS;
   I.dev_vt[37] = (void*)&dev_GetFeatureLevel; I.dev_vt[40] = (void*)&dev_GetImmediateContext;
   I.ctx_vt[7] = (void*)&ctx_VSSetConstantBuffers; I.ctx_vt[9] = (void*)&ctx_PSSetShader; I.ctx_vt[11] = (void*)&ctx_VSSetShader;
   I.ctx_vt[13] = (void*)&ctx_Draw; I.ctx_vt[16] = (void*)&ctx_PSSetConstantBuffers; I.ctx_vt[17] = (void*)&ctx_IASetInputLayout;
   I.ctx_vt[18] = (void*)&ctx_IASetVertexBuffers; I.ctx_vt[24] = (void*)&ctx_IASetPrimitiveTopology;
+  I.ctx_vt[8] = (void*)&ctx_PSSetShaderResources; I.ctx_vt[10] = (void*)&ctx_PSSetSamplers; I.ctx_vt[12] = (void*)&ctx_DrawIndexed;
+  I.ctx_vt[14] = (void*)&ctx_Map; I.ctx_vt[15] = (void*)&ctx_Unmap; I.ctx_vt[19] = (void*)&ctx_IASetIndexBuffer; I.ctx_vt[48] = (void*)&ctx_UpdateSubresource;
   I.ctx_vt[35] = (void*)&ctx_OMSetBlendState; I.ctx_vt[36] = (void*)&ctx_OMSetDepthStencilState; I.ctx_vt[43] = (void*)&ctx_RSSetState;
   I.ctx_vt[53] = (void*)&ctx_ClearDepthStencilView; I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
   for (auto& p : I.sc_vt) p = (void*)&stub_notimpl;
