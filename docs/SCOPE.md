@@ -222,3 +222,10 @@ API references for this backend:
 - Directory-mode variant tests now run both host calls and the corresponding retained PE. Strict CI separately requires Vulkan for fresh and retained variants, and retains all frame images.
 - Fixture-slot test covers twelve committed executables and checks expected two-present/four-shader/empty-output/error behavior for all draw variants.
 - All six local independent-binary frames matched decoded CI RGB bytes exactly; inspected the six CI frames. Validation remains this self-written fixture on software Vulkan, not physical hardware or games.
+
+## Batch 64: explicit read-only launcher asset root
+- run_pe accepts RunOptions::asset_root; run_exe exposes --asset-root DIR. Default remains no file access. Invalid roots fail before execution; valid roots opt into read-only regular-file access.
+- MappedFolder opens guest components descriptor-relative with no symlink following; final objects must be regular files. Read-only mode blocks create/write opens. Existing host-configured writable modes remain for prior tests, with existing OPEN_ALWAYS/append limitations unchanged.
+- Synthetic tests cover component/final symlink refusal, no external truncation, FIFO rejection, read-only opens and actual launch-route default denial/opt-in reading/truncating-write denial. All 36 local sanitizer programs pass after rebuilding all tests for the changed run_pe signature.
+- Added an independent file-backed MinGW fixture and strict CLI tests, not yet compiled/executed outside CI. No external guest binary or private host file used.
+- This routing does not isolate native guest code. Host-selected root topology/contents remain trusted; no OS sandbox claim. See ASSET_IO.md for scope and limits.
