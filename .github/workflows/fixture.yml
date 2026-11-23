@@ -204,6 +204,7 @@ jobs:
           grep -q 'view GetResource: RTV/SRV/DSV identity and retained resource lifetime ok' resource-interfaces.log
           grep -q 'shader bindings: caller release, same-object rebind and unbind references ok' resource-interfaces.log
           grep -q 'output merger: RTV/DSV caller release, same-object rebind and unbind references ok' resource-interfaces.log
+          grep -q 'pixel SRV bindings: caller release, cross-slot swap, rebind and unbind references ok' resource-interfaces.log
       - name: Verify retained resource interface probe (strict)
         run: |
           ./import_gap tests/fixtures/resource_interfaces.run.exe
