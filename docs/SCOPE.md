@@ -826,3 +826,29 @@ unbind. Replacement/teardown remain unit evidence. Reference ownership only,
 not ignored blend-factor/sample-mask/stencil-reference parameters, full COM/device
 lifetime, reclamation, thread safety or native host isolation. Runtime lifetime
 required. No physical-device/input or Xbox-game compatibility evidence is added.
+
+## Batch98: ClearState for the supported pipeline subset
+
+Context slot110 now implements ClearState. It drops all tracked shader/view/
+input-buffer/constant-buffer/sampler/copied-state binding references, nulling each
+tracked pointer before Release. Teardown uses the same release helper. The model
+resets supported layouts/buffers/views/constants/samplers, shader layouts/texture
+pairing, topology, viewport/scissor and fixed state. Backend and accumulated draw
+stats are preserved. ClearState sampler reset uses linear mip filtering/clamp and
+unbounded finite LOD; this does not fix the separate null-sampler setter defaults.
+Unsupported stages/predication/command lists remain unsupported.
+
+Existing interface unit binds all supported reference categories, including shared
+buffer slots and both depth/color views, then clears twice and verifies only caller
+references remain. Existing model slot test verifies repeat safety, preserved draw
+stats, undefined topology, no render target and missing viewport after reset. All
+41 sanitizer programs pass after full relink. These tests do not independently
+prove every default's rendered effect or backend reuse after reset.
+
+The existing public-header probe adds shared VS/PS constant-buffer release plus
+repeated-clear checks; fresh CI requires its marker. Independent MinGW compilation
+and execution await CI. Retained run301 remains earlier regression only. No new
+fixture/scene/CMake target/release. This is a supported-subset reset, not full
+D3D11 state/lifetime/validation, model reclamation, thread safety or host isolation.
+Runtime lifetime still required. No physical-device/input/game claim. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-clearstate
