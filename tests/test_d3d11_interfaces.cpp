@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include "runtime/d3d11_runtime.h"
+#include "fixtures/triangle_shaders.h"
 #define MS __attribute__((ms_abi))
 #define CHECK(c) do{if(!(c)){printf("FAIL %d: %s\n",__LINE__,#c);return 1;}}while(0)
 using Q=int32_t(MS*)(void*,const uint8_t*,void**);
@@ -87,6 +88,31 @@ int main(){
     CHECK(((R)vt(returned)[2])(returned)==0);
   }
   puts("view GetResource: RTV/SRV/DSV retain original resource and returned reference outlives view");
+  using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
+  using BindShader=void(MS*)(void*,void*,void*,uint32_t);
+  for(unsigned stage:{11u,9u}){
+    void* first=nullptr;void* second=nullptr;unsigned createSlot=stage==11?12:15;
+    const void* code=stage==11?(const void*)triangle_vs:triangle_ps;size_t bytes=stage==11?sizeof(triangle_vs):sizeof(triangle_ps);
+    CHECK(((Shader)vt(dev)[createSlot])(dev,code,bytes,nullptr,&first)==0);
+    CHECK(((Shader)vt(dev)[createSlot])(dev,code,bytes,nullptr,&second)==0);
+    auto bind=(BindShader)vt(ctx)[stage];bind(ctx,first,nullptr,0);
+    CHECK(((R)vt(first)[1])(first)==3);CHECK(((R)vt(first)[2])(first)==2);
+    bind(ctx,first,nullptr,0);CHECK(((R)vt(first)[1])(first)==3);((R)vt(first)[2])(first);
+    bind(ctx,second,nullptr,0);CHECK(((R)vt(first)[2])(first)==0);
+    bind(ctx,nullptr,nullptr,0);CHECK(((R)vt(second)[2])(second)==0);
+  }
+  // Runtime teardown must drop bound shader references even without explicit unbind.
+  void* surviving[2]={};R finalRelease=nullptr;
+  {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
+    auto makeDevice=(Create)(uintptr_t)sr.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeDevice(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    CHECK(((Shader)vt(d)[12])(d,triangle_vs,sizeof(triangle_vs),nullptr,&surviving[0])==0);
+    CHECK(((Shader)vt(d)[15])(d,triangle_ps,sizeof(triangle_ps),nullptr,&surviving[1])==0);
+    finalRelease=(R)vt(surviving[0])[2];
+    ((BindShader)vt(c)[11])(c,surviving[0],nullptr,0);((BindShader)vt(c)[9])(c,surviving[1],nullptr,0);
+  }
+  for(auto* shader:surviving)CHECK(finalRelease(shader)==0);
+  puts("shader bindings: retain, same-object rebind, replacement, unbind and runtime teardown references ok");
   for(auto* o:objects)((R)vt(o)[2])(o);
   puts("resource GetDesc: buffer/color/depth/staging/full-mip/backbuffer fields and output extents ok");
   puts("D3D11 interface identity, type, GetDevice, swapchain interface refusal and balanced reference paths ok");
