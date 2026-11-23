@@ -811,3 +811,18 @@ https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicec
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-rssetstate
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetdepthstencilstate
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetblendstate
+
+## Batch97: retain verified independent copied-state regression
+
+Replaces the same resource probe with exact run301 bytes from source 802731c.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports;
+direct execution passes all ten markers, zero exit, two translated shaders,
+zero presents and empty error. Fixture-slot requires exact output and retained
+CI requires the copied-state marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Independent layout/rasterizer/depth/blend checks cover caller release, rebind and
+unbind. Replacement/teardown remain unit evidence. Reference ownership only,
+not ignored blend-factor/sample-mask/stencil-reference parameters, full COM/device
+lifetime, reclamation, thread safety or native host isolation. Runtime lifetime
+required. No physical-device/input or Xbox-game compatibility evidence is added.
