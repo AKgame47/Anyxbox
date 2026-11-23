@@ -76,9 +76,9 @@ struct D3D11Runtime::Impl {
   Obj device, context;
   void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* resource_vt[16]; void* view_vt[16]; void* sc_vt[20]; void* fac_vt[25];
   // bound state
-  Obj* vs = nullptr; Obj* ps = nullptr; Obj* swapchain = nullptr;
+  Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr; Obj* swapchain = nullptr;
   Impl() {}
-  ~Impl(){if(vs)release(vs);if(ps)release(ps);}
+  ~Impl(){if(vs)release(vs);if(ps)release(ps);if(rtv)release(rtv);if(dsv)release(dsv);}
 };
 
 namespace {
@@ -322,9 +322,17 @@ MSABI void ctx_RSSetScissorRects(void* self, uint32_t n, const ScissorRect* rect
   rt->ctx->RSSetScissorRect(n ? *rects : ScissorRect());
 }
 MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, void* dsv) {
-  Obj* r = n >= 1 && rtvs ? (Obj*)rtvs[0] : nullptr;
-  Obj* d = (Obj*)dsv;
-  G(self)->ctx->OMSetRenderTarget(r ? r->id : 0, d ? d->id : 0);
+  auto* rt=G(self);
+  if(n>1 || (n && !rtvs)){rt->last_error="OMSetRenderTargets: only zero or one view is supported";return;}
+  Obj* r=n?(Obj*)rtvs[0]:nullptr;Obj* d=(Obj*)dsv;
+  // Acquire both new references before dropping either old one, including rebinds.
+  if(r)addref(r);
+  if(d)addref(d);
+  auto* oldr=rt->impl->rtv;auto* oldd=rt->impl->dsv;
+  rt->impl->rtv=r;rt->impl->dsv=d;
+  rt->ctx->OMSetRenderTarget(r?r->id:0,d?d->id:0);
+  if(oldr)release(oldr);
+  if(oldd)release(oldd);
 }
 MSABI void ctx_OMSetBlendState(void* self, void* st, const float* /*factor*/, uint32_t /*mask*/) {
   Obj* o = (Obj*)st; G(self)->ctx->OMSetBlendState(o ? o->bl : BlendDesc());
