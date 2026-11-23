@@ -620,9 +620,15 @@ Status VulkanBackend::render_core(
       phys_,input.srgb?VK_FORMAT_R8G8B8A8_SRGB:VK_FORMAT_R8G8B8A8_UNORM,
       depth>1?VK_IMAGE_TYPE_3D:VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
       VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,input.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&cap);
-    if(q!=VK_SUCCESS || input.w>cap.maxExtent.width || input.h>cap.maxExtent.height || depth>cap.maxExtent.depth ||
-       mip>cap.maxMipLevels || slices>cap.maxArrayLayers || !(cap.sampleCounts&VK_SAMPLE_COUNT_1_BIT) || bytes>cap.maxResourceSize)
-      return Status::Fail(100,"vulkan","sampled texture exceeds device image-format capabilities");
+    auto rejected=[](const char* reason) {return Status::Fail(100,"vulkan",std::string("sampled texture device capability: ")+reason);};
+    if(q!=VK_SUCCESS) return rejected("image-format query failed");
+    if(input.w>cap.maxExtent.width) return rejected("width");
+    if(input.h>cap.maxExtent.height) return rejected("height");
+    if(depth>cap.maxExtent.depth) return rejected("depth");
+    if(mip>cap.maxMipLevels) return rejected("mip count");
+    if(slices>cap.maxArrayLayers) return rejected("array layers");
+    if(!(cap.sampleCounts&VK_SAMPLE_COUNT_1_BIT)) return rejected("sample count");
+    if(bytes>cap.maxResourceSize) return rejected("resource bytes");
     return Status::Ok();
   };
   if (mesh && mesh->extra_tex && !tex) return Status::Fail(100, "vulkan", "extra textures need texture t0 as well");
