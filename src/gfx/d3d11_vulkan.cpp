@@ -79,10 +79,9 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   for (int xi = 0; xi < 3; xi++) {
     const Extra& e = extra_[xi]; if (e.rgba.empty()) continue;
     if (!textured) { *err = "vulkan draw: textures t1..t3 need t0 bound as well"; return false; }
-    if (e.levels > 1) { *err = "vulkan draw: mip chains on t1..t3 not supported yet"; return false; }
     if (e.w > 256 || e.h > 256) { *err = "vulkan draw: textures larger than 256x256 are not supported yet"; return false; }
     if (xi != (int)extra_in.size()) { *err = "vulkan draw: bind t1, t2, t3 in order without gaps"; return false; }
-    pnr::graphics::TexInput t; t.rgba = e.rgba.data(); t.w = e.w; t.h = e.h; t.linear = e.smp.linear; t.repeat = e.smp.wrap; extra_in.push_back(t);
+    pnr::graphics::TexInput t; t.rgba = e.rgba.data(); t.w = e.w; t.h = e.h; t.linear = e.smp.linear; t.repeat = e.smp.wrap; t.levels = e.levels; t.mip_mode = e.smp.mip_linear ? 1 : 0; t.min_lod = std::max(0.f,e.smp.min_lod); t.max_lod = std::max(0.f,e.smp.max_lod); extra_in.push_back(t);
   }
   VkViewport viewport{vp.x, vp.y, vp.width, vp.height, vp.min_depth, vp.max_depth};
   VkRect2D scissor{{0,0},{rt->w,rt->h}};
