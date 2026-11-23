@@ -103,3 +103,9 @@ import_gap and test_fixture_slot now register the same function sets as run_pe (
 - test_seh adds a hardware VEH case that edits the saved instruction pointer and resumes after the faulting instruction.
 - Strict CI test failures print the full test log, and test logs upload even on failure. An additional strict test builds the SEH layer and its test with explicit stack protection.
 - The prior CI crash could not be reproduced locally. This fixes the stack overlap found during review; confirmation on that runner remains required.
+
+## Batch 45: thread TLS callbacks
+- CreateThread installs the new thread's TEB and fresh TLS template, runs the image callback list with DLL_THREAD_ATTACH (2), calls the thread entry, then runs that list with DLL_THREAD_DETACH (3) before restoring the host GS base.
+- Callbacks run in list order. The completion handle becomes signaled after detach callbacks finish. tests/test_teb checks two workers, callback ordering, exit status, fresh raw/zero-fill TLS, and isolation from the main thread's modified TLS.
+- New CI-built source tls_thread.c checks callbacks and per-thread data through actual MinGW startup and CreateThread. Its binary has not yet been verified or committed.
+- Remaining limits: only normal thread-entry return gets detach callbacks. ExitThread, abrupt termination, process-wide shutdown of still-running workers, callback serialization with process startup, and multi-module TLS remain unsupported. Guests must join their workers before returning from the main entry. No new claim of Xbox game compatibility.
