@@ -82,6 +82,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   }
   std::jmp_buf jb;
   k32.image_base = img.actual_base; k32.image_size = len;
+  k32.tls_callbacks = img.tls.callbacks;
   g_exit = &jb; g_exit_code = 0;
   EntryFn fn = (EntryFn)(uintptr_t)(img.actual_base + img.entry_rva);
   volatile bool exited = false;
@@ -90,7 +91,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   if (img.tls.present) teb_set_tls_template((const uint8_t*)(uintptr_t)img.tls.start_va, (uint32_t)(img.tls.end_va - img.tls.start_va), img.tls.zero_fill);
   teb_install(img.actual_base);
   if (setjmp(jb) == 0) {
-    // TLS callbacks run with DLL_PROCESS_ATTACH before the entry point (thread attach/detach callbacks are not called yet)
+    // TLS callbacks run with DLL_PROCESS_ATTACH before entry; CreateThread runs thread attach/detach callbacks.
     for (uint64_t cb : img.tls.callbacks) ((TlsCallback)(uintptr_t)cb)((void*)(uintptr_t)img.actual_base, 1, nullptr);
     res.exit_code = fn();
   } else { exited = true; res.exit_code = g_exit_code; }
