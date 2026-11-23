@@ -1,8 +1,7 @@
-// Anyxbox mapped-folder file API: CreateFile/ReadFile/WriteFile style, jailed under a root. GPL-2.0.
+// Anyxbox mapped-folder file API: CreateFile/ReadFile/WriteFile style, routed under an explicit root. GPL-2.0.
 // Application-level path routing, not an OS sandbox.
 #pragma once
 #include <cstdint>
-#include <fstream>
 #include <string>
 #include "syslayer/win32_sync.h"
 namespace anyxbox {
@@ -11,7 +10,10 @@ enum FileMode { OPEN_EXISTING_RW_READ = 1, CREATE_WRITE_TRUNCATE = 2, OPEN_APPEN
 
 class MappedFolder {
  public:
-  explicit MappedFolder(std::string root) : root_(std::move(root)) {}
+  explicit MappedFolder(std::string root, bool read_only = false) : root_(std::move(root)), read_only_(read_only) {}
+  bool valid() const;
+  // Opens use descriptor-relative traversal, reject symlinks in guest components, and accept regular files only.
+  // read_only blocks create/write opens. Root path and directory contents remain host-managed/trusted.
   // Virtual path like "saves/a.sav" or "\\saves\\a.sav". Rejects "..", drive letters, empty paths, NUL.
   bool resolve(const std::string& vpath, std::string& host) const;
   // Returns a handle or 0xFFFFFFFF (INVALID_HANDLE_VALUE).
@@ -19,11 +21,13 @@ class MappedFolder {
   bool exists(const std::string& vpath) const;
  private:
   std::string root_;
+  bool read_only_ = false;
 };
 
 class FileObject : public KernelObject {
  public:
-  FileObject(std::string host, FileMode m);
+  FileObject(int fd, bool readable, bool writable);
+  ~FileObject();
   bool ok() const { return ok_; }
   bool read(void* buf, uint32_t n, uint32_t* got);
   bool write(const void* buf, uint32_t n, uint32_t* wrote);
@@ -33,7 +37,8 @@ class FileObject : public KernelObject {
   bool signaled_locked() override { return true; }
   void consume_locked() override {}
  private:
-  std::fstream f_;
+  int fd_ = -1;
+  bool readable_ = false, writable_ = false;
   bool ok_ = false;
 };
 bool ReadFile(const HandleTable& t, uint32_t h, void* buf, uint32_t n, uint32_t* got);
