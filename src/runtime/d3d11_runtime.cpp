@@ -20,6 +20,7 @@ struct Obj {
   uint32_t refs = 1;
   Kind kind;
   D3D11Runtime* rt;
+  uint32_t usage = 0, bind_flags = 0;
   uint32_t first_mip = 0, mip_count = ~0u; // SRV range
   ResourceId id = 0;      // buffer / texture / rtv id
   std::vector<uint32_t> spirv;
@@ -73,7 +74,7 @@ MSABI int32_t dev_CreateBuffer(void* self, const BufDesc* d, const SubData* init
   const void* src = init && init->pSysMem ? init->pSysMem : (z.assign(d->ByteWidth, 0), z.data());
   ResourceId id = rt->dev.CreateBuffer(src, d->ByteWidth);
   if (!id) return E_FAIL_;
-  if (out) *out = make(rt, K_BUFFER, id);
+  if (out) { auto* o=make(rt,K_BUFFER,id); o->usage=d->Usage; o->bind_flags=d->BindFlags; *out=o; }
   return S_OK_;
 }
 Format fmt_from_dxgi(uint32_t f) {
@@ -110,7 +111,7 @@ MSABI int32_t dev_CreateTexture2D(void* self, const TexDesc* d, const SubData* i
       rt->dev.UpdateTextureMip(id,l,px.data(),px.size());
     }
   }
-  if (out) *out = make(rt, K_TEXTURE, id);
+  if (out) { auto* o=make(rt,K_TEXTURE,id); o->usage=d->Usage; o->bind_flags=d->BindFlags; *out=o; }
   return S_OK_;
 }
 MSABI int32_t dev_CreateRTV(void* self, void* res, const uint32_t* desc, void** out) {
@@ -335,6 +336,51 @@ std::vector<uint8_t>* res_bytes(D3D11Runtime* rt, Obj* o, uint32_t* row_pitch, u
   if (o->kind == K_TEXTURE) { auto* t = rt->dev.texture(o->id); if (!t || sub > t->mips.size()) return nullptr; if (row_pitch) *row_pitch = std::max(1u,t->w>>sub)*4; if (height) *height = std::max(1u,t->h>>sub); return sub ? &t->mips[sub-1] : &t->px; }
   return nullptr;
 }
+// Copies are synchronous host-backed operations. Until persistent render surfaces can be re-seeded, refuse render-target
+// destinations explicitly instead of letting a later Vulkan draw overwrite copied data with a stale surface.
+bool copy_valid(D3D11Runtime* rt, Obj* dst, Obj* src) {
+  if (!dst || !src || dst->kind != src->kind || (dst->kind != K_TEXTURE && dst->kind != K_BUFFER)) {
+    rt->last_error="copy: matching buffers or color textures required"; return false;
+  }
+  if (dst->mapped || src->mapped || dst->usage == 1) { rt->last_error="copy: mapped resource or immutable destination"; return false; }
+  if (dst->kind == K_TEXTURE) {
+    auto* a=rt->dev.texture(dst->id); auto* b=rt->dev.texture(src->id);
+    if (!a || !b || a->f != b->f) { rt->last_error="copy: identical color formats required"; return false; }
+    if (dst->bind_flags & 0x20) { rt->last_error="copy: render-target destinations unsupported"; return false; }
+  }
+  return true;
+}
+MSABI void ctx_CopyResource(void* self, void* dest, void* source) {
+  auto* rt=G(self); auto* dst=(Obj*)dest; auto* src=(Obj*)source;
+  if (!copy_valid(rt,dst,src)) return;
+  if (dst->id==src->id) { rt->last_error="CopyResource: distinct resources required"; return; }
+  if (dst->kind==K_BUFFER) {
+    auto* a=res_bytes(rt,dst,nullptr,nullptr); auto* b=res_bytes(rt,src,nullptr,nullptr);
+    if (a->size()!=b->size()) { rt->last_error="CopyResource: buffer sizes differ"; return; } *a=*b;
+  } else {
+    auto* a=rt->dev.texture(dst->id); auto* b=rt->dev.texture(src->id);
+    if(a->w!=b->w || a->h!=b->h || a->mips.size()!=b->mips.size()) {rt->last_error="CopyResource: texture dimensions differ";return;}
+    a->px=b->px; a->mips=b->mips;
+  }
+}
+MSABI void ctx_CopySubresourceRegion(void* self, void* dest, uint32_t ds, uint32_t x, uint32_t y, uint32_t z, void* source, uint32_t ss, const uint32_t* box) {
+  auto* rt=G(self); auto* dst=(Obj*)dest; auto* src=(Obj*)source;
+  if (!copy_valid(rt,dst,src)) return;
+  if(dst->id==src->id && ds==ss) {rt->last_error="copy region: distinct subresources required";return;}
+  uint32_t dp=0,dh=0,sp=0,sh=0;
+  auto* a=res_bytes(rt,dst,&dp,&dh,ds); auto* b=res_bytes(rt,src,&sp,&sh,ss);
+  if(!a||!b) {rt->last_error="copy region: invalid subresource";return;}
+  bool buffer=dst->kind==K_BUFFER;
+  uint32_t sw=buffer?(uint32_t)b->size():sp/4, dw=buffer?(uint32_t)a->size():dp/4;
+  if(buffer) {sh=dh=1;sp=sw;dp=dw;}
+  uint32_t l=box?box[0]:0,t=box?box[1]:0,f=box?box[2]:0,r=box?box[3]:sw,bot=box?box[4]:sh,back=box?box[5]:1;
+  if(l>=r || t>=bot || f>=back) return; // documented empty-box no-op
+  if(z || f || back!=1 || l>sw || r>sw || bot>sh || x>dw || y>dh || r-l>dw-x || bot-t>dh-y) {
+    rt->last_error="copy region: box/offset outside subresource";return;
+  }
+  size_t unit=buffer?1:4;
+  for(uint32_t row=0;row<bot-t;++row) std::memcpy(a->data()+(size_t)(y+row)*dp+(size_t)x*unit,b->data()+(size_t)(t+row)*sp+(size_t)l*unit,(size_t)(r-l)*unit);
+}
 // UpdateSubresource(res, sub, box, data, rowPitch, depthPitch). Buffers: box is a byte range in left/right. Textures: a rect.
 MSABI void ctx_UpdateSubresource(void* self, void* res, uint32_t sub, const uint32_t* box, const void* data, uint32_t rowpitch, uint32_t /*depthpitch*/) {
   D3D11Runtime* rt = G(self); Obj* o = (Obj*)res; uint32_t pitch = 0, h = 0;
@@ -423,6 +469,7 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   I.ctx_vt[7] = (void*)&ctx_VSSetConstantBuffers; I.ctx_vt[9] = (void*)&ctx_PSSetShader; I.ctx_vt[11] = (void*)&ctx_VSSetShader;
   I.ctx_vt[13] = (void*)&ctx_Draw; I.ctx_vt[16] = (void*)&ctx_PSSetConstantBuffers; I.ctx_vt[17] = (void*)&ctx_IASetInputLayout;
   I.ctx_vt[18] = (void*)&ctx_IASetVertexBuffers; I.ctx_vt[24] = (void*)&ctx_IASetPrimitiveTopology;
+  I.ctx_vt[46] = (void*)&ctx_CopySubresourceRegion; I.ctx_vt[47] = (void*)&ctx_CopyResource;
   I.ctx_vt[54] = (void*)&ctx_GenerateMips;
   I.ctx_vt[8] = (void*)&ctx_PSSetShaderResources; I.ctx_vt[10] = (void*)&ctx_PSSetSamplers; I.ctx_vt[12] = (void*)&ctx_DrawIndexed;
   I.ctx_vt[14] = (void*)&ctx_Map; I.ctx_vt[15] = (void*)&ctx_Unmap; I.ctx_vt[19] = (void*)&ctx_IASetIndexBuffer; I.ctx_vt[48] = (void*)&ctx_UpdateSubresource;
