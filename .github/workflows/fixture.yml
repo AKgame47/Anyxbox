@@ -1,0 +1,40 @@
+# Builds the self-written triangle fixture with MinGW and reports which of its imports Anyxbox covers.
+# Read-only: no secrets, no pushes, no third-party binaries. The exe is an artifact of our own tests/fixtures/triangle.c.
+name: fixture
+on:
+  push:
+    paths: ['tests/fixtures/**', 'src/**', 'tools/**', '.github/workflows/fixture.yml']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  triangle:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64 (Ubuntu package)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 g++
+      - name: Build the Windows fixture
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables \
+            -nostdlib -nostartfiles -Wl,-e,mainEntry -Itests/fixtures \
+            -o triangle.exe tests/fixtures/triangle.c -lkernel32 -luser32 -ld3d11
+          ls -l triangle.exe
+          x86_64-w64-mingw32-objdump -p triangle.exe | sed -n '/DLL Name/p;/Entry point/p' || true
+      - name: Build the Anyxbox tools (Linux)
+        run: |
+          mkdir -p obj
+          for f in src/loader/*.cpp src/syslayer/*.cpp src/runtime/*.cpp src/gfx/*.cpp src/shader/*.cpp; do
+            g++ -std=c++17 -O1 -Isrc -c "$f" -o "obj/$(echo "$f" | tr / _).o"
+          done
+          g++ -std=c++17 -O1 -Isrc tools/import_gap.cpp obj/*.o -ldl -lpthread -o import_gap
+          g++ -std=c++17 -O1 -Isrc tools/run_exe.cpp obj/*.o -ldl -lpthread -o run_exe
+      - name: Import coverage of the real exe
+        run: ./import_gap triangle.exe || true
+      - name: Run the exe headless through Anyxbox
+        run: ./run_exe --i-built-this triangle.exe || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: triangle-exe
+          path: triangle.exe
