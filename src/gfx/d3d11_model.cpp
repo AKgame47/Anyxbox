@@ -144,6 +144,9 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
   auto* rt = dev_.texture(dev_.rtv_texture(rtv_));
   if (!rt) return fail("draw: no valid render target bound");
   if (!has_vp_ || !(vp_.width > 0) || !(vp_.height > 0)) return fail("draw: viewport not set");
+  if (!std::isfinite(vp_.x) || !std::isfinite(vp_.y) || !std::isfinite(vp_.width) || !std::isfinite(vp_.height) ||
+      !std::isfinite(vp_.min_depth) || !std::isfinite(vp_.max_depth) || vp_.min_depth < 0 || vp_.max_depth > 1 || vp_.min_depth > vp_.max_depth)
+    return fail("draw: invalid viewport");
   Device::Depth* depth = nullptr;
   if (dsv_) {
     depth = dev_.depth(dev_.dsv_depth(dsv_));
@@ -301,6 +304,7 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
         float zi = 0;
         for (int i = 0; i < 3; i++) zi += (float)((double)w[i] / (double)area) * (v[i].z / v[i].w);
         if (!(zi >= 0.f && zi <= 1.f)) continue;   // coarse z clip (no real clipping yet)
+        zi = vp_.min_depth + zi * (vp_.max_depth - vp_.min_depth);
         float& stored = depth->z[(size_t)py * depth->w + px];
         if (state_.ds.depth_enable) {
           if (!depth_pass(state_.ds.func, zi, stored)) continue;
