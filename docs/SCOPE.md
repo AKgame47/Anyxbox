@@ -138,3 +138,10 @@ API references for this backend:
 - The writable-code control in test_protections returned without setting EAX. The child classified return codes starting with 0xC as faults, so an undefined return value could make this allowed-write control fail intermittently. It now explicitly returns zero.
 - Child results now log load/run state and exit code; fork and wait failures are fatal diagnostics rather than accidental passes. Existing read-only-code and non-executable-data assertions remain unchanged.
 - This identifies a test defect consistent with the prior local intermittent failure, not a captured reproduction proving its cause. The corrected test passed 200 consecutive local ASan/UBSan runs.
+
+## Batch 50: Vulkan viewport offsets, size and depth range
+- The Vulkan draw path uses the bound viewport instead of rejecting every viewport smaller than the render target. RSSetViewports now carries MinDepth/MaxDepth through the model and backend.
+- Reference depth interpolation maps the clipped 0..1 depth into the viewport depth range before testing/storing it. Non-finite viewports and invalid depth ranges are rejected.
+- Model tests compare offset/reduced-size drawing and a depth-range-dependent visibility result against local software Vulkan, with zero mismatches. A hand-assembled guest PE checks viewport placement through COM.
+- One viewport only; geometry-stage viewport selection, full clipping, physical GPU validation, and all device-specific viewport-limit edge cases remain outside this slice.
+- API grounding: the viewport scale/depth equations in https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-getting-started
