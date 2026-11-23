@@ -336,8 +336,7 @@ std::vector<uint8_t>* res_bytes(D3D11Runtime* rt, Obj* o, uint32_t* row_pitch, u
   if (o->kind == K_TEXTURE) { auto* t = rt->dev.texture(o->id); if (!t || sub > t->mips.size()) return nullptr; if (row_pitch) *row_pitch = std::max(1u,t->w>>sub)*4; if (height) *height = std::max(1u,t->h>>sub); return sub ? &t->mips[sub-1] : &t->px; }
   return nullptr;
 }
-// Copies are synchronous host-backed operations. Until persistent render surfaces can be re-seeded, refuse render-target
-// destinations explicitly instead of letting a later Vulkan draw overwrite copied data with a stale surface.
+// Copies are synchronous host-backed operations; the Vulkan backend re-seeds modified color surfaces on the next draw.
 bool copy_valid(D3D11Runtime* rt, Obj* dst, Obj* src) {
   if (!dst || !src || dst->kind != src->kind || (dst->kind != K_TEXTURE && dst->kind != K_BUFFER)) {
     rt->last_error="copy: matching buffers or color textures required"; return false;
@@ -346,7 +345,6 @@ bool copy_valid(D3D11Runtime* rt, Obj* dst, Obj* src) {
   if (dst->kind == K_TEXTURE) {
     auto* a=rt->dev.texture(dst->id); auto* b=rt->dev.texture(src->id);
     if (!a || !b || a->f != b->f) { rt->last_error="copy: identical color formats required"; return false; }
-    if (dst->bind_flags & 0x20) { rt->last_error="copy: render-target destinations unsupported"; return false; }
   }
   return true;
 }
