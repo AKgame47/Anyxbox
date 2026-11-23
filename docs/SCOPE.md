@@ -216,3 +216,9 @@ API references for this backend:
 - Region-copy and UpdateSubresource change the right texture column and a 20-row top strip of the live target. Pixel checks cover changed and unchanged regions in both frames.
 - Map writes the dynamic sampled texture directly and a staging resource for CopyResource into the target. It does not map a default backbuffer or use UpdateSubresource on a dynamic resource.
 - Local sanitizer host-source paths passed on software Vulkan; inspected all six captured frames. CI's new independent binary checks require Vulkan and retain the binaries/images. New independent compile/run results await CI. Production functionality unchanged.
+
+## Batch 63: retained independent region/update/map regressions
+- Committed the exact three run-159 binaries with source/build/hash provenance in the fixture README.
+- Directory-mode variant tests now run both host calls and the corresponding retained PE. Strict CI separately requires Vulkan for fresh and retained variants, and retains all frame images.
+- Fixture-slot test covers twelve committed executables and checks expected two-present/four-shader/empty-output/error behavior for all draw variants.
+- All six local independent-binary frames matched decoded CI RGB bytes exactly; inspected the six CI frames. Validation remains this self-written fixture on software Vulkan, not physical hardware or games.
