@@ -190,3 +190,8 @@ swap, rebind and unbind. Exact combined output, zero exit, two translated shader
 zero presents and empty D3D11 error are required. Fresh and retained CI require
 the pixel-SRV marker. Partial replacement, range refusal and teardown remain unit
 evidence, not independent guest evidence. Older binary provenance is historical.
+
+Batch90 extends only the fresh public-header probe with input-buffer binding
+checks: vertex caller release/cross-slot swap/rebind and index retain/unbind.
+Retained run266 bytes remain unchanged and lack this marker. Fresh independent
+MinGW compilation/execution awaits CI. No additional fixture or scene is added.
