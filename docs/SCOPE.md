@@ -12,4 +12,8 @@ Testing uses small programs compiled from source in this repo (a console triangl
 
 ## Real-shader validation (open gaps)
 Real fxc blobs from Wine's tests (LGPL-2.1+, sources in tests/real_dxbc_wine_tex.h) validate: sample, dcl_resource/sampler, mul immediate, SV_POSITION input, ieq/if_nz/endif with a PS cbuffer.
-Not yet supported: relative (dynamically indexed) cbuffer operands and a second constant buffer (Wine "relative addressing in constant buffers" VS fails with a clear error, checked in test_real_dxbc_tex).
+Relative cbuffer indexing and multiple cbuffer slots: see the update below.
+
+Update: the relative-addressing VS now translates (relative cbuffer indices, several cbuffer slots, vertex uniform buffer at set 1 binding 1,
+packed slot layout described in src/shader/dxbc_spirv.h) and renders correct colours for indices 0..7 in test_real_dxbc_tex.
+Still open: indices past the declared register count (Wine's 8 and 9), and the COM runtime does not yet pack several VS/PS slots for the translator.
