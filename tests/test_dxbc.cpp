@@ -116,9 +116,9 @@ int main() {
   // ---- constant buffer rejection paths ----
   { auto ok = dxb::vs_cb_scale_offset(); auto r = dxbc_to_spirv(ok.data(), ok.size()); CHECK(r.ok && r.words.size() > 50);
     auto bad = dxb::vs_cb_scale_offset(2, 2);  r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("past the declared") != std::string::npos);
-    bad = dxb::vs_cb_scale_offset(9, 1);       r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("1 to 8") != std::string::npos);
-    bad = dxb::vs_cb_scale_offset(2, 1, true); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("dynamically") != std::string::npos);
-    bad = dxb::vs_cb_scale_offset(2, 1, false, 1); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("slot 0") != std::string::npos);
+    bad = dxb::vs_cb_scale_offset(9, 1);       r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(r.ok && r.vs_ubo);   // 9 registers no longer fit push constants: vertex uniform buffer path
+    bad = dxb::vs_cb_scale_offset(2, 1, true); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(r.ok);   // dynamically indexed declaration is accepted now
+    bad = dxb::vs_cb_scale_offset(2, 1, false, 1); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(r.ok && r.vs_ubo && r.cb_layout.size() == 1 && r.cb_layout[0].first == 1);   // slot 1 alone: uniform buffer path
     { auto pc = dxb::ps_cb_tint(); r = dxbc_to_spirv(pc.data(), pc.size()); CHECK(r.ok); auto pc2 = dxb::ps_cb_tint(1025); r = dxbc_to_spirv(pc2.data(), pc2.size()); CHECK(!r.ok && r.error.find("1024") != std::string::npos); }
     auto pcb = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, {dxb::dcl_cb(0, 1), dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}),
                  dxb::ins(dxb::OP_MOV, {dxb::dst(dxb::T_OUTPUT, 0, 0xF), dxb::src_cb(0, 0)}), dxb::ins(dxb::OP_RET, {})});
