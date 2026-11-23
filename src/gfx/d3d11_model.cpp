@@ -14,6 +14,42 @@ void store(Device::Texture& t, uint32_t x, uint32_t y, const float c[4]) {
   uint8_t r = to_u8(c[0]), g = to_u8(c[1]), b = to_u8(c[2]), a = to_u8(c[3]);
   if (t.f == Format::B8G8R8A8_UNORM) { p[0] = b; p[1] = g; p[2] = r; p[3] = a; } else { p[0] = r; p[1] = g; p[2] = b; p[3] = a; }
 }
+float factor(BlendFactor f, const float s[4], const float d[4], int ch) {
+  switch (f) {
+    case BlendFactor::Zero: return 0.f; case BlendFactor::One: return 1.f;
+    case BlendFactor::SrcColor: return s[ch]; case BlendFactor::InvSrcColor: return 1.f - s[ch];
+    case BlendFactor::SrcAlpha: return s[3]; case BlendFactor::InvSrcAlpha: return 1.f - s[3];
+    case BlendFactor::DestAlpha: return d[3]; case BlendFactor::InvDestAlpha: return 1.f - d[3];
+    case BlendFactor::DestColor: return d[ch]; case BlendFactor::InvDestColor: return 1.f - d[ch];
+  }
+  return 1.f;
+}
+float apply_op(BlendOp op, float a, float b) {   // a = src*fs, b = dst*fd ; Min/Max ignore the factors
+  switch (op) { case BlendOp::Add: return a + b; case BlendOp::Subtract: return a - b; case BlendOp::RevSubtract: return b - a;
+    case BlendOp::Min: return std::min(a, b); case BlendOp::Max: return std::max(a, b); }
+  return a;
+}
+bool depth_pass(Compare f, float a, float b) {   // a = incoming, b = stored
+  switch (f) { case Compare::Never: return false; case Compare::Less: return a < b; case Compare::Equal: return a == b;
+    case Compare::LessEqual: return a <= b; case Compare::Greater: return a > b; case Compare::NotEqual: return a != b;
+    case Compare::GreaterEqual: return a >= b; case Compare::Always: return true; }
+  return true;
+}
+void store_blend(Device::Texture& t, uint32_t x, uint32_t y, const float c[4], const BlendDesc& bd) {
+  if (!bd.enable) { store(t, x, y, c); return; }
+  const uint8_t* p = &t.px[((size_t)y * t.w + x) * 4];
+  float d[4]; bool bgr = t.f == Format::B8G8R8A8_UNORM;
+  d[0] = (bgr ? p[2] : p[0]) / 255.f; d[1] = p[1] / 255.f; d[2] = (bgr ? p[0] : p[2]) / 255.f; d[3] = p[3] / 255.f;
+  float s[4]; for (int k = 0; k < 4; k++) s[k] = c[k] < 0.f ? 0.f : c[k] > 1.f ? 1.f : c[k];   // output merger saturates source
+  float o[4];
+  for (int k = 0; k < 3; k++) o[k] = apply_op(bd.op, s[k] * factor(bd.src, s, d, k), d[k] * factor(bd.dst, s, d, k));
+  o[3] = apply_op(bd.op_a, s[3] * factor(bd.src_a, s, d, 3), d[3] * factor(bd.dst_a, s, d, 3));
+  if (bd.op == BlendOp::Min) for (int k = 0; k < 3; k++) o[k] = std::min(s[k], d[k]);
+  if (bd.op == BlendOp::Max) for (int k = 0; k < 3; k++) o[k] = std::max(s[k], d[k]);
+  if (bd.op_a == BlendOp::Min) o[3] = std::min(s[3], d[3]);
+  if (bd.op_a == BlendOp::Max) o[3] = std::max(s[3], d[3]);
+  store(t, x, y, o);
+}
 }  // namespace
 
 ResourceId Device::CreateBuffer(const void* data, size_t bytes) {
@@ -36,6 +72,15 @@ bool Device::UpdateTexture(ResourceId id, const void* data, size_t bytes) {
   if (!t || !data || bytes != t->px.size()) return false;
   std::memcpy(t->px.data(), data, bytes); return true;
 }
+ResourceId Device::CreateDepthBuffer(uint32_t w, uint32_t h) {
+  if (w == 0 || h == 0 || w > 16384 || h > 16384) return 0;
+  Depth d; d.w = w; d.h = h; d.z.assign((size_t)w * h, 1.f);
+  depths_.push_back(std::move(d)); return (ResourceId)depths_.size();
+}
+ResourceId Device::CreateDepthStencilView(ResourceId db) {
+  if (!depth(db)) return 0;
+  dsvs_.push_back(db); return (ResourceId)dsvs_.size();
+}
 ResourceId Device::CreateRenderTargetView(ResourceId tex) {
   if (!texture(tex)) return 0;
   rtvs_.push_back(tex); return (ResourceId)rtvs_.size();
@@ -53,6 +98,15 @@ bool DeviceContext::ClearRenderTargetView(ResourceId rtv, const float c[4]) {
   if (!t) return fail("clear: invalid render target view");
   for (uint32_t y = 0; y < t->h; y++) for (uint32_t x = 0; x < t->w; x++) store(*t, x, y, c);
   if (backend_ && !backend_->clear(dev_, dev_.rtv_texture(rtv), c, &err_)) return false;
+  return true;
+}
+
+bool DeviceContext::ClearDepthStencilView(ResourceId dsv, float depth) {
+  auto* d = dev_.depth(dev_.dsv_depth(dsv));
+  if (!d) return fail("clear depth: invalid depth stencil view");
+  float v = depth < 0.f ? 0.f : depth > 1.f ? 1.f : depth;
+  std::fill(d->z.begin(), d->z.end(), v);
+  if (backend_ && !backend_->clear_depth(dev_, v, &err_)) return false;
   return true;
 }
 
@@ -84,6 +138,13 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
   auto* rt = dev_.texture(dev_.rtv_texture(rtv_));
   if (!rt) return fail("draw: no valid render target bound");
   if (!has_vp_ || !(vp_.width > 0) || !(vp_.height > 0)) return fail("draw: viewport not set");
+  Device::Depth* depth = nullptr;
+  if (dsv_) {
+    depth = dev_.depth(dev_.dsv_depth(dsv_));
+    if (!depth) return fail("draw: invalid depth stencil view bound");
+    if (depth->w != rt->w || depth->h != rt->h) return fail("draw: depth buffer size differs from the render target");
+  }
+  state_.depth_bound = depth != nullptr;
   auto* vb = dev_.buffer(vb_);
   if (!vb) return fail("draw: no valid vertex buffer bound");
   if (stride_ == 0 || count % 3 != 0) return fail("draw: stride is 0 or vertex count is not a multiple of 3");
@@ -119,6 +180,7 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
     std::vector<ClipVertex> cv(count);
     for (uint32_t i = 0; i < count; i++) cv[i] = {all[i].x, all[i].y, all[i].z, all[i].w, all[i].c[0], all[i].c[1], all[i].c[2], all[i].c[3], all[i].uv[0], all[i].uv[1]};
     stats_.triangles_in += count / 3;
+    backend_->set_pipeline_state(state_);
     { const Device::Buffer* cb = vs_cb0_ ? dev_.buffer(vs_cb0_) : nullptr; backend_->set_vs_constants(cb ? cb->data : std::vector<uint8_t>()); }
     { const Device::Buffer* cb = ps_cb0_ ? dev_.buffer(ps_cb0_) : nullptr; backend_->set_ps_constants(cb ? cb->data : std::vector<uint8_t>()); }
     { const Device::Texture* tx = ps_tex_ ? dev_.texture(ps_tex_) : nullptr;
@@ -146,6 +208,10 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
     if (!ok) continue;
     int64_t area = (fx[1] - fx[0]) * (fy[2] - fy[0]) - (fx[2] - fx[0]) * (fy[1] - fy[0]);
     if (area == 0) continue;
+    {   // culling. area > 0 means clockwise on screen (y down). Front = clockwise unless FrontCounterClockwise.
+      bool cw = area > 0, front = state_.rs.front_ccw ? !cw : cw;
+      if ((state_.rs.cull == Cull::Back && !front) || (state_.rs.cull == Cull::Front && front)) continue;
+    }
     if (area < 0) { std::swap(fx[1], fx[2]); std::swap(fy[1], fy[2]); std::swap(v[1], v[2]); std::swap(iw[1], iw[2]); area = -area; }
     // bounding box in pixels, clamped to target and viewport-independent (no scissor in this slice)
     int64_t minx = std::min({fx[0], fx[1], fx[2]}) >> 8, maxx = (std::max({fx[0], fx[1], fx[2]}) + 255) >> 8;
@@ -175,7 +241,17 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
       for (int i = 0; i < 3; i++) { l[i] = (double)w[i] / (double)area * iw[i]; sum += l[i]; }
       float c[4] = {0, 0, 0, 0};
       for (int i = 0; i < 3; i++) for (int k = 0; k < 4; k++) c[k] += (float)(l[i] / sum) * v[i].c[k];
-      store(*rt, (uint32_t)px, (uint32_t)py, c);
+      if (depth) {
+        float zi = 0;
+        for (int i = 0; i < 3; i++) zi += (float)((double)w[i] / (double)area) * (v[i].z / v[i].w);
+        if (!(zi >= 0.f && zi <= 1.f)) continue;   // coarse z clip (no real clipping yet)
+        float& stored = depth->z[(size_t)py * depth->w + px];
+        if (state_.ds.depth_enable) {
+          if (!depth_pass(state_.ds.func, zi, stored)) continue;
+          if (state_.ds.depth_write) stored = zi;
+        }
+      }
+      store_blend(*rt, (uint32_t)px, (uint32_t)py, c, state_.blend);
       stats_.pixels_written++; drew = true;
     }
     if (drew) stats_.triangles_drawn++;
