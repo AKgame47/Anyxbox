@@ -128,23 +128,28 @@ int main() {
     }
     std::printf("%s: %d wrong\n", variant == 0 ? "unbound t0/t1 read zeros" : "t0 clamp + t2 wrap, two samplers", bad); CHECK(bad == 0);
   }
-  for (int mode=0;mode<5;++mode) {
+  for (uint32_t slotno=0;slotno<4;++slotno) for (int mode=0;mode<5;++mode) {
     float lod = mode == 3 ? 1.5f : mode == 4 ? 0.f : (float)mode;
-    auto pb = dxb::ps_sample(dxb::swz(0,1,2,3),lod); auto psr = shader::dxbc_to_spirv(pb.data(),pb.size()); CHECK(psr.ok);
+    auto pb = dxb::ps_sample(dxb::swz(0,1,2,3),lod,slotno,0,false);
+    // Add declarations before sample instructions through the builder's normal list construction.
+    if(slotno) {
+      auto code=std::vector<dxb::Words>{ins(98,{dst(dxb::T_INPUT,1,3)},false,2),ins(101,{dst(dxb::T_OUTPUT,0,15)}),dxb::dcl_tex2d(slotno),dxb::dcl_sampler(0),dxb::dcl_temps(1),ins(72,{dst(dxb::T_TEMP,0,15),src(dxb::T_INPUT,1,dxb::swz(0,1,0,0)),dxb::res_src(slotno),dxb::smp_src(0),dxb::imm1(lod)}),ins(dxb::OP_MOV,{dst(dxb::T_OUTPUT,0,15),src(dxb::T_TEMP,0)}),ins(dxb::OP_RET,{})};
+      pb=dxb::shader(0,{{"TEXCOORD",0,0,1,3}},{{"SV_Target",0,0,0,15}},code);
+    } else pb=dxb::ps_sample(dxb::swz(0,1,2,3),lod); auto psr = shader::dxbc_to_spirv(pb.data(),pb.size()); CHECK(psr.ok);
     d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words,psr.words);
     d3d11::Device dev; d3d11::DeviceContext ctx(dev); ctx.SetDrawBackend(&be); ctx.SetTexturePairing(psr.tex_sampler);
     auto tex=dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,0); CHECK(tex && dev.texture(tex)->mips.size()==2);
     for(uint32_t l=0;l<3;++l) { std::vector<uint8_t> bytes((4u>>l)*(4u>>l)*4,0); for(size_t i=0;i<bytes.size();i+=4) {bytes[i+l]=255;bytes[i+3]=255;} CHECK(dev.UpdateTextureMip(tex,l,bytes.data(),bytes.size())); }
     CHECK(!dev.UpdateTextureMip(tex,3,"",1)); CHECK(!dev.CreateTexture2D(4,4,d3d11::Format::R8G8B8A8_UNORM,4));
     auto rt=dev.CreateTexture2D(W,H,d3d11::Format::R8G8B8A8_UNORM); auto rtv=dev.CreateRenderTargetView(rt);
-    CHECK(ctx.PSSetShaderResource(0,tex)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
+    CHECK(ctx.PSSetShaderResource(slotno,tex)); d3d11::SamplerDesc sampler; sampler.mip_linear=mode==3; if(mode==4) sampler.min_lod=1; CHECK(ctx.PSSetSampler(0,sampler));
     ctx.IASetInputLayout(lay); ctx.IASetPrimitiveTopology(d3d11::Topology::TriangleList); ctx.RSSetViewport({0,0,(float)W,(float)H}); ctx.OMSetRenderTarget(rtv);
     VT a{-1,1,0,1,1,1,1,1,0,0},b{1,1,0,1,1,1,1,1,1,0},c{-1,-1,0,1,1,1,1,1,0,1},d{1,-1,0,1,1,1,1,1,1,1}; std::vector<VT> q={a,b,c,b,d,c};
     ctx.IASetVertexBuffer(dev.CreateBuffer(q.data(),q.size()*sizeof(VT)),sizeof(VT),0); const float black[4]={0,0,0,1}; CHECK(ctx.ClearRenderTargetView(rtv,black));
     if(!ctx.Draw(6,0)) {std::printf("mip error %s\n",ctx.last_error().c_str());return 1;}
     std::vector<uint8_t> img; CHECK(dev.ReadTexture(rt,&img)); auto* p=&img[((size_t)10*W+9)*4];
     int er=mode==0?255:0,eg=mode==1||mode==4?255:mode==3?128:0,eb=mode==2?255:mode==3?128:0;
-    std::printf("mip mode %d got %u %u %u\n",mode,p[0],p[1],p[2]); CHECK(std::abs(p[0]-er)<=1 && std::abs(p[1]-eg)<=1 && std::abs(p[2]-eb)<=1);
+    std::printf("mip t%u mode %d got %u %u %u\n",slotno,mode,p[0],p[1],p[2]); CHECK(std::abs(p[0]-er)<=1 && std::abs(p[1]-eg)<=1 && std::abs(p[2]-eb)<=1);
     if(std::getenv("ANYXBOX_MIP_PREVIEW") && mode==1) { FILE* f=std::fopen("/downloads/mip-green.ppm","wb");if(f){std::fprintf(f,"P6\n%d %d\n255\n",W,H);for(size_t k=0;k<img.size();k+=4) std::fwrite(img.data()+k,1,3,f);std::fclose(f);} }
   }
   std::printf("multi texture: all ok\n");
