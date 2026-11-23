@@ -7,7 +7,7 @@ name ends in `.run.exe`. Homebrew and self-built binaries only (see docs/SCOPE.m
 No C runtime and no Microsoft headers: the few types it needs are declared in the file. `.github/workflows/fixture.yml` builds it with
 Ubuntu's MinGW-w64 package and runs `import_gap` and `run_exe` on the result; read the job log on GitHub. The CI job is read-only
 (`permissions: contents: read`), pushes nothing and fetches no third-party binaries. To use the built exe as a test, download the
-`triangle-exe` artifact and commit it as `tests/fixtures/triangle.run.exe`.
+`fixture-exes` artifact and commit it as `tests/fixtures/triangle.run.exe`.
 `triangle_shaders.h` is generated: `gen_fixture_shaders > tests/fixtures/triangle_shaders.h`.
 `test_fixture_source` compiles the same triangle.c as a host function (imports bound to Anyxbox functions), so its call sequence is tested
 here without a Windows toolchain. It does not prove the MinGW build.
