@@ -65,6 +65,9 @@ jobs:
               -nostdlib -nostartfiles -Wl,-e,mainEntry -Itests/fixtures \
               -o draw_${method}.exe tests/fixtures/draw_${method}.c -lkernel32 -luser32 -ld3d11
           done
+      - name: Build the file-backed 512 texture scene
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -nostdlib -nostartfiles -Wl,-e,mainEntry -Itests/fixtures -o asset_scene.exe tests/fixtures/asset_scene.c -lkernel32 -luser32 -ld3d11
       - name: Build the rooted asset fixture
         run: |
           x86_64-w64-mingw32-gcc -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -nostartfiles -Wl,-e,mainEntry -o asset_read.exe tests/fixtures/asset_read.c -lkernel32
@@ -138,6 +141,10 @@ jobs:
             ./tbin/test_fixture_draw_${method} draw_${method}.exe --require-vulkan draw-${method}-frame
             ./tbin/test_fixture_draw_${method} tests/fixtures/draw_${method}.run.exe --require-vulkan committed-draw-${method}-frame
           done
+      - name: Verify independent file-backed 512 texture scene (strict Vulkan required)
+        run: |
+          ./import_gap asset_scene.exe
+          ./tbin/test_fixture_asset_scene asset_scene.exe --require-vulkan asset-scene-frame
       - name: Run independent file-backed launcher fixture (strict)
         run: |
           mkdir -p test-assets/data
@@ -186,6 +193,8 @@ jobs:
         with:
           name: fixture-exes
           path: |
+            asset_scene.exe
+            asset-scene-frame*.ppm
             asset_read.exe
             asset-read*.log
             committed-asset-read*.log
