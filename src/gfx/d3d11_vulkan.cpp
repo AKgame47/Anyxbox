@@ -32,9 +32,6 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
                              DrawStats* stats, std::string* err) {
   auto* rt = dev.texture(tex);
   if (!rt) { *err = "vulkan draw: invalid render target"; return false; }
-  if (vp.x != 0.f || vp.y != 0.f || vp.width != (float)rt->w || vp.height != (float)rt->h) {
-    *err = "vulkan draw: viewport must cover the whole render target (not supported yet)"; return false;
-  }
   const bool custom = !vs_.empty() && !fs_.empty();   // translated shaders flip y themselves (dxbc_to_spirv vulkan_flip_y)
   const bool textured = !tex_.empty();
   if (textured && !custom) { *err = "vulkan draw: a texture is bound but no shaders are set (the pass-through shaders cannot sample)"; return false; }
@@ -86,6 +83,7 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
     if (xi != (int)extra_in.size()) { *err = "vulkan draw: bind t1, t2, t3 in order without gaps"; return false; }
     pnr::graphics::TexInput t; t.rgba = e.rgba.data(); t.w = e.w; t.h = e.h; t.linear = e.smp.linear; t.repeat = e.smp.wrap; extra_in.push_back(t);
   }
+  VkViewport viewport{vp.x, vp.y, vp.width, vp.height, vp.min_depth, vp.max_depth};
   VkRect2D scissor{{0,0},{rt->w,rt->h}};
   if (st_.rs.scissor_enable) {
     auto clamp = [](int32_t x, uint32_t limit) { return (int32_t)std::max<int64_t>(0, std::min<int64_t>(x, limit)); };
@@ -97,8 +95,8 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
     size_t n = std::min(chunk, total_tris - first);
     std::vector<float> v(kept.begin() + first * 3 * fpv, kept.begin() + (first + n) * 3 * fpv);
     std::vector<uint32_t> idx(n * 3); for (size_t i = 0; i < idx.size(); i++) idx[i] = (uint32_t)i;
-    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, extra_in.empty() ? nullptr : &extra_in, &scissor)
-      : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, &scissor);
+    pnr::Status s = textured ? vk_.render_textured_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, texin, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, extra_in.empty() ? nullptr : &extra_in, &scissor, &viewport)
+      : vk_.render_clip_mesh_rgba(rt->w, rt->h, vs, fs, v, idx, use_depth, tg.clear, &img, &tg.surf, dwrite, &bs, cull, front, dcmp, push.empty() ? nullptr : &push, ps_cb0_.empty() ? nullptr : &ps_cb0_, (vs_ubo_ && !cb0_.empty()) ? &cb0_ : nullptr, &scissor, &viewport);
     if (!s) { *err = "vulkan draw: " + s.error.message; return false; }
     tg.has_surface = true;
   }
