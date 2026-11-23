@@ -236,3 +236,8 @@ add_executable(test_fixture_keyboard_scene tests/test_fixture_keyboard_scene.cpp
 target_include_directories(test_fixture_keyboard_scene PRIVATE tests tests/fixtures)
 target_link_libraries(test_fixture_keyboard_scene PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
 add_test(NAME fixture_keyboard_scene COMMAND test_fixture_keyboard_scene ${CMAKE_SOURCE_DIR}/tests/fixtures)
+
+add_executable(test_fixture_keyboard_sdl tests/test_fixture_keyboard_sdl.cpp)
+target_include_directories(test_fixture_keyboard_sdl PRIVATE tests tests/fixtures)
+target_link_libraries(test_fixture_keyboard_sdl PRIVATE anyxbox_user32 anyxbox_runtime anyxbox_d3d11_rt anyxbox_d3d11_vulkan anyxbox_vulkan anyxbox_loader)
+add_test(NAME fixture_keyboard_sdl COMMAND test_fixture_keyboard_sdl ${CMAKE_SOURCE_DIR}/tests/fixtures)
