@@ -84,8 +84,8 @@ int main(int argc, char** argv) {
           CHECK(r.output.empty() && rt.presents == 2 && rt.shaders_translated == 4 && rt.last_error.empty());
         }
         if(n=="resource_interfaces.run.exe") {
-          CHECK(r.output=="resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok\nview GetResource: RTV/SRV/DSV identity and retained resource lifetime ok\nresource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok\n");
-          CHECK(rt.presents==0 && rt.shaders_translated==0 && rt.last_error.empty());
+          CHECK(r.output=="resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok\nview GetResource: RTV/SRV/DSV identity and retained resource lifetime ok\nshader bindings: caller release, same-object rebind and unbind references ok\nresource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok\n");
+          CHECK(rt.presents==0 && rt.shaders_translated==2 && rt.last_error.empty());
         }
         if (n.find("texture_copy.") == 0) {
           CHECK(r.output == "copy resource mips ok\ncopy region ok\ngenerated mip copy ok\nok\n");
