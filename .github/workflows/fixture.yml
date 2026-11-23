@@ -90,6 +90,8 @@ jobs:
           g++ -std=c++17 -O1 -g -Isrc tools/run_exe.cpp obj/*.o -ldl -lpthread -o run_exe
       - name: Verify strict launcher arguments before guest execution
         run: sh tests/check_launcher_cli.sh ./run_exe
+      - name: Verify explicit GPU and saved-frame requirements (strict)
+        run: sh tests/check_launcher_outputs.sh ./run_exe
       - name: Run every unit test and the committed-fixture checks (strict, fails the job)
         run: |
           mkdir -p tbin
@@ -250,6 +252,11 @@ jobs:
             draw-copy-frame*.ppm
             committed-draw-copy-frame*.ppm
             resource_interfaces.exe
+            launcher-gpu-denied.log
+            launcher-frame-absent.log
+            launcher-frame-denied.log
+            launcher-gpu-success.log
+            launcher-required-gpu.png
             launcher-cli-success.log
             resource-interfaces.log
             retained-resource-interfaces.log
