@@ -111,15 +111,15 @@ bool DeviceContext::ClearDepthStencilView(ResourceId dsv, float depth) {
 }
 
 bool DeviceContext::VSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
-  if (slot != 0) return fail("VSSetConstantBuffer: only slot 0 is supported");
+  if (slot >= 14) return fail("VSSetConstantBuffer: slot must be 0..13");
   if (buffer != 0 && !dev_.buffer(buffer)) return fail("VSSetConstantBuffer: invalid buffer");
-  vs_cb0_ = buffer; return true;
+  vs_cbs_[slot] = buffer; return true;
 }
 
 bool DeviceContext::PSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
-  if (slot != 0) return fail("PSSetConstantBuffer: only slot 0 is supported");
+  if (slot >= 14) return fail("PSSetConstantBuffer: slot must be 0..13");
   if (buffer != 0 && !dev_.buffer(buffer)) return fail("PSSetConstantBuffer: invalid buffer");
-  ps_cb0_ = buffer; return true;
+  ps_cbs_[slot] = buffer; return true;
 }
 
 bool DeviceContext::PSSetShaderResource(uint32_t slot, ResourceId tex) {
@@ -151,9 +151,16 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
     if (depth->w != rt->w || depth->h != rt->h) return fail("draw: depth buffer size differs from the render target");
   }
   state_.depth_bound = depth != nullptr;
-  auto* vb = dev_.buffer(vb_);
-  if (!vb) return fail("draw: no valid vertex buffer bound");
-  if (stride_ == 0 || count % 3 != 0) return fail("draw: stride is 0 or vertex count is not a multiple of 3");
+  if (count % 3 != 0) return fail("draw: vertex count is not a multiple of 3");
+  // every input element reads from its own vertex buffer slot
+  const Device::Buffer* slot_buf[16] = {};
+  for (auto& e : layout_) {
+    if (e.slot >= 16) return fail("draw: input element slot must be 0..15");
+    const VBind& vbd = vbs_[e.slot];
+    slot_buf[e.slot] = dev_.buffer(vbd.buf);
+    if (!slot_buf[e.slot]) return fail("draw: no valid vertex buffer bound for an input element's slot");
+    if (vbd.stride == 0) return fail("draw: stride is 0");
+  }
   const Device::Buffer* ib = nullptr;
   if (indexed) {
     ib = dev_.buffer(ib_);
@@ -161,8 +168,8 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
     uint64_t isz = ib32_ ? 4 : 2;
     if ((uint64_t)ib_offset_ + isz * ((uint64_t)start + count) > ib->data.size()) return fail("draw: index fetch runs past the end of the index buffer");
   } else {
-    uint64_t need = (uint64_t)vb_offset_ + (uint64_t)stride_ * ((uint64_t)start + count);
-    if (need > vb->data.size()) return fail("draw: vertex fetch runs past the end of the buffer");
+    for (unsigned k = 0; k < 16; k++) if (slot_buf[k] && (uint64_t)vbs_[k].offset + (uint64_t)vbs_[k].stride * ((uint64_t)start + count) > slot_buf[k]->data.size())
+      return fail("draw: vertex fetch runs past the end of the buffer");
   }
   // vertex index for each of the `count` fetches, validated against the vertex buffer
   std::vector<uint32_t> vidx(count);
@@ -173,14 +180,16 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
       uint32_t raw = 0; std::memcpy(&raw, q, ib32_ ? 4 : 2);
       v = (int64_t)raw + base_vertex;
     } else v = (int64_t)start + i;
-    if (v < 0 || (uint64_t)vb_offset_ + (uint64_t)stride_ * ((uint64_t)v + 1) > vb->data.size()) return fail("draw: vertex fetch runs past the end of the buffer");
+    if (v < 0) return fail("draw: vertex fetch runs past the end of the buffer");
+    for (unsigned k = 0; k < 16; k++) if (slot_buf[k] && (uint64_t)vbs_[k].offset + (uint64_t)vbs_[k].stride * ((uint64_t)v + 1) > slot_buf[k]->data.size())
+      return fail("draw: vertex fetch runs past the end of the buffer");
     vidx[i] = (uint32_t)v;
   }
   const InputElement* pos = nullptr; const InputElement* col = nullptr; const InputElement* tc = nullptr;
   for (auto& e : layout_) {
     uint32_t n = fmt_floats(e.format);
     if (!n) return fail("draw: unsupported input element format");
-    if ((uint64_t)e.offset + n * 4 > stride_) return fail("draw: input element does not fit in the vertex stride");
+    if ((uint64_t)e.offset + n * 4 > vbs_[e.slot].stride) return fail("draw: input element does not fit in the vertex stride");
     if (e.semantic == "POSITION" || e.semantic == "SV_POSITION") pos = &e;
     else if (e.semantic == "COLOR") col = &e;
     else if (e.semantic == "TEXCOORD") tc = &e;
@@ -188,15 +197,15 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
   if (!pos) return fail("draw: input layout has no POSITION element");
 
   auto fetch = [&](uint32_t i, V& v) {
-    const uint8_t* base = vb->data.data() + vb_offset_ + (size_t)stride_ * vidx[i];
+    auto at = [&](const InputElement* e) { return slot_buf[e->slot]->data.data() + vbs_[e->slot].offset + (size_t)vbs_[e->slot].stride * vidx[i] + e->offset; };
     float p[4] = {0, 0, 0, 1};
-    std::memcpy(p, base + pos->offset, fmt_floats(pos->format) * 4);
+    std::memcpy(p, at(pos), fmt_floats(pos->format) * 4);
     v.x = p[0]; v.y = p[1]; v.z = p[2]; v.w = p[3];
     float c[4] = {1, 1, 1, 1};
-    if (col) std::memcpy(c, base + col->offset, fmt_floats(col->format) * 4);
+    if (col) std::memcpy(c, at(col), fmt_floats(col->format) * 4);
     std::memcpy(v.c, c, 16);
     float t[4] = {0, 0, 0, 0};
-    if (tc) std::memcpy(t, base + tc->offset, fmt_floats(tc->format) * 4);
+    if (tc) std::memcpy(t, at(tc), fmt_floats(tc->format) * 4);
     v.uv[0] = t[0]; v.uv[1] = t[1];
   };
 
@@ -207,8 +216,18 @@ bool DeviceContext::draw_impl(uint32_t count, uint32_t start, bool indexed, int3
     for (uint32_t i = 0; i < count; i++) cv[i] = {all[i].x, all[i].y, all[i].z, all[i].w, all[i].c[0], all[i].c[1], all[i].c[2], all[i].c[3], all[i].uv[0], all[i].uv[1]};
     stats_.triangles_in += count / 3;
     backend_->set_pipeline_state(state_);
-    { const Device::Buffer* cb = vs_cb0_ ? dev_.buffer(vs_cb0_) : nullptr; backend_->set_vs_constants(cb ? cb->data : std::vector<uint8_t>()); }
-    { const Device::Buffer* cb = ps_cb0_ ? dev_.buffer(ps_cb0_) : nullptr; backend_->set_ps_constants(cb ? cb->data : std::vector<uint8_t>()); }
+    auto pack = [&](const ResourceId* slots, const std::vector<std::pair<uint32_t, uint32_t>>& layout) {
+      std::vector<uint8_t> out;
+      if (layout.empty()) { const Device::Buffer* cb = slots[0] ? dev_.buffer(slots[0]) : nullptr; if (cb) out = cb->data; return out; }
+      for (auto& sl : layout) {
+        size_t at = out.size(); out.resize(at + (size_t)sl.second * 16, 0);
+        const Device::Buffer* cb = sl.first < 14 && slots[sl.first] ? dev_.buffer(slots[sl.first]) : nullptr;
+        if (cb) std::memcpy(out.data() + at, cb->data.data(), std::min(cb->data.size(), (size_t)sl.second * 16));
+      }
+      return out;
+    };
+    backend_->set_vs_constants(pack(vs_cbs_, vs_layout_));
+    backend_->set_ps_constants(pack(ps_cbs_, ps_layout_));
     { const Device::Texture* tx = ps_tex_ ? dev_.texture(ps_tex_) : nullptr;
       if (tx) {
         std::vector<uint8_t> rgba = tx->px;
