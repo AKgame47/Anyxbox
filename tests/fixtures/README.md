@@ -68,3 +68,9 @@ https://github.com/AKgame47/Anyxbox/actions/runs/45243811043/job/137935175917
 7617 bytes; SHA-256 `f5e5e87a83bad67ec17d4e0bb08989fdea1761d7f4840a42789219680922c10a`.
 The fixture-slot test creates its own temporary asset root, checks exact guest output and unchanged asset contents,
 and separately checks default denial. CI repeats actual-CLI checks for fresh and retained binaries.
+
+## asset_scene.c
+Self-written scene with a 512x512 raw RGBA texture read from `data/texture.rgba` through the explicit read-only root.
+The fixture uses scene.c's authored shader/geometry and presents twice. The test generates a 1 MiB four-quadrant asset
+in a temporary directory, passes its root to run_pe and checks both frames on Vulkan. Host mode binds the same rooted
+file functions. CI compiles the independent MinGW binary and requires Vulkan for its pixel checks; compile/run awaits CI.
