@@ -516,3 +516,13 @@ shaders and state objects still lack complete binding ownership; children do not
 their device, and underlying model allocations are not reclaimed by COM release.
 Thread safety, full validation and host isolation remain incomplete. Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11view-getresource
+
+## Batch83: retain verified independent view regression
+
+Replaces the same retained resource probe with exact run239 bytes, source b0b4965,
+not an additional fixture. Local independent execution verifies all descriptor/view/
+interface markers, zero exit, no graphics and empty error. CI now requires the view
+marker in both fresh and retained runs. All41 local sanitizer programs pass and the
+retained fixture count remains sixteen. No production/CMake/new-target/visual change.
+View-to-resource retention is covered, but binding/device lifetime, model allocation
+reclamation, thread safety and native isolation remain incomplete.
