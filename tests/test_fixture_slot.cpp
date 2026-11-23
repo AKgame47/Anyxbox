@@ -11,6 +11,7 @@
 #include "loader/pe_image.h"
 #include "gfx/d3d11_vulkan.h"
 #include "runtime/d3d11_runtime.h"
+#include "runtime/devices.h"
 #include "runtime/kernel32.h"
 #include "runtime/msvcrt.h"
 #include "runtime/run_pe.h"
@@ -20,7 +21,7 @@ using namespace anyxbox;
 static __attribute__((ms_abi)) void stub_exit(uint32_t) {}
 static std::vector<std::string> gaps(const std::vector<uint8_t>& pe, size_t* total) {
   ImportRegistry reg; Kernel32Context k; MsvcrtContext crt; User32Context u; D3D11Runtime rt;
-  kernel32_register(reg, k); msvcrt_register(reg, crt); user32_register(reg, u); rt.register_imports(reg);
+  kernel32_register(reg, k); msvcrt_register(reg, crt); user32_register(reg, u); rt.register_imports(reg); XInputContext xi; xinput_register(reg, xi); XAudio2Context xa; xaudio2_register(reg, xa);
   reg.add("kernel32.dll", "ExitProcess", (uint64_t)(uintptr_t)&stub_exit);   // run_pe binds the real one
   auto img = load_pe_image(pe.data(), pe.size(), [&](const std::string& d, const std::string& n, uint16_t o, bool b) { return reg.resolve(d, n, o, b); });
   if (total) *total = img.imports.size();
