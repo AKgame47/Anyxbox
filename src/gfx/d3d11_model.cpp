@@ -43,6 +43,7 @@ bool DeviceContext::ClearRenderTargetView(ResourceId rtv, const float c[4]) {
   auto* t = dev_.texture(dev_.rtv_texture(rtv));
   if (!t) return fail("clear: invalid render target view");
   for (uint32_t y = 0; y < t->h; y++) for (uint32_t x = 0; x < t->w; x++) store(*t, x, y, c);
+  if (backend_ && !backend_->clear(dev_, dev_.rtv_texture(rtv), c, &err_)) return false;
   return true;
 }
 
@@ -77,9 +78,18 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
     std::memcpy(v.c, c, 16);
   };
 
+  std::vector<V> all(count);
+  for (uint32_t i = 0; i < count; i++) fetch(i, all[i]);
+  if (backend_) {
+    std::vector<ClipVertex> cv(count);
+    for (uint32_t i = 0; i < count; i++) cv[i] = {all[i].x, all[i].y, all[i].z, all[i].w, all[i].c[0], all[i].c[1], all[i].c[2], all[i].c[3]};
+    stats_.triangles_in += count / 3;
+    if (!backend_->draw(dev_, dev_.rtv_texture(rtv_), vp_, cv, &stats_, &err_)) { if (err_.empty()) err_ = "draw: backend failed"; return false; }
+    return true;
+  }
   for (uint32_t t = 0; t < count; t += 3) {
     stats_.triangles_in++;
-    V v[3]; for (int k = 0; k < 3; k++) fetch(t + k, v[k]);
+    V v[3]; for (int k = 0; k < 3; k++) v[k] = all[t + k];
     bool ok = true; int64_t fx[3], fy[3]; float iw[3];
     for (int k = 0; k < 3; k++) {
       if (!(v[k].w > 0.f) || !std::isfinite(v[k].x) || !std::isfinite(v[k].y) || !std::isfinite(v[k].w)) { ok = false; break; }
