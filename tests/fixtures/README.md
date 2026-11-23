@@ -96,3 +96,9 @@ https://github.com/AKgame47/Anyxbox/actions/runs/45253435150/job/137968855839
 Directory-mode keyboard verifier checks source calls and this retained PE with scripted host input.
 CI requires Vulkan for fresh and retained paths and retains all four frames from each.
 Fixture-slot checks default root denial and rooted execution, not movement pixels.
+
+`test_fixture_keyboard_sdl` uses the same source/retained executable and pixel verifier, but wraps the real SDL
+window rather than ScriptHost. It injects key-down/up/focus-loss with SDL_PushEvent and uses the production
+SDL_PollEvent translation and user32 held-state code. All four frames are presented to the SDL window as well
+as captured for pixel assertions. Between frames the test clears unrelated Xvfb events before injecting its
+known sequence. This is synthetic SDL queue coverage, not a physical keyboard or uncontrolled focus test.
