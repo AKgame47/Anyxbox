@@ -8,7 +8,7 @@ uint32_t fmt_floats(Format f) {
   switch (f) { case Format::R32G32_FLOAT: return 2; case Format::R32G32B32_FLOAT: return 3; case Format::R32G32B32A32_FLOAT: return 4; default: return 0; }
 }
 uint8_t to_u8(float v) { if (!(v > 0.f)) return 0; if (v >= 1.f) return 255; return (uint8_t)std::floor(v * 255.f + 0.5f); }
-struct V { float x, y, z, w; float c[4]; };
+struct V { float x, y, z, w; float c[4]; float uv[2]; };
 void store(Device::Texture& t, uint32_t x, uint32_t y, const float c[4]) {
   uint8_t* p = &t.px[((size_t)y * t.w + x) * 4];
   uint8_t r = to_u8(c[0]), g = to_u8(c[1]), b = to_u8(c[2]), a = to_u8(c[3]);
@@ -26,6 +26,11 @@ ResourceId Device::CreateTexture2D(uint32_t w, uint32_t h, Format f) {
   if (f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) return 0;
   Texture t; t.w = w; t.h = h; t.f = f; t.px.assign((size_t)w * h * 4, 0);
   textures_.push_back(std::move(t)); return (ResourceId)textures_.size();
+}
+bool Device::UpdateTexture(ResourceId id, const void* data, size_t bytes) {
+  Texture* t = texture(id);
+  if (!t || !data || bytes != t->px.size()) return false;
+  std::memcpy(t->px.data(), data, bytes); return true;
 }
 ResourceId Device::CreateRenderTargetView(ResourceId tex) {
   if (!texture(tex)) return 0;
@@ -59,6 +64,16 @@ bool DeviceContext::PSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
   ps_cb0_ = buffer; return true;
 }
 
+bool DeviceContext::PSSetShaderResource(uint32_t slot, ResourceId tex) {
+  if (slot != 0) return fail("PSSetShaderResource: only slot 0 is supported");
+  if (tex != 0 && !dev_.texture(tex)) return fail("PSSetShaderResource: invalid texture");
+  ps_tex_ = tex; return true;
+}
+bool DeviceContext::PSSetSampler(uint32_t slot, const SamplerDesc& s) {
+  if (slot != 0) return fail("PSSetSampler: only slot 0 is supported");
+  ps_smp_ = s; return true;
+}
+
 bool DeviceContext::Draw(uint32_t count, uint32_t start) {
   err_.clear();
   if (topo_ != Topology::TriangleList) return fail("draw: only TriangleList is supported");
@@ -70,13 +85,14 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
   if (stride_ == 0 || count % 3 != 0) return fail("draw: stride is 0 or vertex count is not a multiple of 3");
   uint64_t need = (uint64_t)vb_offset_ + (uint64_t)stride_ * ((uint64_t)start + count);
   if (need > vb->data.size()) return fail("draw: vertex fetch runs past the end of the buffer");
-  const InputElement* pos = nullptr; const InputElement* col = nullptr;
+  const InputElement* pos = nullptr; const InputElement* col = nullptr; const InputElement* tc = nullptr;
   for (auto& e : layout_) {
     uint32_t n = fmt_floats(e.format);
     if (!n) return fail("draw: unsupported input element format");
     if ((uint64_t)e.offset + n * 4 > stride_) return fail("draw: input element does not fit in the vertex stride");
     if (e.semantic == "POSITION" || e.semantic == "SV_POSITION") pos = &e;
     else if (e.semantic == "COLOR") col = &e;
+    else if (e.semantic == "TEXCOORD") tc = &e;
   }
   if (!pos) return fail("draw: input layout has no POSITION element");
 
@@ -88,16 +104,26 @@ bool DeviceContext::Draw(uint32_t count, uint32_t start) {
     float c[4] = {1, 1, 1, 1};
     if (col) std::memcpy(c, base + col->offset, fmt_floats(col->format) * 4);
     std::memcpy(v.c, c, 16);
+    float t[4] = {0, 0, 0, 0};
+    if (tc) std::memcpy(t, base + tc->offset, fmt_floats(tc->format) * 4);
+    v.uv[0] = t[0]; v.uv[1] = t[1];
   };
 
   std::vector<V> all(count);
   for (uint32_t i = 0; i < count; i++) fetch(i, all[i]);
   if (backend_) {
     std::vector<ClipVertex> cv(count);
-    for (uint32_t i = 0; i < count; i++) cv[i] = {all[i].x, all[i].y, all[i].z, all[i].w, all[i].c[0], all[i].c[1], all[i].c[2], all[i].c[3]};
+    for (uint32_t i = 0; i < count; i++) cv[i] = {all[i].x, all[i].y, all[i].z, all[i].w, all[i].c[0], all[i].c[1], all[i].c[2], all[i].c[3], all[i].uv[0], all[i].uv[1]};
     stats_.triangles_in += count / 3;
     { const Device::Buffer* cb = vs_cb0_ ? dev_.buffer(vs_cb0_) : nullptr; backend_->set_vs_constants(cb ? cb->data : std::vector<uint8_t>()); }
     { const Device::Buffer* cb = ps_cb0_ ? dev_.buffer(ps_cb0_) : nullptr; backend_->set_ps_constants(cb ? cb->data : std::vector<uint8_t>()); }
+    { const Device::Texture* tx = ps_tex_ ? dev_.texture(ps_tex_) : nullptr;
+      if (tx) {
+        std::vector<uint8_t> rgba = tx->px;
+        if (tx->f == Format::B8G8R8A8_UNORM) for (size_t i = 0; i + 3 < rgba.size(); i += 4) std::swap(rgba[i], rgba[i + 2]);
+        backend_->set_ps_texture(rgba.data(), tx->w, tx->h, ps_smp_);
+      } else backend_->set_ps_texture(nullptr, 0, 0, ps_smp_);
+    }
     if (!backend_->draw(dev_, dev_.rtv_texture(rtv_), vp_, cv, &stats_, &err_)) { if (err_.empty()) err_ = "draw: backend failed"; return false; }
     return true;
   }
