@@ -52,7 +52,15 @@ int main(int argc, char** argv) {
         User32Context u; D3D11Runtime rt;
         auto r = run_pe(data.data(), data.size(), true, [&](ImportRegistry& reg) { user32_register(reg, u); rt.register_imports(reg); });
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
-        CHECK(r.ran);
+        CHECK(r.ran && r.loaded && r.exit_code == 0);
+        if (n.find("hello_crt") == 0) CHECK(r.output == "hello from a MinGW program, argc=1\n");
+        if (n.find("triangle") == 0) {
+          CHECK(rt.presents == 3 && rt.presented_w == 320 && rt.presented_h == 240 && rt.last_error.empty());
+          auto P = [&](int x, int y) { return &rt.presented[((size_t)y * 320 + x) * 4]; };
+          CHECK(P(4, 4)[2] > 25 && P(4, 4)[0] < 25);                                         // clear colour
+          CHECK(P(160, 58)[0] > 200 && P(160, 58)[1] < 60 && P(160, 58)[2] < 60);            // red apex
+          CHECK(P(248, 185)[1] > 150 && P(248, 185)[0] < 90 && P(72, 185)[2] > 150 && P(72, 185)[0] < 90);   // green and blue corners
+        }
       }
     }
     closedir(d);
