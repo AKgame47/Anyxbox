@@ -39,6 +39,7 @@ bool VulkanDrawBackend::draw(Device& dev, ResourceId tex, const Viewport& vp, co
   if (kept.empty()) return true;
   Target& tg = targets_[tex];
   std::vector<uint32_t> vs(std::begin(clip_vert), std::end(clip_vert)), fs(std::begin(spin_frag), std::end(spin_frag));
+  if (!vs_.empty() && !fs_.empty()) { vs = vs_; fs = fs_; }
   const size_t total_tris = kept.size() / 21, chunk = 9999;   // backend limit: 30000 indices per call
   std::vector<uint8_t> img;
   for (size_t first = 0; first < total_tris; first += chunk) {
