@@ -54,6 +54,8 @@ class DrawBackend {
   virtual void set_ps_constants(const std::vector<uint8_t>& /*cb0*/) {}
   // Pixel-shader texture t0 for the next draw, RGBA byte order, row 0 at top; rgba == nullptr = none bound.
   virtual void set_ps_texture(const uint8_t* /*rgba*/, uint32_t /*w*/, uint32_t /*h*/, const SamplerDesc& /*s*/) {}
+  // Textures t1..t3 (slot 1..3); a null rgba unbinds. Default: ignored.
+  virtual void set_ps_texture_slot(uint32_t /*slot*/, const uint8_t* /*rgba*/, uint32_t /*w*/, uint32_t /*h*/, const SamplerDesc& /*s*/) {}
 };
 
 class Device {
@@ -105,8 +107,10 @@ class DeviceContext {
   void SetConstantLayout(std::vector<std::pair<uint32_t, uint32_t>> vs, std::vector<std::pair<uint32_t, uint32_t>> ps) { vs_layout_ = std::move(vs); ps_layout_ = std::move(ps); }
   bool VSSetConstantBuffer(uint32_t slot, ResourceId buffer);
   bool PSSetConstantBuffer(uint32_t slot, ResourceId buffer);
-  bool PSSetShaderResource(uint32_t slot, ResourceId texture);   // slot 0 only; 0 unbinds
-  bool PSSetSampler(uint32_t slot, const SamplerDesc& s);        // slot 0 only
+  bool PSSetShaderResource(uint32_t slot, ResourceId texture);   // slots 0..3; 0 unbinds
+  bool PSSetSampler(uint32_t slot, const SamplerDesc& s);        // slots 0..3
+  // Which sampler slot each texture slot is sampled with (SpirvResult::tex_sampler; -1 or never called = same number).
+  void SetTexturePairing(const int pair[4]) { for (int i = 0; i < 4; i++) tex_pair_[i] = pair[i]; }
   void OMSetRenderTarget(ResourceId rtv, ResourceId dsv = 0) { rtv_ = rtv; dsv_ = dsv; }
   void RSSetState(const RasterizerDesc& d) { state_.rs = d; }
   void OMSetDepthStencilState(const DepthStencilDesc& d) { state_.ds = d; }
@@ -129,10 +133,11 @@ class DeviceContext {
   PipelineState state_;
   ResourceId dsv_ = 0;
   struct VBind { ResourceId buf = 0; uint32_t stride = 0, offset = 0; } vbs_[16];
-  ResourceId rtv_ = 0, ps_tex_ = 0;
+  ResourceId rtv_ = 0, ps_texs_[4] = {};
+  int tex_pair_[4] = {-1, -1, -1, -1};
   ResourceId vs_cbs_[14] = {}, ps_cbs_[14] = {};
   std::vector<std::pair<uint32_t, uint32_t>> vs_layout_, ps_layout_;
-  SamplerDesc ps_smp_;
+  SamplerDesc ps_smps_[4];
   Topology topo_ = Topology::Undefined;
   Viewport vp_; bool has_vp_ = false;
   std::string err_;
