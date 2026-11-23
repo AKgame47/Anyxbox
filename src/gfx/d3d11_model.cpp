@@ -155,6 +155,20 @@ bool DeviceContext::ClearDepthStencilView(ResourceId dsv, float depth) {
   return true;
 }
 
+void DeviceContext::ClearState(){
+  layout_.clear();ib_=0;ib32_=false;ib_offset_=0;state_=PipelineState();dsv_=0;rtv_=0;
+  for(auto& vb:vbs_)vb=VBind();
+  for(auto& cb:vs_cbs_)cb=0;
+  for(auto& cb:ps_cbs_)cb=0;
+  vs_layout_.clear();ps_layout_.clear();
+  for(unsigned i=0;i<4;++i){
+    ps_texs_[i]=0;ps_first_[i]=0;ps_levels_[i]=~0u;tex_pair_[i]=-1;
+    ps_smps_[i]=SamplerDesc();ps_smps_[i].linear=true;ps_smps_[i].mip_linear=true;
+    ps_smps_[i].min_lod=-3.402823466e+38F;ps_smps_[i].max_lod=3.402823466e+38F;
+  }
+  topo_=Topology::Undefined;vp_=Viewport();has_vp_=false;err_.clear();
+}
+
 bool DeviceContext::VSSetConstantBuffer(uint32_t slot, ResourceId buffer) {
   if (slot >= 14) return fail("VSSetConstantBuffer: slot must be 0..13");
   if (buffer != 0 && !dev_.buffer(buffer)) return fail("VSSetConstantBuffer: invalid buffer");
