@@ -245,7 +245,9 @@ public:
                                         const BlendState* blend = nullptr,
                                         int32_t cull_mode = VK_CULL_MODE_NONE,
                                         int32_t front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-                                        int32_t depth_compare = VK_COMPARE_OP_LESS);
+                                        int32_t depth_compare = VK_COMPARE_OP_LESS,
+                                        const std::vector<uint32_t>* vertex_push = nullptr,
+                                        const std::vector<uint8_t>* frag_ubo = nullptr);
 
   // Texture-array variant (slice S27): float4 clip position + float3 colour +
   // float3 (u, v, layer) per vertex (10 floats); the fragment shader samples a
