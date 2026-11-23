@@ -388,3 +388,24 @@ function signatures or termination. A guest can still execute arbitrary host-pri
 native instructions. General metadata validation, overlaps, partial mapping on failure,
 timeouts, COM ownership/lifetime and thread safety remain incomplete. No sandbox claim.
 PE TLS layout reference: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+
+## Batch 77: strict actual launcher argument parsing
+
+run_exe now rejects unknown flags, extra executable paths/guest arguments, empty paths,
+missing/empty value options and duplicate asset-root/save-frame options before opening
+a file or launching code. Previously these could silently replace the executable path
+or overwrite an earlier value. Boolean flags remain repeatable. Explicit `--` ends
+option parsing so a dash-leading executable can be named. An option value beginning
+with two dashes must instead be expressed with a path prefix such as `./`.
+
+The existing run_pe test checks the shared parser's valid and invalid forms. A new
+shell regression calls the real freshly built CLI seven invalid ways, requires exit2
+and usage with no loaded-result line, then successfully runs the retained hello CRT
+binary using explicit `--`. CI runs this script strictly and uploads the success log.
+All 41 local ASan/UBSan programs and the actual CLI script pass. No new guest variant,
+production source compilation unit, test target or CMake addition.
+
+Guest argument forwarding is still absent: a second positional argument is an error,
+not an implicit guest argument. This parser does not validate program instructions or
+supply OS isolation, timeout or host privilege limits. The existing loader, COM
+ownership/lifetime and thread-safety limitations remain. No new graphics claim.
