@@ -225,3 +225,13 @@ Batch94 extends only the fresh public-header probe with pixel-sampler caller
 release/cross-slot swap/rebind/unbind checks. Retained run284 bytes are unchanged
 and lack this marker. Independent MinGW compilation/execution awaits CI. No new
 scene or executable fixture is added.
+
+Batch95 replaces the same resource_interfaces.run.exe with exact run293 output,
+source tip 064c39b. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45288646312/job/138091426598
+510231 bytes; SHA256 1643381bca5fd0ace2faa41f549cc57c9c19cd88e4098e6312239cb347b71623.
+It includes all nine completion markers, adding pixel-sampler caller release,
+cross-slot swap, rebind and unbind. Exact combined output, zero exit, two translated
+shaders, zero presents and empty error are required. Fresh and retained CI require
+the sampler marker. Partial replacement/range refusal/teardown remain unit evidence.
+Earlier provenance is historical; full capacity/validation/null defaults are not proved.
