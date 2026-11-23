@@ -59,5 +59,29 @@ int main() {
   auto c = b; c[0x84]=0x4c; CHECK(!load_pe_image(c.data(), c.size(), resolver).ok);
   // section pointing outside image rejected
   auto d = b; w32(d,0x84+20+240+12,0x1f00); CHECK(!load_pe_image(d.data(), d.size(), resolver).ok);
+  // Malformed metadata must not wrap into valid low/header addresses.
+  const size_t opt=0x98, imports=opt+112+8, relocs=opt+112+5*8;
+  auto reject=[&](const std::vector<uint8_t>& bytes,const char* error){
+    auto result=load_pe_image(bytes.data(),bytes.size(),resolver);
+    if(result.ok || result.error!=error) {std::printf("expected %s got %s\n",error,result.error.c_str());return false;}return true;
+  };
+  c=b;w32(c,0x5c0,0xfffffff0u);w16(c,0x5c8,(10<<12)|0x10);CHECK(reject(c,"reloc target out of range"));
+  c=b;w32(c,0x5c0,0xfffffff0u);w16(c,0x5c8,(3<<12)|0x10);CHECK(reject(c,"reloc target out of range"));
+  c=b;w32(c,0x5c4,0xfffffffcu);CHECK(reject(c,"bad reloc block"));
+  c=b;w32(c,0x5c4,11);CHECK(reject(c,"bad reloc block"));
+  c=b;w32(c,relocs+4,13);CHECK(reject(c,"truncated reloc block"));
+  c=b;w32(c,imports,0xfffffff0u);w32(c,imports+4,60);CHECK(reject(c,"import directory out of range"));
+  c=b;w32(c,imports+4,19);CHECK(reject(c,"import descriptor outside directory"));
+  c=b;w32(c,imports+4,40);CHECK(reject(c,"import descriptor outside directory"));
+  c=b;w32(c,0x32c,1);CHECK(reject(c,"incomplete import descriptor")); // nonzero timestamp in terminator
+  c=b;w32(c,0x310,0);CHECK(reject(c,"incomplete import descriptor"));
+  c=b;w32(c,0x300,0xfffffffcu);CHECK(reject(c,"import thunk out of range"));
+  c=b;w32(c,0x310,0xfffffffcu);CHECK(reject(c,"import thunk out of range"));
+  c=b;w64(c,0x400,0xfffffffeull);CHECK(reject(c,"bad import name"));
+  c=b;w64(c,0x400,0x1000012a0ull);CHECK(reject(c,"bad import name"));
+  CHECK(!load_pe_image(nullptr,0x100,resolver).ok);CHECK(pe_image_size(nullptr,0x100)==0);
+  // OriginalFirstThunk=0 still uses the IAT as the lookup table.
+  c=b;w32(c,0x300,0);CHECK(load_pe_image(c.data(),c.size(),resolver).ok);
+  std::puts("PE metadata bounds: wrapped targets/names, directory spans, malformed blocks and null input rejected");
   std::puts("ok"); return 0;
 }
