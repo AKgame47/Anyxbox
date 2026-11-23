@@ -3,6 +3,7 @@
 #include <fstream>
 #include "pe_builder.h"
 #include "runtime/run_pe.h"
+#include "../tools/run_exe_options.h"
 using namespace pebuild;
 #define CHECK(c) do{ if(!(c)){ std::printf("FAIL line %d: %s\n", __LINE__, #c); return 1; } }while(0)
 static void emit(std::vector<uint8_t>& c, std::initializer_list<uint8_t> l){ c.insert(c.end(), l.begin(), l.end()); }
@@ -10,6 +11,27 @@ static void emit32(std::vector<uint8_t>& c, uint32_t v){ for(int i=0;i<4;i++) c.
 // rip-relative reference to rva from the instruction that ends at code.size()+4
 static void rip(std::vector<uint8_t>& c, uint32_t target){ emit32(c, target - (0x1000 + (uint32_t)c.size() + 4)); }
 int main() {
+  // Strict CLI parsing must not silently choose a different program.
+  {
+    auto parse=[](std::initializer_list<const char*> args){std::vector<const char*> a(args);return anyxbox::parse_launcher_options((int)a.size(),a.data());};
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe"}).error.size());
+    CHECK(!parse({"run_exe","sample.exe","--i-built-this","--gpu"}).error.size());
+    auto good=parse({"run_exe","--i-built-this","--asset-root","assets dir","--save-frame","out.png","--window","--controller","--gpu","--","--sample.exe"});
+    CHECK(good.error.empty()&&good.path=="--sample.exe"&&good.run.asset_root=="assets dir"&&good.save=="out.png"&&good.window&&good.controller&&good.gpu);
+    CHECK(!parse({"run_exe"}).error.empty());
+    CHECK(!parse({"run_exe","sample.exe"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","one.exe","two.exe"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe","--gup"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe","--asset-root"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe","--save-frame","--gpu"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe","--asset-root",""}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this",""}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe","--asset-root","a","--asset-root","b"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","sample.exe","--save-frame","a","--save-frame","b"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","--","sample.exe","--gpu"}).error.empty());
+    CHECK(!parse({"run_exe","--i-built-this","--"}).error.empty());
+    std::puts("launcher CLI: explicit path, strict options, missing/duplicate values and extra paths checked");
+  }
   // 1. mov eax, 42 ; ret
   { auto img = make({0xB8,42,0,0,0,0xC3}, {});
     auto r = anyxbox::run_pe(img.data(), img.size(), true);
