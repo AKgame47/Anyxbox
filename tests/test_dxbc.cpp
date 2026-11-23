@@ -119,9 +119,10 @@ int main() {
     bad = dxb::vs_cb_scale_offset(9, 1);       r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("1 to 8") != std::string::npos);
     bad = dxb::vs_cb_scale_offset(2, 1, true); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("dynamically") != std::string::npos);
     bad = dxb::vs_cb_scale_offset(2, 1, false, 1); r = dxbc_to_spirv(bad.data(), bad.size()); CHECK(!r.ok && r.error.find("slot 0") != std::string::npos);
+    { auto pc = dxb::ps_cb_tint(); r = dxbc_to_spirv(pc.data(), pc.size()); CHECK(r.ok); auto pc2 = dxb::ps_cb_tint(1025); r = dxbc_to_spirv(pc2.data(), pc2.size()); CHECK(!r.ok && r.error.find("1024") != std::string::npos); }
     auto pcb = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, {dxb::dcl_cb(0, 1), dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}),
                  dxb::ins(dxb::OP_MOV, {dxb::dst(dxb::T_OUTPUT, 0, 0xF), dxb::src_cb(0, 0)}), dxb::ins(dxb::OP_RET, {})});
-    r = dxbc_to_spirv(pcb.data(), pcb.size()); CHECK(!r.ok && r.error.find("pixel") != std::string::npos);
+    r = dxbc_to_spirv(pcb.data(), pcb.size()); CHECK(r.ok);   // cb0[0] of a declared cb0[1] in a pixel shader is valid now
     for (size_t n = 0; n < ok.size(); n++) CHECK(!dxbc_to_spirv(ok.data(), n).ok);
     for (size_t i = 0; i < ok.size(); i++) for (int bit = 0; bit < 8; bit++) { auto x = ok; x[i] ^= (uint8_t)(1u << bit); (void)dxbc_to_spirv(x.data(), x.size()); }
     d3d11::Device dv; d3d11::DeviceContext cx(dv); auto buf = dv.CreateBuffer("abcd", 4);
@@ -172,6 +173,29 @@ int main() {
     }
     std::printf("px(0,0) gpu %d %d %d  px(64,64) gpu %d %d %d ref %d %d %d\n", a[0], a[1], a[2], a[(64*W+64)*4], a[(64*W+64)*4+1], a[(64*W+64)*4+2], b[(64*W+64)*4], b[(64*W+64)*4+1], b[(64*W+64)*4+2]);
     std::printf("cbuffer variant %d: covered %d, mismatches %d\n", variant, cov2, bad2); CHECK(bad2 == 0 && cov2 > 800);
+  }
+  // pixel-shader cbuffer: o0 = sat(v1 * cb0[0] + cb0[1]), two different contents
+  for (int variant = 0; variant < 2; variant++) {
+    float cb[8] = {0.5f, 0.5f, 0.5f, 1,  0.1f, 0.2f, 0.3f, 0};
+    if (variant) { cb[0] = 2; cb[1] = 0; cb[2] = 1; cb[4] = -0.4f; cb[5] = 0.5f; cb[6] = 0; }
+    auto pcb = dxb::ps_cb_tint(); auto vsr = dxbc_to_spirv(vsb.data(), vsb.size()), psr = dxbc_to_spirv(pcb.data(), pcb.size()); CHECK(vsr.ok && psr.ok);
+    d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+    const float navy[4] = {0.02f, 0.03f, 0.2f, 1};
+    std::vector<V> big = {{-1.6f,-1.6f,0,1, 1,0,0,1}, {1.6f,-1.6f,0,1, 0,1,0,1}, {0,1.6f,0,1, 0.2f,0.4f,1,1}};
+    std::vector<V> small = big; for (auto& v : small) { v.x *= 0.5f; v.y *= 0.5f; }
+    Rig gpu(&be), ref;
+    CHECK(gpu.ctx.PSSetConstantBuffer(1, 1) == false);
+    CHECK(gpu.ctx.PSSetConstantBuffer(0, gpu.dev.CreateBuffer(cb, sizeof cb)));
+    gpu.ctx.ClearRenderTargetView(gpu.rtv, navy); ref.ctx.ClearRenderTargetView(ref.rtv, navy);
+    CHECK(gpu.draw(big) && ref.draw(small));
+    auto a = gpu.image(), b = ref.image(); Rig blank; blank.ctx.ClearRenderTargetView(blank.rtv, navy); auto c = blank.image();
+    int badp = 0, covp = 0;
+    for (size_t i = 0; i + 3 < a.size(); i += 4) {
+      bool cv = b[i] != c[i] || b[i + 1] != c[i + 1] || b[i + 2] != c[i + 2]; if (cv) covp++;
+      int ex[3]; for (int k = 0; k < 3; k++) ex[k] = cv ? (int)std::lround(sat(b[i + k] / 255.f * cb[k] + cb[4 + k]) * 255.f) : c[i + k];
+      int d = 0; for (int k = 0; k < 3; k++) d = std::max(d, std::abs((int)a[i + k] - ex[k])); if (d > 4) badp++;
+    }
+    std::printf("pixel cbuffer variant %d: covered %d, mismatches %d\n", variant, covp, badp); CHECK(badp == 0 && covp > 1500);
   }
   // an oversized constant buffer is an error, not a truncation
   { auto vcb = dxb::vs_cb_scale_offset(); auto vsr = dxbc_to_spirv(vcb.data(), vcb.size()), psr = dxbc_to_spirv(psb.data(), psb.size());
