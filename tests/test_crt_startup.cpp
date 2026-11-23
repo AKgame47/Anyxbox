@@ -66,6 +66,12 @@ int main() {
   int* e1 = M<int* (MS *)()>("_errno")(); *e1 = 5; int other = -1; std::thread([&] { other = *M<int* (MS *)()>("_errno")(); }).join(); CHECK(*e1 == 5 && other == 0);
   CHECK(std::strlen(M<const char* (MS *)(int)>("strerror")(2)) > 0);
   const char** lc = (const char**)M<void* (MS *)()>("localeconv")(); CHECK(lc[0][0] == '.' && lc[0][1] == 0 && lc[1][0] == 0);
+  { const char* t = "abcabc"; CHECK(M<void* (MS *)(const void*, int, uint64_t)>("memchr")(t, 'c', 6) == t + 2 && M<void* (MS *)(const void*, int, uint64_t)>("memchr")(t, 'z', 6) == nullptr && M<void* (MS *)(const void*, int, uint64_t)>("memchr")(t, 'a', 0) == nullptr);
+    out.clear(); CHECK(M<int (MS *)(const char*, void*)>("fputs")("hi", so) == 1 && out == "hi" && M<int (MS *)(const char*, void*)>("fputs")("x", in) == -1);
+    out.clear(); auto wr = M<int (MS *)(int, const void*, unsigned)>("_write");
+    CHECK(wr(1, "abc", 3) == 3 && wr(2, "de", 2) == 2 && out == "abcde" && wr(5, "x", 1) == -1);
+    char rb[4]; CHECK(M<int (MS *)(int, void*, unsigned)>("_read")(0, rb, 4) == 0 && M<int (MS *)(int, void*, unsigned)>("_read")(3, rb, 4) == -1);
+    CHECK(M<int (MS *)(int)>("_close")(1) == 0 && M<int (MS *)(int)>("_close")(9) == -1); }
   const uint16_t w[] = {'h', 'i', 0}; CHECK(M<uint64_t (MS *)(const uint16_t*)>("wcslen")(w) == 2);
   CHECK(M<int (MS *)()>("___mb_cur_max_func")() == 1 && M<int (MS *)()>("__lconv_init")() == 0 && M<int (MS *)(void*, void*, void*, void*)>("__C_specific_handler")(0, 0, 0, 0) == 1);
   M<void (MS *)(int)>("_lock")(3); M<void (MS *)(int)>("_lock")(3); M<void (MS *)(int)>("_unlock")(3); M<void (MS *)(int)>("_unlock")(3); M<void (MS *)(int)>("_lock")(999);
