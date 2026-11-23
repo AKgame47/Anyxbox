@@ -218,6 +218,7 @@ jobs:
           grep -q 'shader bindings: caller release, same-object rebind and unbind references ok' retained-resource-interfaces.log
           grep -q 'output merger: RTV/DSV caller release, same-object rebind and unbind references ok' retained-resource-interfaces.log
           grep -q 'pixel SRV bindings: caller release, cross-slot swap, rebind and unbind references ok' retained-resource-interfaces.log
+          grep -q 'input buffers: vertex caller release, swap, rebind and index retain/unbind references ok' retained-resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
