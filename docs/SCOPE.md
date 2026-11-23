@@ -60,3 +60,8 @@ The loader reads data directory 9 (template, index slot, callbacks), validates e
 
 LoadLibraryA/W, GetModuleHandleA/W, GetProcAddress (by name or ordinal) and FreeLibrary work against the DLL sets Anyxbox itself provides (kernel32, user32, d3d11, msvcrt, ...). The module handle is a fake address per set; GetProcAddress returns the same function address an import of that name would get. A DLL Anyxbox does not provide fails with ERROR_MOD_NOT_FOUND (126); a missing function fails with ERROR_PROC_NOT_FOUND (127). No file is ever loaded from disk, so a game's own or third-party DLLs are not loaded.
 tests/fixtures/tls_crt.run.exe is the CI-built TLS program from run #44 (SHA-256 985a39579198e5e13ce6402c86366e862b048db19e12fe00bb5c2c2930b8ba3f); it prints "tls=42 zero=0".
+
+## Batch 36: XInput and XAudio2 stubs
+
+xinput1_4/1_3/9_1_0: XInputGetState, SetState, GetCapabilities, Enable, GetBatteryInformation, GetKeystroke. With no pad connected they return ERROR_DEVICE_NOT_CONNECTED, as a PC without a controller does. The host can connect a pad (XInputContext::set_pad); wiring real controllers (SDL) is not done.
+xaudio2_9/2_8: XAudio2Create with IXAudio2 (2.8+ vtable), source, submix and mastering voices. Buffers are accepted and counted as played immediately; no sound is produced, buffer-end callbacks are not called, and effects, filters and 3D audio are not implemented. XAudio2 2.7 (COM class registration) is not covered. Both are registered by run_pe for every program.
