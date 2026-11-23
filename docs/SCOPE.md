@@ -210,3 +210,9 @@ API references for this backend:
 - The draw-copy test's directory mode now checks source calls and the retained PE. CI requires Vulkan separately for both the freshly built and retained executables; frame images for both are retained.
 - Local sanitizer run of the supplied independent binary passed all two-frame pixel checks. Both local frames matched the supplied CI frames byte-for-byte as decoded RGB images; inspected both CI images. The fixture-slot check also requires the expected present/shader counts and no output/error.
 - Scope remains software Vulkan validation of this self-written fixture, not game or physical-device compatibility.
+
+## Batch 62: independent draw variants for region-copy, update and map writes
+- Added three MinGW fixture sources and three test wrappers using the existing draw-copy verifier.
+- Region-copy and UpdateSubresource change the right texture column and a 20-row top strip of the live target. Pixel checks cover changed and unchanged regions in both frames.
+- Map writes the dynamic sampled texture directly and a staging resource for CopyResource into the target. It does not map a default backbuffer or use UpdateSubresource on a dynamic resource.
+- Local sanitizer host-source paths passed on software Vulkan; inspected all six captured frames. CI's new independent binary checks require Vulkan and retain the binaries/images. New independent compile/run results await CI. Production functionality unchanged.
