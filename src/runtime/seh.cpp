@@ -1,4 +1,6 @@
 #include "runtime/seh.h"
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <csignal>
 #include <ucontext.h>
@@ -20,7 +22,14 @@ struct Img { uint64_t base; uint32_t size, pdata_rva, pdata_n; };
 std::mutex g_mu;
 std::vector<Img> g_imgs;
 std::function<void(uint32_t)> g_unhandled;
+// Host frames (our dispatcher) have no unwind tables. When a walk reaches one, it continues from the newest saved continuation: the
+// context the walk that called the handler was at. Entries whose stack lies below a landing point are dead and get pruned.
+struct Cont { uint8_t c[0x4D0]; };
+thread_local std::vector<Cont> t_cont;
+void cont_prune(uint64_t rsp);
 thread_local uint8_t* t_ctx0 = nullptr;   // context the current dispatch started from (host handlers unwind from here)
+// ANYXBOX_SEH_TRACE=1 prints every dispatch step to stderr (diagnostics for CI logs).
+bool trace() { static const bool t = std::getenv("ANYXBOX_SEH_TRACE") != nullptr; return t; }
 const uint32_t EH_UNWINDING = 2, EH_EXIT_UNWIND = 4, EH_TARGET_UNWIND = 0x20;
 struct DC { uint64_t ControlPc, ImageBase, FunctionEntry, EstablisherFrame, TargetIp, ContextRecord, LanguageHandler, HandlerData, HistoryTable; uint32_t ScopeIndex, Fill0; };
 typedef int32_t (MSABI *Handler)(uint8_t* rec, uint64_t frame, uint8_t* ctx, DC* dc);
@@ -135,18 +144,18 @@ anyxbox_seh_restore:
 // as impl(a1, a2, a3, a4, a5, a6, context). a5 and a6 are the guest's stack arguments 5 and 6.
 #define ANYXBOX_SEH_STUB(NAME, IMPL) \
 asm(".text\n.globl " NAME "\n" NAME ":\n.intel_syntax noprefix\n" \
-  "sub rsp, 0x518\n" \
-  "mov [rsp+0x40+0x78], rax\nmov [rsp+0x40+0x90], rbx\nmov [rsp+0x40+0xA0], rbp\nmov [rsp+0x40+0xA8], rsi\nmov [rsp+0x40+0xB0], rdi\n" \
+  "push rbp\nmov rbp, rsp\nand rsp, -16\nsub rsp, 0x510\n" \
+  "mov [rsp+0x40+0x78], rax\nmov [rsp+0x40+0x90], rbx\nmov rax, [rbp]\nmov [rsp+0x40+0xA0], rax\nmov [rsp+0x40+0xA8], rsi\nmov [rsp+0x40+0xB0], rdi\n" \
   "mov [rsp+0x40+0xD8], r12\nmov [rsp+0x40+0xE0], r13\nmov [rsp+0x40+0xE8], r14\nmov [rsp+0x40+0xF0], r15\n" \
-  "lea rax, [rsp+0x520]\nmov [rsp+0x40+0x98], rax\nmov rax, [rsp+0x518]\nmov [rsp+0x40+0xF8], rax\n" \
+  "lea rax, [rbp+0x10]\nmov [rsp+0x40+0x98], rax\nmov rax, [rbp+8]\nmov [rsp+0x40+0xF8], rax\n" \
   "movups [rsp+0x40+0x1A0+96], xmm6\nmovups [rsp+0x40+0x1A0+112], xmm7\nmovups [rsp+0x40+0x1A0+128], xmm8\nmovups [rsp+0x40+0x1A0+144], xmm9\n" \
   "movups [rsp+0x40+0x1A0+160], xmm10\nmovups [rsp+0x40+0x1A0+176], xmm11\nmovups [rsp+0x40+0x1A0+192], xmm12\nmovups [rsp+0x40+0x1A0+208], xmm13\n" \
   "movups [rsp+0x40+0x1A0+224], xmm14\nmovups [rsp+0x40+0x1A0+240], xmm15\n" \
   "mov dword ptr [rsp+0x40+0x30], 0x10001F\n" \
-  "mov rax, [rsp+0x540]\nmov [rsp+0x20], rax\nmov rax, [rsp+0x548]\nmov [rsp+0x28], rax\n" \
+  "mov rax, [rbp+0x30]\nmov [rsp+0x20], rax\nmov rax, [rbp+0x38]\nmov [rsp+0x28], rax\n" \
   "lea rax, [rsp+0x40]\nmov [rsp+0x30], rax\n" \
   "call " IMPL "@PLT\n" \
-  "add rsp, 0x518\nret\n.att_syntax prefix\n");
+  "mov rsp, rbp\npop rbp\nret\n.att_syntax prefix\n");
 ANYXBOX_SEH_STUB("anyxbox_seh_RaiseException", "anyxbox_seh_impl_RaiseException")
 ANYXBOX_SEH_STUB("anyxbox_seh_RtlCaptureContext", "anyxbox_seh_impl_RtlCaptureContext")
 ANYXBOX_SEH_STUB("anyxbox_seh_RtlUnwindEx", "anyxbox_seh_impl_RtlUnwindEx")
@@ -159,26 +168,41 @@ void anyxbox_seh_RtlUnwind();
 }
 namespace anyxbox {
 namespace {
+void cont_prune(uint64_t rsp) { while (!t_cont.empty() && RSP(t_cont.back().c) < rsp) t_cont.pop_back(); }
+void cont_push(const uint8_t* c) { Cont k; std::memcpy(k.c, c, CTX_SIZE); t_cont.push_back(k); }
 // Phase 1: walk the frames from ctx0 and offer the exception to each frame's handler. True when a handler chose to continue execution.
 bool dispatch(uint8_t* rec, uint8_t* ctx0) {
+  if (trace()) std::fprintf(stderr, "seh: dispatch code=%08x flags=%x rip=%llx rsp=%llx\n", u32(rec), u32(rec + 4), (unsigned long long)RIP(ctx0), (unsigned long long)RSP(ctx0));
   uint8_t* saved = t_ctx0; t_ctx0 = ctx0;
+  cont_prune(RSP(ctx0));
+  size_t base_depth = t_cont.size();
+  cont_push(ctx0);
+  long idx = (long)base_depth - 1;
   uint8_t c[CTX_SIZE], c2[CTX_SIZE];
   std::memcpy(c, ctx0, CTX_SIZE);
   bool continued = false;
   for (int depth = 0; depth < 512; depth++) {
     uint64_t pc = RIP(c), base = 0;
     const RF* rf = lookup(pc, &base);
-    if (!rf) { if (!in_image(pc)) break; leaf_unwind(c); continue; }
+    if (!rf) {
+      if (trace()) std::fprintf(stderr, "seh:  no function entry for pc=%llx (%s)\n", (unsigned long long)pc, in_image(pc) ? "leaf" : "host frame");
+      if (!in_image(pc)) { if (idx >= 0) { std::memcpy(c, t_cont[idx--].c, CTX_SIZE); continue; } break; }
+      leaf_unwind(c); continue;
+    }
     std::memcpy(c2, c, CTX_SIZE);
     uint64_t hdata = 0, frame = 0;
     uint64_t h = virtual_unwind(1, base, pc, rf, c2, &hdata, &frame);
+    if (trace()) std::fprintf(stderr, "seh:  frame pc=%llx rva=%llx frame=%llx handler=%llx\n", (unsigned long long)pc, (unsigned long long)(pc - base), (unsigned long long)frame, (unsigned long long)(h ? h - base : 0));
     if (h) {
       DC dc{pc, base, (uint64_t)(uintptr_t)rf, frame, 0, (uint64_t)(uintptr_t)c, h, hdata, 0, 0, 0};
-      if (((Handler)(uintptr_t)h)(rec, frame, c, &dc) == 0) { continued = true; break; }
+      int32_t disp = ((Handler)(uintptr_t)h)(rec, frame, c, &dc);
+      if (trace()) std::fprintf(stderr, "seh:   disposition %d\n", disp);
+      if (disp == 0) { continued = true; break; }
     }
     std::memcpy(c, c2, CTX_SIZE);
   }
   t_ctx0 = saved;
+  t_cont.resize(base_depth);
   return continued;
 }
 // Phase 2: unwind from start up to target_frame, running termination handlers, then continue at target_ip. Does not return.
@@ -188,22 +212,39 @@ bool dispatch(uint8_t* rec, uint8_t* ctx0) {
   uint32_t flags = u32(rec + 4) | EH_UNWINDING | (target_frame ? 0 : EH_EXIT_UNWIND);
   uint8_t c[CTX_SIZE], c2[CTX_SIZE];
   std::memcpy(c, start, CTX_SIZE);
+  cont_prune(*(const uint64_t*)(start + O_RSP));
+  long idx = (long)t_cont.size() - 1;
   for (int depth = 0; depth < 512; depth++) {
     uint64_t pc = RIP(c), base = 0;
     const RF* rf = lookup(pc, &base);
-    if (!rf) { if (!in_image(pc)) break; leaf_unwind(c); continue; }
+    if (!rf) {
+      if (trace()) std::fprintf(stderr, "seh:  unwind: no function entry for pc=%llx\n", (unsigned long long)pc);
+      if (!in_image(pc)) {
+        // A guest handler was called by our host dispatcher, which has no unwind tables: carry on from where the exception was raised,
+        // as the real stack would (handler, dispatcher, RaiseException's caller).
+        if (idx >= 0) { std::memcpy(c, t_cont[idx--].c, CTX_SIZE); continue; }
+        break;
+      }
+      leaf_unwind(c); continue;
+    }
     std::memcpy(c2, c, CTX_SIZE);
     uint64_t hdata = 0, frame = 0;
     uint64_t h = virtual_unwind(2, base, pc, rf, c2, &hdata, &frame);
     bool target = target_frame && frame == target_frame;
+    if (trace()) std::fprintf(stderr, "seh:  unwind frame pc=%llx rva=%llx frame=%llx handler=%llx target=%d\n", (unsigned long long)pc, (unsigned long long)(pc - base), (unsigned long long)frame, (unsigned long long)(h ? h - base : 0), (int)target);
     if (h) {
       uint32_t f = flags | (target ? EH_TARGET_UNWIND : 0); std::memcpy(rec + 4, &f, 4);
       DC dc{pc, base, (uint64_t)(uintptr_t)rf, frame, target_ip, (uint64_t)(uintptr_t)c, h, hdata, 0, 0, 0};
+      size_t depth_now = t_cont.size();
+      cont_push(c2);
       ((Handler)(uintptr_t)h)(rec, frame, c, &dc);
+      t_cont.resize(depth_now);
     }
     if (target) break;
     std::memcpy(c, c2, CTX_SIZE);
   }
+  if (trace()) std::fprintf(stderr, "seh: continue at %llx rsp=%llx\n", (unsigned long long)target_ip, (unsigned long long)RSP(c));
+  cont_prune(RSP(c));
   RIP(c) = target_ip; R(c, 0) = retval;
   if (__asan_handle_no_return) __asan_handle_no_return();
   anyxbox_seh_restore(c);
@@ -227,6 +268,7 @@ MSABI uint64_t anyxbox_seh_impl_RtlCaptureContext(uint64_t out, uint64_t, uint64
   return 0;
 }
 MSABI uint64_t anyxbox_seh_impl_RtlUnwindEx(uint64_t target_frame, uint64_t target_ip, uint64_t rec, uint64_t retval, uint64_t, uint64_t, uint8_t* ctx) {
+  if (trace()) std::fprintf(stderr, "seh: RtlUnwindEx target_frame=%llx target_ip=%llx\n", (unsigned long long)target_frame, (unsigned long long)target_ip);
   unwind_to(target_frame, target_ip, (uint8_t*)(uintptr_t)rec, retval, ctx);
 }
 MSABI uint64_t anyxbox_seh_impl_RtlUnwind(uint64_t target_frame, uint64_t target_ip, uint64_t rec, uint64_t retval, uint64_t, uint64_t, uint8_t* ctx) {
