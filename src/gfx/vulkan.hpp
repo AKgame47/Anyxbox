@@ -87,6 +87,7 @@ struct FrameSurface {
 };
 
 struct MeshInput {
+  const VkRect2D* scissor = nullptr;
   const std::vector<float>* vertices = nullptr;
   uint32_t pos_floats = 2;
   uint32_t extra_floats = 0;  // optional attributes after colour: 1 (float), 2 (vec2 uv), 3 (vec3), 5 (vec2 uv at 2 + vec3 normal at 3)
@@ -210,7 +211,8 @@ public:
                                int32_t depth_compare = VK_COMPARE_OP_LESS,
                                const std::vector<uint32_t>* vertex_push = nullptr,
                                const std::vector<uint8_t>* frag_ubo = nullptr,
-                               const std::vector<uint8_t>* vert_ubo = nullptr);  // Anyxbox: 1..32 words, vertex stage
+                               const std::vector<uint8_t>* vert_ubo = nullptr,
+                               const VkRect2D* scissor = nullptr);  // Anyxbox: 1..32 words, vertex stage
 
   // Destroys a FrameSurface's Vulkan objects and zeroes it (slice S13).
   void destroy_frame(FrameSurface& s);
@@ -254,7 +256,8 @@ public:
                                         const std::vector<uint32_t>* vertex_push = nullptr,
                                         const std::vector<uint8_t>* frag_ubo = nullptr,
                                const std::vector<uint8_t>* vert_ubo = nullptr,
-                               const std::vector<TexInput>* extra_tex = nullptr);
+                               const std::vector<TexInput>* extra_tex = nullptr,
+                               const VkRect2D* scissor = nullptr);
 
   // Texture-array variant (slice S27): float4 clip position + float3 colour +
   // float3 (u, v, layer) per vertex (10 floats); the fragment shader samples a
@@ -366,4 +369,3 @@ private:
 };
 
 }  // namespace pnr::graphics
-
