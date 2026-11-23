@@ -153,3 +153,8 @@ API references for this backend:
 - Five checks prove explicit levels 0/1/2, fractional linear mip filtering (green-blue midpoint), and MinLOD clamping. COM tests verify pitched initialization, Map per level, subresource update, and unsupported subset-view rejection. All 32 test programs pass under local ASan/UBSan after a full rebuild.
 - Limits: t0 only for multi-level sampling; no automatic GenerateMips, subset SRVs, arrays, compressed formats, nonzero-mip rendering or physical GPU validation. Vulkan upload retains the 256x256 texture limit. No real game compatibility claim.
 - API grounding: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_texture2d_desc , https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_tex2d_srv , https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_sampler_desc
+
+## Batch 52: mip sampling across t0..t3
+- Additional Vulkan texture bindings upload their packed mip chains, expose all levels in the image view, and use the selected sampler's mip filter and LOD bounds.
+- The five explicit-level/filter/clamp cases from batch 51 now run separately at each supported texture slot, twenty actual software-Vulkan sampling checks in total. Higher slots also exercise zero-filled lower unbound slots. All passed locally along with all 32 ASan/UBSan test programs.
+- This removes the t0-only restriction for mip sampling. Remaining limits stay: four texture slots, 256x256 Vulkan upload limit, no GenerateMips, no subset views, no compressed texture formats or arrays, and no physical GPU or real game compatibility validation.
