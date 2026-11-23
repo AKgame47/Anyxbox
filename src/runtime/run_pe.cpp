@@ -54,6 +54,7 @@ RunResult run_pe(const uint8_t* data, size_t size, bool trust, const std::functi
   crt.exit_fn = [](uint32_t c) { host_ExitProcess(c); };
   msvcrt_register(reg, crt);
   seh_register(reg);
+  seh_install_fault_handlers();
   XInputContext xi; xinput_register(reg, xi);       // no pad connected unless the host connects one
   XAudio2Context xa; xaudio2_register(reg, xa);     // plays into nothing
   if (extra_imports) extra_imports(reg);
