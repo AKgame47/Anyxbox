@@ -36,3 +36,10 @@ and 29 msvcrt names from that report (see the header comments of src/runtime/msv
 same path as ExitProcess. VirtualProtect/VirtualQuery only touch the main image and VirtualAlloc regions. stdio exists only for the three standard streams.
 Not covered: a TLS directory (callbacks and __declspec(thread) data are ignored by the loader), SEH unwinding (`__C_specific_handler` is a stub that never handles anything),
 signals, wide-character stdio, file streams (fopen and friends), locale beyond the C locale. Whether hello_crt.exe really runs is decided by the next CI run, not by these unit tests.
+
+## Thread environment block (batch 30)
+The first real MinGW program (hello_crt.exe, CI run #20) faulted on `mov rax, gs:[0x30]` in its own startup code. Each guest thread now gets a fake TEB and the process a shared PEB
+(`src/runtime/teb.*`, arch_prctl ARCH_SET_GS): Self, StackBase/StackLimit from the host thread stack, ClientId, ThreadLocalStoragePointer (an empty table), PEB with image base, empty process
+parameters, heap handle and a Windows 10 version. Everything else in those structures reads zero. Linux x86-64 only. Result: hello_crt.exe and triangle.exe, both built by CI from our own sources,
+now run end to end (hello prints its line; triangle presents 3 frames with the expected pixels). They are committed as tests/fixtures/*.run.exe and run by test_fixture_slot.
+Still not covered: the TLS directory (callbacks, __declspec(thread) data), SEH unwinding, DLL loading (LoadLibrary/GetProcAddress), real Xbox binaries.
