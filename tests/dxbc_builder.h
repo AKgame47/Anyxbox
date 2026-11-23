@@ -17,6 +17,10 @@ inline Words src(int type, uint32_t reg, uint32_t sw = swz(0, 1, 2, 3), bool neg
   else w = {t, reg};
   return w;
 }
+// constant buffer source: cb<slot>[reg] with a swizzle
+inline Words src_cb(uint32_t slot, uint32_t reg, uint32_t sw = swz(0, 1, 2, 3)) {
+  return {2u | (1u << 2) | (sw << 4) | ((uint32_t)T_CB << 12) | (2u << 20), slot, reg};
+}
 inline Words imm4(float a, float b, float c, float d) { return {2u | (1u << 2) | (swz(0, 1, 2, 3) << 4) | (4u << 12), fb(a), fb(b), fb(c), fb(d)}; }
 inline Words imm1(float a) { return {1u | (4u << 12), fb(a)}; }
 inline Words ins(uint32_t op, std::vector<Words> ops, bool sat = false, uint32_t control = 0, std::vector<uint32_t> tail = {}) {
@@ -25,6 +29,10 @@ inline Words ins(uint32_t op, std::vector<Words> ops, bool sat = false, uint32_t
   body.insert(body.end(), tail.begin(), tail.end());
   Words w; w.push_back(op | (control << 11) | (sat ? 0x2000u : 0) | ((uint32_t)(body.size() + 1) << 24));
   w.insert(w.end(), body.begin(), body.end()); return w;
+}
+// dcl_constantbuffer cb<slot>[count]; dynamic = access pattern bit
+inline Words dcl_cb(uint32_t slot, uint32_t count, bool dynamic = false) {
+  return ins(89, {{2u | (1u << 2) | (swz(0, 1, 2, 3) << 4) | ((uint32_t)T_CB << 12) | (2u << 20), slot, count}}, false, dynamic ? 1 : 0);
 }
 inline Words dcl_temps(uint32_t n) { return {104u | (2u << 24), n}; }
 struct Sig { const char* name; uint32_t idx, sysval, reg; uint8_t mask; };
@@ -98,5 +106,14 @@ inline std::vector<uint8_t> ps_negabs() {
      ins(OP_MOV, {dst(T_TEMP, 0, 0xF), src(T_INPUT, 1, swz(0, 1, 2, 3), true)}),
      ins(OP_MOV, {dst(T_OUTPUT, 0, 0xF), src(T_TEMP, 0, swz(0, 1, 2, 3), false, true)}),
      ins(OP_RET, {})});
+}
+// o0 = v0 * cb0[0] + cb0[1]; colour passed through (v1.xyz, alpha 1)
+inline std::vector<uint8_t> vs_cb_scale_offset(uint32_t declared = 2, uint32_t read_reg = 1, bool dynamic = false, uint32_t slot = 0) {
+  return shader(1, {{"POSITION", 0, 0, 0, 0xF}, {"COLOR", 0, 0, 1, 0x7}}, {{"SV_Position", 0, 1, 0, 0xF}, {"COLOR", 0, 0, 1, 0xF}},
+    {dcl_cb(slot, declared, dynamic), ins(95, {dst(T_INPUT, 0, 0xF)}), ins(95, {dst(T_INPUT, 1, 0x7)}),
+     ins(103, {dst(T_OUTPUT, 0, 0xF)}, false, 0, {1}), ins(101, {dst(T_OUTPUT, 1, 0xF)}),
+     ins(OP_MAD, {dst(T_OUTPUT, 0, 0xF), src(T_INPUT, 0), src_cb(slot, 0), src_cb(slot, read_reg)}),
+     ins(OP_MOV, {dst(T_OUTPUT, 1, 0x7), src(T_INPUT, 1, swz(0, 1, 2, 0))}),
+     ins(OP_MOV, {dst(T_OUTPUT, 1, 0x8), imm1(1)}), ins(OP_RET, {})});
 }
 }  // namespace dxb
