@@ -318,7 +318,7 @@ Status VulkanBackend::create_frame_targets(uint32_t w, uint32_t h, bool with_dep
   ici.mipLevels = 1; ici.arrayLayers = 1;
   ici.samples = VK_SAMPLE_COUNT_1_BIT;
   ici.tiling = VK_IMAGE_TILING_OPTIMAL;
-  ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   VkResult r = fn<VkResult (*)(VkDevice, const VkImageCreateInfo*, void*, VkImage*)>(
@@ -437,8 +437,10 @@ Status VulkanBackend::render_core(
                           "shared frame has no depth surface; bind the depth buffer before the frame's first draw");
     }
   }
-  const bool fresh_color = !shared || made_frame;
-  const bool fresh_depth = fresh_color;
+  const bool seed_color = shared && shared->upload_rgba;
+  if (seed_color && shared->upload_rgba->size() != (size_t)w*h*4) return Status::Fail(100,"vulkan","frame upload size mismatch");
+  const bool fresh_depth = !shared || made_frame;
+  const bool fresh_color = fresh_depth && !seed_color;
 
   // --- colour image (device local if possible) ---
   VkImageCreateInfo ici{};
@@ -449,7 +451,7 @@ Status VulkanBackend::render_core(
   ici.mipLevels = 1; ici.arrayLayers = 1;
   ici.samples = VK_SAMPLE_COUNT_1_BIT;
   ici.tiling = VK_IMAGE_TILING_OPTIMAL;
-  ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   VkImage image = 0;
@@ -849,6 +851,10 @@ Status VulkanBackend::render_core(
     fn<void (*)(VkDevice, uint32_t, const VkWriteDescriptorSet*, uint32_t, void*)>(vkUpdateDescriptorSets)(device_, nw, uw, 0, nullptr);
   }
 
+  VkBuffer frame_stage = 0;
+  if (seed_color) {
+    if (Status st = host_buffer(shared->upload_rgba->data(), shared->upload_rgba->size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "frame upload", &frame_stage); !st.ok) return st;
+  }
   // --- render pass: clear on load, store, end in TRANSFER_SRC ---
   VkAttachmentDescription att[2]{};
   att[0].format = VK_FORMAT_R8G8B8A8_UNORM; att[0].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1032,6 +1038,20 @@ Status VulkanBackend::render_core(
   for (uint32_t f = 0; f < nframes; ++f) {
     VkCommandBuffer cmd = cmds[f];
     fn<VkResult (*)(VkCommandBuffer, const VkCommandBufferBeginInfo*)>(vkBeginCommandBuffer)(cmd, &begin);
+    if (seed_color) {
+      VkImageMemoryBarrier b{}; b.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      b.srcAccessMask=made_frame?VkFlags(0):VkFlags(VK_ACCESS_TRANSFER_READ_BIT); b.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+      b.oldLayout=made_frame?VK_IMAGE_LAYOUT_UNDEFINED:VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+      b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+      b.image=image; b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+      using Barrier=void (*)(VkCommandBuffer,VkFlags,VkFlags,VkFlags,uint32_t,const void*,uint32_t,const void*,uint32_t,const VkImageMemoryBarrier*);
+      fn<Barrier>(vkCmdPipelineBarrier)(cmd,made_frame?VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&b);
+      VkBufferImageCopy c{};c.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};c.imageExtent={w,h,1};
+      fn<void (*)(VkCommandBuffer,VkBuffer,VkImage,int32_t,uint32_t,const VkBufferImageCopy*)>(vkCmdCopyBufferToImage)(cmd,frame_stage,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&c);
+      b.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;b.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      b.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+      fn<Barrier>(vkCmdPipelineBarrier)(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&b);
+    }
     fn<void (*)(VkCommandBuffer, const VkRenderPassBeginInfo*, int32_t)>(vkCmdBeginRenderPass)(
         cmd, &rbi, (int32_t)VK_SUBPASS_CONTENTS_INLINE);
     fn<void (*)(VkCommandBuffer, int32_t, VkPipeline)>(vkCmdBindPipeline)(
