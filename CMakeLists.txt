@@ -7,3 +7,12 @@ target_include_directories(anyxbox_loader PUBLIC src)
 add_executable(test_pe_header tests/test_pe_header.cpp)
 target_link_libraries(test_pe_header anyxbox_loader)
 add_test(NAME pe_header COMMAND test_pe_header)
+
+# Add to CMakeLists.txt
+add_library(anyxbox_pe src/loader/pe_image.cpp src/syslayer/import_registry.cpp)
+target_include_directories(anyxbox_pe PUBLIC src)
+foreach(t pe_image import_registry)
+  add_executable(test_${t} tests/test_${t}.cpp)
+  target_link_libraries(test_${t} anyxbox_pe)
+  add_test(NAME ${t} COMMAND test_${t})
+endforeach()
