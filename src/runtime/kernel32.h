@@ -17,6 +17,7 @@ struct Kernel32Context {
   VirtualMemory vm;
   std::unique_ptr<MappedFolder> folder;   // null = file functions fail
   uint64_t image_base = 0;                // returned by GetModuleHandle(NULL)
+  uint64_t image_size = 0;                // mapped size of the main image; VirtualProtect only changes pages inside it or inside VirtualAlloc regions
   std::string* out = nullptr;             // captured stdout/stderr
   std::mutex cs_mutex;
   std::map<uintptr_t, std::unique_ptr<CriticalSection>> critical_sections;
