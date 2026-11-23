@@ -229,3 +229,8 @@ API references for this backend:
 - Synthetic tests cover component/final symlink refusal, no external truncation, FIFO rejection, read-only opens and actual launch-route default denial/opt-in reading/truncating-write denial. All 36 local sanitizer programs pass after rebuilding all tests for the changed run_pe signature.
 - Added an independent file-backed MinGW fixture and strict CLI tests, not yet compiled/executed outside CI. No external guest binary or private host file used.
 - This routing does not isolate native guest code. Host-selected root topology/contents remain trusted; no OS sandbox claim. See ASSET_IO.md for scope and limits.
+
+## Batch 65: retained file-backed launch regression
+- Committed the exact CI run-173 asset_read.exe with source/build/hash provenance. Local sanitizer execution verified exact read output, zero exit with explicit root and exit 10 without root.
+- Fixture-slot now checks thirteen retained programs. Its asset case creates only synthetic temporary files, checks explicit-root output, source asset unchanged and default denial. CI separately runs fresh/retained binaries through the CLI, both rooted and default-denied.
+- All 36 local sanitizer tests pass. Production code unchanged; read-only path routing still does not isolate native code or provide writable saves.
