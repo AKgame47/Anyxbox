@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
         auto r = run_pe(data.data(), data.size(), true, [&](ImportRegistry& reg) { user32_register(reg, u); rt.register_imports(reg); });
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
         CHECK(r.ran && r.loaded && r.exit_code == 0);
-        if (n.find("draw_copy.") == 0) {
+        if (n.find("draw_copy.") == 0 || n.find("draw_region.") == 0 || n.find("draw_update.") == 0 || n.find("draw_map.") == 0) {
           CHECK(r.output.empty() && rt.presents == 2 && rt.shaders_translated == 4 && rt.last_error.empty());
         }
         if (n.find("texture_copy.") == 0) {
