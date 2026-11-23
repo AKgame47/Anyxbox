@@ -114,6 +114,18 @@ int main(){
     CHECK(constants[0]->Release()==0&&constants[1]->Release()==0);
   }
   std::puts("constant buffers: VS/PS caller release, cross-slot swap, rebind and unbind references ok");
+  D3D11_SAMPLER_DESC samplerDesc={};samplerDesc.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT;
+  samplerDesc.AddressU=samplerDesc.AddressV=samplerDesc.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
+  samplerDesc.ComparisonFunc=D3D11_COMPARISON_NEVER;samplerDesc.MaxAnisotropy=1;
+  ID3D11SamplerState* samplers[2]={};
+  CHECK(SUCCEEDED(dev->CreateSamplerState(&samplerDesc,&samplers[0])));
+  CHECK(SUCCEEDED(dev->CreateSamplerState(&samplerDesc,&samplers[1])));
+  ctx->PSSetSamplers(0,2,samplers);CHECK(samplers[0]->Release()==1&&samplers[1]->Release()==1);
+  ID3D11SamplerState* swappedSamplers[]={samplers[1],samplers[0]};
+  ctx->PSSetSamplers(0,2,swappedSamplers);ctx->PSSetSamplers(0,2,swappedSamplers);
+  CHECK(samplers[0]->AddRef()==2&&samplers[1]->AddRef()==2);
+  ctx->PSSetSamplers(0,2,nullptr);CHECK(samplers[0]->Release()==0&&samplers[1]->Release()==0);
+  std::puts("pixel samplers: caller release, cross-slot swap, rebind and unbind references ok");
   ID3D11VertexShader* vs=nullptr;ID3D11PixelShader* ps=nullptr;
   CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&vs)));
   CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&ps)));
