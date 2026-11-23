@@ -58,6 +58,7 @@ int main(int argc, char** argv) {
         std::printf("  ran=%d exit=%u output=%s\n", r.ran, r.exit_code, r.output.c_str());
         CHECK(r.ran && r.loaded && r.exit_code == 0);
         if (n.find("hello_crt") == 0) CHECK(r.output == "hello from a MinGW program, argc=1\n");
+        if (n.find("tls_thread") == 0) CHECK(r.output == "attach=2 detach=2 main=99 zero=0\n");
         if (n.find("tls_crt") == 0) CHECK(r.output == "tls=42 zero=0\n");
         if (n.find("veh.") == 0) CHECK(r.output == "veh saw e0001234\nafter raise\nfilter saw e0002222\nafter second raise\nremoved 1\nok\n");
         if (n.find("eh.") == 0) CHECK(r.output == "destructor ran\ndestructor ran\ndestructor ran\ncaught boom\nok\n");
