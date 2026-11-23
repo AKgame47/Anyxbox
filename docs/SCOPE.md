@@ -262,3 +262,8 @@ Capability references: https://docs.vulkan.org/refpages/latest/refpages/source/V
 - GetAsyncKeyState still implements only current-state high bit for mapped host keyboard codes. Low transition bit, mouse-button polling, left/right modifier distinction, multiwindow focus and OS desktop semantics are not claimed.
 
 Input references: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate and https://wiki.libsdl.org/SDL2/SDL_WindowEventID
+
+## Batch 70: retained independent keyboard homebrew regression
+- Retained run-202 keyboard_scene.exe exactly, with source/build/hash provenance. Local independent PE execution passes scripted movement/release/focus pixel checks and all four frames match decoded CI image bytes.
+- Directory-mode test runs source calls and retained binary. Required-Vulkan CI checks fresh and retained independent programs. Fixture-slot covers fifteen programs including keyboard-scene default-root denial and successful rooted execution.
+- No production changes. This remains scripted host-event evidence, not physical-keyboard, native-GPU or game compatibility validation. No release build.
