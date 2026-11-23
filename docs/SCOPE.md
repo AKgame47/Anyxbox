@@ -248,3 +248,9 @@ Capability references: https://docs.vulkan.org/refpages/latest/refpages/source/V
 - Retained the exact run-187 asset_scene.exe with hash/source provenance. Local sanitizer execution passed both-frame Vulkan pixel checks; decoded local frames matched CI RGB bytes exactly.
 - Directory-mode verifier covers source calls and retained executable. CI requires Vulkan for fresh/retained binaries. Fixture-slot covers fourteen retained programs, checking missing-root exit40 and successful execution with generated assets.
 - No production changes. Existing device-rejection and legacy raw-pointer caveats from batch 66 remain. Software-only fixture evidence, not game or physical-device compatibility.
+
+## Batch 68: sampled image capability rejection paths
+- Split the production device-capability diagnostic into query failure, width, height, depth, mip count, array layers, sample count and resource-byte reasons.
+- A test-only friend accessor temporarily replaces the resolved image-format query, while the remaining Vulkan operations use the real software driver. Sixteen production render calls independently reject each condition at t0 and at the extra-texture path (t1).
+- A wrapped real vkCreateImage counts sampled allocations: the rejected sampled image is never created; t1 cases create only the preceding valid t0 image. Queries validate expected format/type/tiling/usage/flags. The original query is restored and a real-driver-query render succeeds afterward.
+- CI explicitly requires Vulkan for this check. Injected rejection results test validation logic, not proof that a physical device reports those limits. Device allocation exhaustion, native-GPU execution and legacy raw-pointer bounds remain outside this evidence. No limit increase or game-compatibility claim.
