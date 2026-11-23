@@ -186,3 +186,5 @@ add_executable(test_tls tests/test_tls.cpp)
 target_include_directories(test_tls PRIVATE tests)
 target_link_libraries(test_tls PRIVATE anyxbox_runtime anyxbox_loader)
 add_test(NAME tls COMMAND test_tls)
+
+# batch 34: no new tests or src files (test_kernel32 changed; registry count now 54)
