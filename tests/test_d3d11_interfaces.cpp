@@ -75,6 +75,18 @@ int main(){
   out=(void*)1;CHECK(((GetBuffer)vt(swap)[9])(swap,0,nullptr,&out)==(int32_t)0x80004002&&out==nullptr);
   CHECK(((GetBuffer)vt(swap)[9])(swap,0,ids[4],nullptr)==(int32_t)0x80070057);
   ((R)vt(back)[2])(back);((R)vt(swap)[2])(swap);((R)vt(factory)[2])(factory);
+  // Views retain resource identity across release of the original caller reference.
+  for(unsigned slot:{7u,9u,10u}){
+    td[2]=1;td[7]=0;td[8]=slot==10?0x40:0x28;td[9]=0;td[4]=slot==10?40:28;
+    void* resource=nullptr;CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&resource)==0);
+    void* view=nullptr;CHECK(((CB)vt(dev)[slot])(dev,(const uint32_t*)resource,nullptr,&view)==0);
+    CHECK(((R)vt(resource)[2])(resource)==1); // only the view owns it now
+    void* returned=nullptr;((GD)vt(view)[7])(view,&returned);CHECK(returned==resource);
+    CHECK(((R)vt(view)[2])(view)==0); // GetResource must keep resource alive after view release
+    uint32_t type=0;((GT)vt(returned)[7])(returned,&type);CHECK(type==3);
+    CHECK(((R)vt(returned)[2])(returned)==0);
+  }
+  puts("view GetResource: RTV/SRV/DSV retain original resource and returned reference outlives view");
   for(auto* o:objects)((R)vt(o)[2])(o);
   puts("resource GetDesc: buffer/color/depth/staging/full-mip/backbuffer fields and output extents ok");
   puts("D3D11 interface identity, type, GetDevice, swapchain interface refusal and balanced reference paths ok");
