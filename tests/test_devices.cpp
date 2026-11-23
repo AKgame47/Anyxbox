@@ -1,6 +1,7 @@
 // Anyxbox: XInput pads and the XAudio2 engine that plays into nothing, called through the same entry points and vtables a guest uses.
 #include <cstdio>
 #include <cstring>
+#include <dlfcn.h>
 #include "runtime/devices.h"
 #define CHECK(c) do{ if(!(c)){ std::printf("FAIL line %d: %s\n", __LINE__, #c); return 1; } }while(0)
 #define MS __attribute__((ms_abi))
@@ -30,6 +31,38 @@ int main() {
   uint8_t vib[4] = {0x34, 0x12, 0x78, 0x56};
   CHECK(ss(0, vib) == 0 && xi.pads[0].rumble_left == 0x1234 && xi.pads[0].rumble_right == 0x5678 && ss(1, vib) == 1167);
   uint8_t caps[20]; CHECK(gc(0, 0, caps) == 0 && caps[0] == 1 && gc(2, 0, caps) == 1167);
+  auto enable = (void (MS *)(int32_t))reg.resolve("xinput1_4.dll", "XInputEnable", 0, false);
+  enable(0); CHECK(gs(0,st) == 0); std::memcpy(&btn,st+4,2); CHECK(btn == 0 && st[6] == 0);
+  enable(1);
+  // SDL2 virtual-controller integration. No physical hardware or SDL build headers required.
+  void* lib = dlopen("libSDL2-2.0.so.0", RTLD_NOW | RTLD_LOCAL);
+  auto host = make_sdl_controllers();
+  if (lib && host) {
+    auto attach = (int (*)(int,int,int,int))dlsym(lib, "SDL_JoystickAttachVirtual");
+    auto detach = (int (*)(int))dlsym(lib, "SDL_JoystickDetachVirtual");
+    auto open = (void* (*)(int))dlsym(lib, "SDL_JoystickOpen");
+    auto close = (void (*)(void*))dlsym(lib, "SDL_JoystickClose");
+    auto axis = (int (*)(void*,int,int16_t))dlsym(lib, "SDL_JoystickSetVirtualAxis");
+    auto button = (int (*)(void*,int,uint8_t))dlsym(lib, "SDL_JoystickSetVirtualButton");
+    if (attach && detach && open && close && axis && button) {
+      int idx = attach(1,6,15,0); CHECK(idx >= 0);
+      void* joy = open(idx); CHECK(joy);
+      CHECK(button(joy,0,1) == 0 && button(joy,11,1) == 0);
+      CHECK(axis(joy,0,12000) == 0 && axis(joy,1,-32768) == 0 && axis(joy,4,32767) == 0);
+      xi.poll = [&] { host->update(xi); };
+      CHECK(gs(0,st) == 0);
+      CHECK(axis(joy,4,-32768) == 0); host->update(xi);
+      CHECK(axis(joy,4,32767) == 0); CHECK(gs(0,st) == 0);
+      std::memcpy(&btn,st+4,2); std::memcpy(&lx,st+8,2); std::memcpy(&ly,st+10,2);
+      std::printf("  SDL virtual buttons=%x lx=%d ly=%d lt=%u\n",btn,lx,ly,st[6]);
+      CHECK((btn & 0x1001) == 0x1001 && lx == 12000 && ly == 32767 && st[6] == 255);
+      std::memcpy(&packet,st,4); CHECK(gs(0,st) == 0); uint32_t unchanged; std::memcpy(&unchanged,st,4); CHECK(unchanged == packet);
+      close(joy); CHECK(detach(idx) == 0); CHECK(gs(0,st) == 1167);
+      xi.poll = nullptr;
+      std::puts("  SDL virtual controller integration passed");
+    } else std::puts("SKIP SDL virtual API unavailable (requires SDL 2.0.14+)");
+  } else std::puts("SKIP SDL controller backend unavailable");
+  host.reset(); if (lib) dlclose(lib);
   // XAudio2
   auto create = (CreateFn)(uintptr_t)reg.resolve("xaudio2_9.dll", "XAudio2Create", 0, false); CHECK(create);
   void* eng = nullptr; CHECK(create(&eng, 0, 1) == 0 && eng && xa.engines_created == 1 && create(nullptr, 0, 1) != 0);
