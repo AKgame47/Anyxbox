@@ -23,7 +23,7 @@ struct V { float x, y, z, w, r, g, b, a; };
 const int W = 128, H = 128;
 using x64::Asm;
 
-std::vector<uint8_t> build_guest() {
+std::vector<uint8_t> build_guest(bool scissor = false) {
   Asm a;
   a.b({0x48, 0x83, 0xEC, 0x78});   // sub rsp,0x78 (keeps 16-byte alignment, room for 8 stack args)
   a.ptr_to_data(VERTS, SUBDATA); a.ptr_to_data(NAMES, ELEMS + 0); a.ptr_to_data(NAMES + 9, ELEMS + 32);
@@ -53,6 +53,7 @@ std::vector<uint8_t> build_guest() {
   a.on(CTX); a.load(2, RTV); a.lea(8, CLR); a.vcall(50);                                           // ClearRenderTargetView
   // ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1.0f, 0): flags in r8d, depth in xmm3 (movss xmm3,[rip+ONE])
   a.on(CTX); a.load(2, DSV); a.mov_r8d(1); a.rip({0xF3, 0x0F, 0x10, 0x1D}, x64::kData + ONE); a.zero_stack(0x20); a.vcall(53);
+  if (scissor) { a.on(CTX); a.mov_edx(1); a.lea(8, 0x430); a.vcall(45); }
   a.on(CTX); a.load(2, RS); a.vcall(43);                                                           // RSSetState
   a.on(CTX); a.load(2, DSS); a.zero_r8(); a.vcall(36);                                             // OMSetDepthStencilState
   a.on(CTX); a.load(2, BLS); a.zero_r8(); a.b({0x41, 0xB9, 0xFF, 0xFF, 0xFF, 0xFF}); a.vcall(35);  // OMSetBlendState
@@ -133,6 +134,16 @@ int main() {
     CHECK(px(im, 45, 96)[0] > 200 && px(im, 45, 96)[1] < 60);    // A only: red
     CHECK(px(im, 2, 2)[2] > 40 && px(im, 2, 2)[0] < 20);         // clear colour
     std::printf("variant %d: depth test through COM state objects, Present: ok\n", variant);
+  }
+  { auto clipped = finish_pe(build_guest(true),t);
+    auto dataoff = size_t(0x1200);
+    pebuild::w32(clipped,dataoff+RSDESC+28,1);
+    pebuild::w32(clipped,dataoff+0x430,60); pebuild::w32(clipped,dataoff+0x434,40);
+    pebuild::w32(clipped,dataoff+0x438,100); pebuild::w32(clipped,dataoff+0x43C,90);
+    D3D11Runtime rt; auto r = run_pe(clipped.data(),clipped.size(),true,[&](ImportRegistry& reg){ rt.register_imports(reg); });
+    CHECK(r.ran && r.exit_code == 0 && rt.last_error.empty() && rt.presents == 1);
+    CHECK(px(rt.presented,83,64)[1] > 200 && px(rt.presented,45,96)[0] < 20);
+    std::puts("guest COM scissor state and rectangle passed");
   }
   // Vulkan: same PE, compare with the reference-renderer run
   pnr::graphics::VulkanBackend vk;
