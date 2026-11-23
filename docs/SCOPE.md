@@ -243,3 +243,8 @@ API references for this backend:
 - Tests reject short storage, over-cap extents, excessive mip counts and upload-budget excess. Device-specific rejection branches beyond the local driver's reported capabilities are not yet exercised by a synthetic driver. Scope remains RGBA/BGRA D3D11 2D sampling, software Vulkan, not games or physical devices. The 1024 cap is policy, not an advertised hardware maximum.
 
 Capability references: https://docs.vulkan.org/refpages/latest/refpages/source/VkImageFormatProperties.html and https://docs.vulkan.org/refpages/latest/refpages/source/vkGetPhysicalDeviceImageFormatProperties.html
+
+## Batch 67: retained independent file-backed texture scene
+- Retained the exact run-187 asset_scene.exe with hash/source provenance. Local sanitizer execution passed both-frame Vulkan pixel checks; decoded local frames matched CI RGB bytes exactly.
+- Directory-mode verifier covers source calls and retained executable. CI requires Vulkan for fresh/retained binaries. Fixture-slot covers fourteen retained programs, checking missing-root exit40 and successful execution with generated assets.
+- No production changes. Existing device-rejection and legacy raw-pointer caveats from batch 66 remain. Software-only fixture evidence, not game or physical-device compatibility.
