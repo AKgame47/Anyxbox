@@ -315,6 +315,7 @@ private:
                      const MeshInput* mesh,
                      const std::vector<std::vector<uint32_t>>* frame_push,
                      const float clear[4], std::vector<std::vector<uint8_t>>* frames);
+  friend struct VulkanCapabilityTestAccess; // test-only access to replace/restore the resolved query entry point
   void* lib_ = nullptr;
   VkInstance instance_ = 0;
   VkPhysicalDevice phys_ = 0;
