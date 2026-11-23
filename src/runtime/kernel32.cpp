@@ -113,7 +113,18 @@ typedef uint32_t (MSABI *ThreadStart)(void*);
 MSABI uint64_t k_CreateThread(void*, uint64_t, ThreadStart fn, void* param, uint32_t, uint32_t* tid) {
   if (!fn) return 0;
   uint64_t base = C->image_base;
-  uint32_t h = anyxbox::CreateThread(C->handles, [fn, param, base] { teb_install(base); uint32_t r = fn(param); teb_restore(); return r; });
+  auto callbacks = C->tls_callbacks;
+  uint32_t h = anyxbox::CreateThread(C->handles, [fn, param, base, callbacks] {
+    if (!teb_install(base)) return uint32_t(0xC0000005u);
+    struct Cleanup {
+      ~Cleanup() { teb_restore(); }
+    } cleanup;
+    using Callback = void (MSABI *)(void*, uint32_t, void*);
+    for (auto cb : callbacks) ((Callback)(uintptr_t)cb)((void*)(uintptr_t)base, 2, nullptr);
+    uint32_t r = fn(param);
+    for (auto cb : callbacks) ((Callback)(uintptr_t)cb)((void*)(uintptr_t)base, 3, nullptr);
+    return r;
+  });
   if (tid && h) *tid = h;
   return h;
 }
