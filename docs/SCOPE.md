@@ -701,3 +701,28 @@ teardown remain unit evidence. Sixteen vertex slots and one index binding only;
 optional-array/full-slot/hazard semantics remain limited. Other binding ownership,
 child/device lifetime, reclamation, thread safety and host isolation remain
 incomplete. Runtime lifetime required. No physical-device/input/game evidence added.
+
+## Batch92: retain VS/PS constant-buffer bindings
+
+Both shader stages now hold references for each of their fourteen constant-buffer
+slots. The whole incoming batch is acquired before replacing old bindings, so
+cross-slot swaps of solely-context-owned buffers are safe. Partial updates preserve
+other slots. Null arrays unbind the requested range. Out-of-range batches refuse
+atomically with overflow-safe checks. Runtime teardown releases every held slot.
+
+Existing interface unit checks VS and PS caller release, swaps, same-object rebind,
+partial and high-slot replacement, invalid ranges, null unbind and teardown.
+One shared buffer is bound twice in each stage during teardown to verify all four
+held references are dropped. The teardown check uses a saved static Release only;
+runtime-owned vtables still require runtime lifetime. All 41 local sanitizer
+programs pass after full relink. No new draw/pixel/physical-device claim is made.
+
+The existing public-header probe adds caller-release/swap/rebind/unbind checks for
+both stages; fresh CI requires the new marker. Independent MinGW compilation and
+execution await CI. Retained run275 remains previous regression only. No new scene,
+fixture, CMake target or release build. This fixes only these binding references,
+not full buffer validation, D3D11.1 offset binding, other state-object ownership,
+child/device lifetime, model reclamation, thread safety or native host isolation.
+References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vssetconstantbuffers
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetconstantbuffers
