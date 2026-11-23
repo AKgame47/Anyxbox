@@ -224,6 +224,7 @@ jobs:
           grep -q 'input buffers: vertex caller release, swap, rebind and index retain/unbind references ok' retained-resource-interfaces.log
           grep -q 'constant buffers: VS/PS caller release, cross-slot swap, rebind and unbind references ok' retained-resource-interfaces.log
           grep -q 'pixel samplers: caller release, cross-slot swap, rebind and unbind references ok' retained-resource-interfaces.log
+          grep -q 'copied state bindings: layout/rasterizer/depth/blend caller release, rebind and unbind references ok' retained-resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
