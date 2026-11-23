@@ -28,6 +28,13 @@ int main() {
   ctx.IASetInputLayout({{"POSITION", Format::R32G32_FLOAT, 0, 0}, {"COLOR", Format::R32G32B32_FLOAT, 4, 1}});
   CHECK(ctx.IASetVertexBufferSlot(1, dev.CreateBuffer(colp, 20), 16, 0));
   CHECK(!ctx.Draw(3, 0));
+  auto triangles=ctx.stats().triangles_drawn;ctx.ClearState();ctx.ClearState();
+  CHECK(ctx.stats().triangles_drawn==triangles);CHECK(!ctx.Draw(3,0));
+  CHECK(ctx.last_error()=="draw: only TriangleList is supported");
+  ctx.IASetPrimitiveTopology(Topology::TriangleList);CHECK(!ctx.Draw(3,0));
+  CHECK(ctx.last_error()=="draw: no valid render target bound");
+  ctx.OMSetRenderTarget(rtv);CHECK(!ctx.Draw(3,0));
+  CHECK(ctx.last_error()=="draw: viewport not set");
   std::printf("d3d11 slots: all ok\n");
   return 0;
 }
