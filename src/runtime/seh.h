@@ -2,7 +2,8 @@
 // Linux x86-64 hosts only. Software exceptions (RaiseException, RtlUnwind/RtlUnwindEx, RtlCaptureContext/RtlRestoreContext,
 // RtlLookupFunctionEntry, RtlVirtualUnwind) and the C scope-table handler __C_specific_handler (try/except/finally in C).
 // C++ exceptions of MinGW programs reach the same Rtl* functions through the program's own libgcc.
-// Not done: hardware faults (access violation, divide by zero) are not turned into guest exceptions yet.
+// Hardware faults inside a loaded guest image (SIGSEGV/SIGBUS access violation 0xC0000005, SIGFPE integer divide 0xC0000094 etc.,
+// SIGILL 0xC000001D) are turned into guest exceptions once seh_install_fault_handlers() ran; other faults go to the previous handler.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -15,5 +16,8 @@ void seh_unregister_image(uint64_t base);
 void seh_set_unhandled(std::function<void(uint32_t)> fn);
 // kernel32/ntdll: RaiseException, RtlCaptureContext, RtlRestoreContext, RtlLookupFunctionEntry, RtlVirtualUnwind, RtlUnwind, RtlUnwindEx.
 // msvcrt/ucrtbase/vcruntime140: __C_specific_handler. Returns false on hosts that cannot run Windows-ABI code.
+// Installs the fault signal handlers (once per process). Only faults whose instruction pointer lies in a registered guest image, while a
+// program is running (seh_set_unhandled set), are converted; the main thread and CreateThread threads share the process-wide handlers.
+void seh_install_fault_handlers();
 bool seh_register(ImportRegistry& reg);
 }
