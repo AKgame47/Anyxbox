@@ -11,3 +11,13 @@ Ubuntu's MinGW-w64 package and runs `import_gap` and `run_exe` on the result; re
 `triangle_shaders.h` is generated: `gen_fixture_shaders > tests/fixtures/triangle_shaders.h`.
 `test_fixture_source` compiles the same triangle.c as a host function (imports bound to Anyxbox functions), so its call sequence is tested
 here without a Windows toolchain. It does not prove the MinGW build.
+
+## texture_copy.cpp
+The self-written texture-copy fixture uses MinGW D3D11 headers and default C++ startup.
+Build: `x86_64-w64-mingw32-g++ -std=c++17 -O1 -static -Wall -Wextra -o texture_copy.exe tests/fixtures/texture_copy.cpp -ld3d11`.
+`texture_copy.run.exe` is the exact CI-built artifact from run 141 at source commit 8f00833:
+https://github.com/AKgame47/Anyxbox/actions/runs/45226825014/job/137875448739
+SHA-256: `a88610e4658caec2e7b9c0e48f512e856d7812a8f2bf226983a2559fc22fc6d8` (502094 bytes).
+It checks whole mip-chain copies, region copies, staging Map readback and generated-mip copying.
+`test_fixture_slot` requires its four exact output lines, zero exit, no runtime error and zero presented frames/shader translations.
+This fixture tests resource operations only, not drawing or GPU rendering.
