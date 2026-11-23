@@ -3,6 +3,7 @@
 // Colours come from a pixel-shader cbuffer on the Vulkan path and from the vertex colour on the reference path;
 // the test feeds both the same value, because the Vulkan path does not carry vertex alpha.
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -132,12 +133,34 @@ int main() {
   cases.push_back({"cull none draws both", cull2(Cull::None, false),
     [](const std::vector<uint8_t>& im) { return near_c(px(im, 64, 96), 255, 0, 0) && near_c(px(im, 64, 19), 0, 255, 0); }});
 
+  auto scissor_scene = [&](ScissorRect rect, bool enabled) { return Scene([=](Rig& r) {
+    no_depth(r); RasterizerDesc rs; rs.cull = Cull::None; rs.scissor_enable = enabled;
+    r.ctx.RSSetState(rs); r.ctx.RSSetScissorRect(rect);
+    r.tri(-1,-1,1,-1,-1,1,0.5f,RED); r.tri(-1,1,1,-1,1,1,0.5f,RED);
+  }); };
+  cases.push_back({"scissor half-open edges",scissor_scene({20,30,80,90},true),[](const std::vector<uint8_t>& im) {
+    return near_c(px(im,20,30),255,0,0) && near_c(px(im,79,89),255,0,0) && near_c(px(im,19,30),0,0,0) && near_c(px(im,80,89),0,0,0) && near_c(px(im,79,90),0,0,0); }});
+  cases.push_back({"scissor empty discards",scissor_scene({},true),[](const std::vector<uint8_t>& im) { return near_c(px(im,64,64),0,0,0); }});
+  cases.push_back({"scissor off ignores rectangle",scissor_scene({},false),[](const std::vector<uint8_t>& im) { return near_c(px(im,64,64),255,0,0); }});
+  cases.push_back({"scissor clips negative bounds",scissor_scene({-50,-20,40,40},true),[](const std::vector<uint8_t>& im) { return near_c(px(im,0,0),255,0,0) && near_c(px(im,39,39),255,0,0) && near_c(px(im,40,40),0,0,0); }});
+  cases.push_back({"scissor outside target",scissor_scene({200,200,300,300},true),[](const std::vector<uint8_t>& im) { return near_c(px(im,64,64),0,0,0); }});
+
+  cases.push_back({"scissor moves and preserves prior draw",[&](Rig& r) {
+    no_depth(r); RasterizerDesc rs; rs.cull = Cull::None; rs.scissor_enable = true; r.ctx.RSSetState(rs);
+    auto quad = [&](Col c) { r.tri(-1,-1,1,-1,-1,1,0.5f,c); r.tri(-1,1,1,-1,1,1,0.5f,c); };
+    r.ctx.RSSetScissorRect({0,0,64,128}); quad(RED);
+    r.ctx.RSSetScissorRect({64,0,128,128}); quad(GREEN);
+  },[](const std::vector<uint8_t>& im) { return near_c(px(im,30,40),255,0,0) && near_c(px(im,90,40),0,255,0); }});
   // reference pass: exact expectations
   std::vector<std::vector<uint8_t>> ref;
   for (auto& c : cases) {
     Rig r(nullptr, {}, {}); c.run(r);
     if (!r.ctx.last_error().empty()) { std::printf("FAIL %s: %s\n", c.name, r.ctx.last_error().c_str()); return 1; }
     ref.push_back(r.image());
+    if (std::getenv("ANYXBOX_SCISSOR_PREVIEW") && std::string(c.name) == "scissor half-open edges") {
+      FILE* f = std::fopen("/downloads/scissor-reference.ppm", "wb");
+      if (f) { std::fprintf(f,"P6\n%d %d\n255\n",W,H); for (size_t i=0;i<ref.back().size();i+=4) std::fwrite(ref.back().data()+i,1,3,f); std::fclose(f); }
+    }
     if (!c.check(ref.back())) { std::printf("FAIL reference: %s\n", c.name); return 1; }
     std::printf("reference ok: %s\n", c.name);
   }
@@ -159,6 +182,9 @@ int main() {
     Rig r(&vk, vs.words, ps.words); cases[i].run(r);
     if (!r.ctx.last_error().empty()) { std::printf("FAIL vulkan %s: %s\n", cases[i].name, r.ctx.last_error().c_str()); return 1; }
     auto img = r.image();
+    if (std::getenv("ANYXBOX_SCISSOR_PREVIEW") && std::string(cases[i].name) == "scissor half-open edges") {
+      FILE* f = std::fopen("/downloads/scissor-vulkan.ppm","wb"); if (f) { std::fprintf(f,"P6\n%d %d\n255\n",W,H); for(size_t k=0;k<img.size();k+=4) std::fwrite(img.data()+k,1,3,f); std::fclose(f); }
+    }
     int bad = mismatches(img, ref[i]);
     std::printf("vulkan vs reference: %-70s mismatches %d\n", cases[i].name, bad);
     CHECK(bad == 0);
