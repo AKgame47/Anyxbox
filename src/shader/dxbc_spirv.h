@@ -19,7 +19,12 @@
 #include <vector>
 #include "shader/dxbc.h"
 namespace anyxbox { namespace shader {
-struct SpirvResult { bool ok = false; std::string error; std::vector<uint32_t> words; bool is_pixel = false; };
+struct SpirvResult { bool ok = false; std::string error; std::vector<uint32_t> words; bool is_pixel = false;
+  // Constant buffers the shader declares, ascending by slot: (slot, register count). The shader reads them from ONE
+  // packed array: slot k starts at 16 * (sum of registers of lower declared slots). Pixel shaders: uniform buffer set 1
+  // binding 0. Vertex shaders: push constants if vs_ubo is false (single static cb0, <= 128 bytes), else uniform buffer
+  // set 1 binding 1. Dynamic indexes are clamped to the packed array (D3D returns 0 out of range; this does not).
+  std::vector<std::pair<uint32_t, uint32_t>> cb_layout; bool vs_ubo = false; };
 // vulkan_flip_y: negate clip-space y at the end of a vertex shader (D3D clip y is up, the Vulkan backend's is down).
 // Leave it true for shaders given to VulkanDrawBackend::SetShaders.
 SpirvResult dxbc_to_spirv(const uint8_t* dxbc, size_t size, bool vulkan_flip_y = true);
