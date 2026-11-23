@@ -180,3 +180,13 @@ Batch88 extends only the fresh public-header probe with pixel SRV binding checks
 caller release, cross-slot swap of solely context-owned views, same-object rebind
 and unbind. Retained run257 stays unchanged and lacks this marker. Fresh independent
 MinGW compilation/execution awaits CI. No new scene or executable fixture is added.
+
+Batch89 replaces the same resource_interfaces.run.exe with exact run266 output,
+source tip 9896e4a. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45281832644/job/138067989069
+508183 bytes; SHA256 45d0197f88ef5fbfbc84b9128e71be1c50491d7783cb4e3500523e724eca8b59.
+It includes all six completion markers, adding pixel-SRV caller release, cross-slot
+swap, rebind and unbind. Exact combined output, zero exit, two translated shaders,
+zero presents and empty D3D11 error are required. Fresh and retained CI require
+the pixel-SRV marker. Partial replacement, range refusal and teardown remain unit
+evidence, not independent guest evidence. Older binary provenance is historical.
