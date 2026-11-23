@@ -21,7 +21,10 @@ DxbcContainer parse_dxbc(const uint8_t* data, size_t size);
 
 // ---- SM4/SM5 token stream ----
 enum Op : uint32_t {
-  OP_ADD = 0, OP_DIV = 14, OP_DP2 = 15, OP_DP3 = 16, OP_DP4 = 17, OP_EXP = 25, OP_FRC = 26, OP_LOG = 47,
+  OP_ADD = 0, OP_AND = 1, OP_BREAK = 2, OP_BREAKC = 3, OP_CONTINUE = 7, OP_CONTINUEC = 8, OP_DISCARD = 13,
+  OP_ELSE = 18, OP_ENDIF = 21, OP_ENDLOOP = 22, OP_EQ = 24, OP_FTOI = 27, OP_GE = 29, OP_IADD = 30, OP_IF = 31,
+  OP_IEQ = 32, OP_IGE = 33, OP_ILT = 34, OP_INE = 39, OP_INEG = 40, OP_ITOF = 43, OP_LOOP = 48, OP_LT = 49,
+  OP_MOVC = 55, OP_NE = 57, OP_NOT = 59, OP_OR = 60, OP_RETC = 63, OP_XOR = 87, OP_DIV = 14, OP_DP2 = 15, OP_DP3 = 16, OP_DP4 = 17, OP_EXP = 25, OP_FRC = 26, OP_LOG = 47,
   OP_MAD = 50, OP_MIN = 51, OP_MAX = 52, OP_CUSTOMDATA = 53, OP_MOV = 54, OP_MUL = 56, OP_RET = 62,
   OP_RSQ = 68, OP_SQRT = 75,
   OP_SAMPLE = 69, OP_SAMPLE_L = 72, OP_DCL_RESOURCE = 88, OP_DCL_SAMPLER = 90,
