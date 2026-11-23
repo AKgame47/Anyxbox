@@ -66,6 +66,7 @@ class Device {
   ResourceId CreateTexture2D(uint32_t w, uint32_t h, Format f, uint32_t levels = 1);       // RGBA8 or BGRA8 only; max 16384
   bool UpdateBuffer(ResourceId buffer, const void* data, size_t bytes);   // whole buffer, same size
   bool UpdateTexture(ResourceId texture, const void* data, size_t bytes);   // whole texture, in the texture's own byte order
+  bool GenerateMips(ResourceId texture); // recursive area box filter for RGBA8/BGRA8
   bool UpdateTextureMip(ResourceId texture, uint32_t level, const void* data, size_t bytes);
   ResourceId CreateDepthBuffer(uint32_t w, uint32_t h);               // 32-bit float depth, 0 on failure
   ResourceId CreateDepthStencilView(ResourceId depth_buffer);          // 0 on failure
@@ -76,7 +77,7 @@ class Device {
   bool ReadTexture(ResourceId texture, std::vector<uint8_t>* out) const;  // row 0 = top
   // internal, used by DeviceContext
   struct Buffer { std::vector<uint8_t> data; };
-  struct Texture { uint32_t w = 0, h = 0; Format f = Format::Unknown; std::vector<uint8_t> px; std::vector<std::vector<uint8_t>> mips; };
+  struct Texture { uint32_t w = 0, h = 0; Format f = Format::Unknown; std::vector<uint8_t> px; std::vector<std::vector<uint8_t>> mips; bool auto_mips = false; };
   const Buffer* buffer(ResourceId id) const;
   Texture* texture(ResourceId id);
   const Texture* texture(ResourceId id) const;
