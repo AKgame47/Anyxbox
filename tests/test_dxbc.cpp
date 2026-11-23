@@ -150,6 +150,31 @@ int main() {
     CHECK(!cx.PSSetShaderResource(1, tx)); CHECK(!cx.PSSetShaderResource(0, 77)); CHECK(cx.PSSetShaderResource(0, tx)); CHECK(!cx.PSSetSampler(2, {}));
     std::printf("texture rejection paths ok\n"); }
 
+  // ---- control flow translation and rejection ----
+  { for (auto& sh : {dxb::ps_if_else(true), dxb::ps_if_else(false), dxb::ps_loop(false), dxb::ps_loop(true), dxb::ps_discard(), dxb::ps_int_movc(), dxb::ps_pass()}) {
+      auto r = dxbc_to_spirv(sh.data(), sh.size()); CHECK(r.ok);
+      for (size_t n = 0; n < sh.size(); n++) CHECK(!dxbc_to_spirv(sh.data(), n).ok);
+      for (size_t i = 0; i < sh.size(); i++) for (int bit = 0; bit < 8; bit++) { auto x = sh; x[i] ^= (uint8_t)(1u << bit); (void)dxbc_to_spirv(x.data(), x.size()); }
+    }
+    { auto v = dxb::vs_early_ret(); auto r = dxbc_to_spirv(v.data(), v.size()); CHECK(r.ok); }
+    auto bad_flow = [&](std::vector<dxb::Words> body, const char* what, const char* needle) -> int {
+      auto h = dxb::ps_head(1); h.insert(h.end(), body.begin(), body.end()); h.push_back(dxb::ins(dxb::OP_RET, {}));
+      auto sh = dxb::shader(0, {{"COLOR", 0, 0, 1, 0xF}}, {{"SV_Target", 0, 0, 0, 0xF}}, h);
+      auto r = dxbc_to_spirv(sh.data(), sh.size());
+      if (r.ok || r.error.find(needle) == std::string::npos) { std::printf("flow case '%s' not rejected as expected (ok=%d, error=%s)\n", what, (int)r.ok, r.error.c_str()); return 1; }
+      return 0; };
+    CHECK(!bad_flow({dxb::ins(dxb::OP_ELSE, {})}, "else alone", "else"));
+    CHECK(!bad_flow({dxb::ins(dxb::OP_ENDIF, {})}, "endif alone", "endif"));
+    CHECK(!bad_flow({dxb::ins(dxb::OP_ENDLOOP, {})}, "endloop alone", "endloop"));
+    CHECK(!bad_flow({dxb::ins(dxb::OP_BREAK, {})}, "break outside loop", "outside a loop"));
+    CHECK(!bad_flow({dxb::ins(dxb::OP_LOOP, {})}, "unterminated loop", "unterminated"));
+    CHECK(!bad_flow({dxb::ins(dxb::OP_IF, {dxb::imm1u(1)}, false, dxb::NZ)}, "unterminated if", "unterminated"));
+    { auto h = std::vector<dxb::Words>{dxb::ins(101, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}), dxb::ins(dxb::OP_MOV, {dxb::dst(dxb::T_OUTPUT, 0, 0xF), dxb::imm4(0, 0, 0, 1)})};
+      auto sh = dxb::shader(0, {}, {{"SV_Target", 0, 0, 0, 0xF}}, h); auto r = dxbc_to_spirv(sh.data(), sh.size()); CHECK(!r.ok && r.error.find("end with ret") != std::string::npos); }
+    { auto vd = dxb::shader(1, {}, {{"SV_Position", 0, 1, 0, 0xF}}, {dxb::ins(103, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}, false, 0, {1}), dxb::ins(dxb::OP_DISCARD, {dxb::imm1u(1)}, false, dxb::NZ), dxb::ins(dxb::OP_RET, {})});
+      auto r = dxbc_to_spirv(vd.data(), vd.size()); CHECK(!r.ok && r.error.find("discard") != std::string::npos); }
+    std::printf("control flow translation and rejection ok\n"); }
+
   // ---- translation output shape ----
   { auto r = dxbc_to_spirv(vsb.data(), vsb.size()); CHECK(r.ok && !r.is_pixel && r.words.size() > 40 && r.words[0] == 0x07230203);
     auto p = dxbc_to_spirv(psb.data(), psb.size()); CHECK(p.ok && p.is_pixel);
@@ -275,6 +300,49 @@ int main() {
       ctx.IASetVertexBuffer(dev.CreateBuffer(t, sizeof t), sizeof(VT), 0);
       CHECK(!ctx.Draw(3, 0) && ctx.last_error().find("no shaders") != std::string::npos);
       std::printf("texture without shaders rejected\n"); }
+  }
+  // control flow through the D3D11 model + Vulkan: full-target quad, vertex colour = (x/W, y/H, 0), per-pixel CPU expectation
+  {
+    struct VC { float x, y, z, w, r, g, b, a; };
+    auto quad_run = [&](const std::vector<uint8_t>& psbytes, auto expect, int tol, const char* name) -> int {
+      auto vsb2 = dxb::vs_color_pass(); auto vsr = dxbc_to_spirv(vsb2.data(), vsb2.size()); auto psr = dxbc_to_spirv(psbytes.data(), psbytes.size());
+      if (!vsr.ok || !psr.ok) { std::printf("%s: translate failed: %s | %s\n", name, vsr.error.c_str(), psr.error.c_str()); return -1; }
+      d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+      Rig gpu(&be);
+      VC a{-1, 1, 0, 1, 0, 0, 0, 1}, b{1, 1, 0, 1, 1, 0, 0, 1}, c{-1, -1, 0, 1, 0, 1, 0, 1}, d{1, -1, 0, 1, 1, 1, 0, 1};
+      std::vector<VC> q = {a, b, c, b, d, c};
+      gpu.ctx.IASetVertexBuffer(gpu.dev.CreateBuffer(q.data(), q.size() * sizeof(VC)), sizeof(VC), 0);
+      const float navy[4] = {0.02f, 0.03f, 0.2f, 1}; gpu.ctx.ClearRenderTargetView(gpu.rtv, navy);
+      if (!gpu.ctx.Draw((uint32_t)q.size(), 0)) { std::printf("%s: draw failed: %s\n", name, gpu.ctx.last_error().c_str()); return -1; }
+      auto img = gpu.image(); int bad = 0;
+      for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+        int e[3]; expect(x, y, e);
+        const uint8_t* p = &img[((size_t)y * W + x) * 4]; int dd = 0; for (int k = 0; k < 3; k++) dd = std::max(dd, std::abs((int)p[k] - e[k]));
+        if (dd > tol) { if (!bad) std::printf("%s: first bad px (%d,%d) got %d %d %d exp %d %d %d\n", name, x, y, p[0], p[1], p[2], e[0], e[1], e[2]); bad++; }
+      }
+      std::printf("%s: mismatches %d\n", name, bad); return bad;
+    };
+    auto ux = [](int x) { return (x + 0.5f) / W; };
+    CHECK(quad_run(dxb::ps_if_else(true), [&](int x, int, int* e) { bool l = ux(x) < 0.5f; e[0] = l ? 255 : 0; e[1] = l ? 0 : 255; e[2] = 0; }, 0, "if/else") == 0);
+    CHECK(quad_run(dxb::ps_if_else(false), [&](int x, int, int* e) { bool l = ux(x) < 0.5f; e[0] = l ? 255 : 0; e[1] = 0; e[2] = l ? 0 : 255; }, 0, "if without else") == 0);
+    CHECK(quad_run(dxb::ps_loop(false), [&](int x, int, int* e) { for (int k = 0; k < 3; k++) e[k] = (int)std::lround(ux(x) * 255.f); }, 2, "loop + breakc") == 0);
+    CHECK(quad_run(dxb::ps_loop(true), [&](int x, int, int* e) { for (int k = 0; k < 3; k++) e[k] = (int)std::lround(ux(x) * 255.f); }, 2, "loop + continuec") == 0);
+    CHECK(quad_run(dxb::ps_discard(), [&](int x, int, int* e) { bool l = ux(x) < 0.5f; e[0] = l ? 5 : 0; e[1] = l ? 8 : 255; e[2] = l ? 51 : 0; }, 1, "discard") == 0);
+    CHECK(quad_run(dxb::ps_int_movc(), [&](int x, int y, int* e) {
+              float uy = (y + 0.5f) / H; bool red = uy < 0.5f;     // v1.y is 0 at the top, 1 at the bottom
+              if (red) { e[0] = 255; e[1] = 0; e[2] = 0; } else { float q = std::floor(ux(x) * 4.f) / 4.f; for (int k = 0; k < 3; k++) e[k] = (int)std::lround(q * 255.f); } }, 2, "ftoi/itof/movc") == 0);
+    // vertex early return: the y flip must still be applied; compare with the reference renderer on the CPU-offset triangle
+    { auto vsb2 = dxb::vs_early_ret(), psb2 = dxb::ps_pass(); auto vsr = dxbc_to_spirv(vsb2.data(), vsb2.size()), psr = dxbc_to_spirv(psb2.data(), psb2.size());
+      CHECK(vsr.ok && psr.ok);
+      d3d11::VulkanDrawBackend be(vk); be.SetShaders(vsr.words, psr.words);
+      const float navy[4] = {0.02f, 0.03f, 0.2f, 1};
+      std::vector<V> t = {{-0.6f,-0.7f,0,1, 1,0,0,1}, {0.6f,-0.7f,0,1, 0,1,0,1}, {0,0.5f,0,1, 0,0,1,1}};
+      std::vector<V> moved = t; for (auto& v : moved) v.y += 0.25f;
+      Rig gpu(&be), ref; gpu.ctx.ClearRenderTargetView(gpu.rtv, navy); ref.ctx.ClearRenderTargetView(ref.rtv, navy);
+      CHECK(gpu.draw(t) && ref.draw(moved));
+      auto a = gpu.image(), b = ref.image(); int bad = 0, cov = 0;
+      for (size_t i = 0; i + 3 < a.size(); i += 4) { int d = 0; for (int k = 0; k < 3; k++) d = std::max(d, std::abs((int)a[i + k] - (int)b[i + k])); if (d > 3) bad++; if (b[i] > 40) cov++; }
+      std::printf("vertex early ret (y flip kept): covered %d, mismatches %d\n", cov, bad); CHECK(bad == 0 && cov > 800); }
   }
   // an oversized constant buffer is an error, not a truncation
   { auto vcb = dxb::vs_cb_scale_offset(); auto vsr = dxbc_to_spirv(vcb.data(), vcb.size()), psr = dxbc_to_spirv(psb.data(), psb.size());
