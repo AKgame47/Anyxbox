@@ -214,6 +214,7 @@ jobs:
           grep -q 'resource GetDesc: buffer/color/depth/staging and resolved full-mip fields ok' retained-resource-interfaces.log
           grep -q 'view GetResource: RTV/SRV/DSV identity and retained resource lifetime ok' retained-resource-interfaces.log
           grep -q 'shader bindings: caller release, same-object rebind and unbind references ok' retained-resource-interfaces.log
+          grep -q 'output merger: RTV/DSV caller release, same-object rebind and unbind references ok' retained-resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
