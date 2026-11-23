@@ -9,7 +9,7 @@
 //  - Triangles with any w <= 0 or non-finite coordinate are dropped before submission (same as the
 //    reference renderer; real clipping comes later).
 // Current limits (reported as errors, never silently ignored): the viewport must cover the whole render
-// target; vertex alpha is not carried (output alpha is 1); no depth, blending or textures.
+// target; vertex alpha is not carried (output alpha is 1); depth/blend/cull see set_pipeline_state.
 #pragma once
 #include <map>
 #include <utility>
@@ -24,6 +24,11 @@ class VulkanDrawBackend : public DrawBackend {
   bool clear(Device& dev, ResourceId tex, const float rgba[4], std::string* err) override;
   bool draw(Device& dev, ResourceId tex, const Viewport& vp, const std::vector<ClipVertex>& verts,
             DrawStats* stats, std::string* err) override;
+ void set_pipeline_state(const PipelineState& st) override { st_ = st; }
+ // Depth can only be cleared to 1.0 and only before the frame's first draw (the depth image is created and cleared
+ // with the colour image). Blending, culling and depth test/write are honoured. Vertex alpha is not carried: blend with
+ // alpha taken from a pixel-shader cbuffer or texture.
+ bool clear_depth(Device& dev, float value, std::string* err) override;
  // Replace the pass-through shaders with translated SPIR-V (see shader/dxbc_spirv.h for the interface rules).
   // The vertex layout stays fixed: location 0 = float4 clip position, location 1 = float3 colour.
   // Empty vectors restore the pass-through pair. The vertex shader must come from dxbc_to_spirv with vulkan_flip_y
@@ -41,6 +46,7 @@ class VulkanDrawBackend : public DrawBackend {
    tex_.clear(); if (rgba) tex_.assign(rgba, rgba + (size_t)w * h * 4);
    tex_w_ = w; tex_h_ = h; smp_ = s; }
  private:
+  PipelineState st_;
   std::vector<uint8_t> tex_; uint32_t tex_w_ = 0, tex_h_ = 0; SamplerDesc smp_;
   std::vector<uint8_t> ps_cb0_;
   std::vector<uint8_t> cb0_;
