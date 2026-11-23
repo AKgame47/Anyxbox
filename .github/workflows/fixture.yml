@@ -151,6 +151,14 @@ jobs:
           if ./run_exe --i-built-this asset_read.exe > asset-read-denied.log; then cat asset-read-denied.log; exit 1; fi
           cat asset-read-denied.log
           grep -q 'exit=10' asset-read-denied.log
+          ./run_exe --i-built-this tests/fixtures/asset_read.run.exe --asset-root test-assets > committed-asset-read.log
+          cat committed-asset-read.log
+          grep -q 'loaded=1 ran=1 exit=0' committed-asset-read.log
+          grep -q 'output: Anyxbox rooted asset' committed-asset-read.log
+          if ./run_exe --i-built-this tests/fixtures/asset_read.run.exe > committed-asset-read-denied.log; then cat committed-asset-read-denied.log; exit 1; fi
+          cat committed-asset-read-denied.log
+          grep -q 'exit=10' committed-asset-read-denied.log
+          test "$(cat test-assets/data/message.txt)" = 'Anyxbox rooted asset' 
       - name: Run separately compiled texture-copy fixture (strict)
         run: |
           ./import_gap texture_copy.exe
@@ -180,6 +188,7 @@ jobs:
           path: |
             asset_read.exe
             asset-read*.log
+            committed-asset-read*.log
             draw_region.exe
             draw_update.exe
             draw_map.exe
