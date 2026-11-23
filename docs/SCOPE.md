@@ -254,3 +254,11 @@ Capability references: https://docs.vulkan.org/refpages/latest/refpages/source/V
 - A test-only friend accessor temporarily replaces the resolved image-format query, while the remaining Vulkan operations use the real software driver. Sixteen production render calls independently reject each condition at t0 and at the extra-texture path (t1).
 - A wrapped real vkCreateImage counts sampled allocations: the rejected sampled image is never created; t1 cases create only the preceding valid t0 image. Queries validate expected format/type/tiling/usage/flags. The original query is restored and a real-driver-query render succeeds afterward.
 - CI explicitly requires Vulkan for this check. Injected rejection results test validation logic, not proof that a physical device reports those limits. Device allocation exhaustion, native-GPU execution and legacy raw-pointer bounds remain outside this evidence. No limit increase or game-compatibility claim.
+
+## Batch 69: keyboard movement for the file-backed homebrew scene
+- GetAsyncKeyState high-bit subset tracks simultaneous held keys, releases and repeated keydown idempotently. Polling pumps pending host events. Focus loss and close clear held state; SDL focus-lost events reach the translated state.
+- Added keyboard_scene.c: arrow keys move the green quad, Escape exits, file-backed texture remains visible. Default four frames; an explicit FRAMES build override permits a bounded interactive run. No release build.
+- Host-source test scripts right-down, right-up and focus loss between presents, checking movement then identical stopped frames. CI independently compiles/runs the same fixture with required Vulkan; that result awaits CI. Synthetic host events do not prove physical keyboard behavior.
+- GetAsyncKeyState still implements only current-state high bit for mapped host keyboard codes. Low transition bit, mouse-button polling, left/right modifier distinction, multiwindow focus and OS desktop semantics are not claimed.
+
+Input references: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate and https://wiki.libsdl.org/SDL2/SDL_WindowEventID
