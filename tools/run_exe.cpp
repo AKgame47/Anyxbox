@@ -1,4 +1,4 @@
-// run_exe --i-built-this <file.exe> [--window] [--gpu] [--save-frame out.png]: run a self-built Windows x64 program through Anyxbox.
+// run_exe --i-built-this <file.exe> [--window] [--controller] [--gpu] [--save-frame out.png]: run a self-built Windows x64 program through Anyxbox.
 // Prints unresolved imports, the exit code, captured output and the number of frames presented.
 // --gpu draws with the Vulkan backend (a software driver such as lavapipe is enough) so translated shaders decide the pixels;
 // without it the reference renderer ignores shader bytecode. --save-frame writes the last presented frame as a PNG.
@@ -13,6 +13,7 @@
 #include <vector>
 #include "gfx/d3d11_vulkan.h"
 #include "runtime/run_pe.h"
+#include "runtime/devices.h"
 #include "runtime/user32.h"
 #include "runtime/window_present.h"
 
@@ -46,18 +47,25 @@ static bool write_png(const char* path, const std::vector<uint8_t>& rgba, uint32
   f.write((const char*)png.data(), (std::streamsize)png.size()); return (bool)f;
 }
 int main(int argc, char** argv) {
-  bool trust = false, window = false, gpu = false; const char* path = nullptr; const char* save = nullptr;
+  bool trust = false, window = false, gpu = false, controller = false; const char* path = nullptr; const char* save = nullptr;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--i-built-this")) trust = true;
     else if (!std::strcmp(argv[i], "--window")) window = true;
+    else if (!std::strcmp(argv[i], "--controller")) controller = true;
     else if (!std::strcmp(argv[i], "--gpu")) gpu = true;
     else if (!std::strcmp(argv[i], "--save-frame") && i + 1 < argc) save = argv[++i];
     else path = argv[i];
   }
-  if (!path || !trust) { std::puts("usage: run_exe --i-built-this <file.exe> [--window] [--gpu] [--save-frame out.png]"); return 2; }
+  if (!path || !trust) { std::puts("usage: run_exe --i-built-this <file.exe> [--window] [--controller] [--gpu] [--save-frame out.png]"); return 2; }
   std::ifstream f(path, std::ios::binary);
   if (!f) { std::puts("cannot open file"); return 2; }
   std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), {});
+  anyxbox::XInputContext xi;
+  auto controllers = controller ? anyxbox::make_sdl_controllers() : nullptr;
+  if (controller) {
+    if (controllers) { xi.poll = [&] { controllers->update(xi); }; std::puts("controller: SDL2 input active (rumble not supported)"); }
+    else std::puts("controller: SDL2 unavailable, pads disconnected");
+  }
   anyxbox::User32Context u; anyxbox::D3D11Runtime rt;
   std::unique_ptr<anyxbox::HostWindow> win;
   if (window) { win = anyxbox::make_sdl_window(); if (!win) std::puts("note: libSDL2 not found, running headless"); }
@@ -75,7 +83,7 @@ int main(int argc, char** argv) {
     } else std::puts("gpu: no Vulkan device, using the reference renderer (shader bytecode ignored)");
   }
   anyxbox::attach_window_present(rt, u);
-  auto r = anyxbox::run_pe(d.data(), d.size(), true, [&](anyxbox::ImportRegistry& reg) { anyxbox::user32_register(reg, u); rt.register_imports(reg); });
+  auto r = anyxbox::run_pe(d.data(), d.size(), true, [&](anyxbox::ImportRegistry& reg) { anyxbox::user32_register(reg, u); rt.register_imports(reg); if (controller) anyxbox::xinput_register(reg, xi); });
   std::printf("loaded=%d ran=%d exit=%u error='%s'\n", r.loaded, r.ran, r.exit_code, r.error.c_str());
   for (auto& s : r.unresolved) std::printf("  missing import: %s\n", s.c_str());
   if (!r.output.empty()) std::printf("output: %s\n", r.output.c_str());
