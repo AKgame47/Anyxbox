@@ -53,7 +53,7 @@ int main() {
   // report
   LoadedImage bad; bad.error = "bad DOS magic";
   CHECK(pe_report(bad).find("FAILED (bad DOS magic)") != std::string::npos);
-  LoadedImage li; li.ok = false; li.mem.assign(10, 0); li.unresolved = {"user32.dll!MessageBoxA"};
+  LoadedImage li; li.ok = false; li.image_size = 10; li.unresolved = {"user32.dll!MessageBoxA"};
   li.imports.push_back({"user32.dll", "MessageBoxA", 0, false, 0});
   auto rep = pe_report(li);
   CHECK(rep.find("imports from user32.dll: 1") != std::string::npos && rep.find("missing user32.dll!MessageBoxA") != std::string::npos);
