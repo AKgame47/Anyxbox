@@ -32,7 +32,10 @@ class VulkanDrawBackend : public DrawBackend {
  // cb0 contents are pushed to the vertex shader as push constants (max 128 bytes = 8 float4 registers; the Vulkan
  // guaranteed minimum). Larger buffers make the draw fail with an error rather than truncating.
  void set_vs_constants(const std::vector<uint8_t>& cb0) override { cb0_ = cb0; }
+ // cb0 for the pixel shader is bound as a Vulkan uniform buffer (set 1, binding 0), up to 16384 bytes.
+ void set_ps_constants(const std::vector<uint8_t>& cb0) override { ps_cb0_ = cb0; }
  private:
+  std::vector<uint8_t> ps_cb0_;
   std::vector<uint8_t> cb0_;
   std::vector<uint32_t> vs_, fs_;
   struct Target { pnr::graphics::FrameSurface surf; bool has_surface = false; float clear[4] = {0, 0, 0, 0}; };
