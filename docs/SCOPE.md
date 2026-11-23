@@ -51,3 +51,7 @@ tests/fixtures/scene.c is a self-written freestanding program that uses a depth 
 ## Batch 32: real scene binary
 
 tests/fixtures/scene.run.exe is the exe MinGW built in CI from tests/fixtures/scene.c (SHA-256 d24dd950f792fe8f9cbe6aada629b554dda468a12e43fda1228d5f7b4b230202). test_fixture_slot runs it and, when a Vulkan device exists, checks the frame pixels. The frame rendered here matches the CI frame byte for byte.
+
+## Batch 33: PE TLS directory
+
+The loader reads data directory 9 (template, index slot, callbacks), validates every address against the image, and writes TLS index 0. Each thread that gets a TEB also gets its own copy of the template (raw bytes plus zero fill) at gs:[0x58][0]. TLS callbacks run with DLL_PROCESS_ATTACH before the entry point. Not done: thread attach/detach callbacks, more than one module's TLS, TlsAlloc slots inside the TEB. tests/fixtures/tls_crt.c is a MinGW __thread program that CI builds; it is not committed as a .run.exe until CI shows it runs.
