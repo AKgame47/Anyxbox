@@ -1,6 +1,9 @@
 #include "runtime/seh.h"
 #include <cstring>
+#include <csignal>
+#include <ucontext.h>
 #include <mutex>
+#include <unistd.h>
 #include <vector>
 #if defined(__linux__) && defined(__x86_64__)
 #define MSABI __attribute__((ms_abi))
@@ -272,6 +275,75 @@ MSABI int32_t s_C_specific_handler(uint8_t* rec, uint64_t frame, uint8_t* ctx, D
   return 1;
 }
 }  // namespace
+
+// ---- hardware faults inside guest code become guest exceptions ----
+// The signal handler does not run guest handlers itself. It builds a CONTEXT and an EXCEPTION_RECORD below the faulting stack pointer
+// and resumes the thread in fault_dispatch(), which dispatches like RaiseException. Faults outside guest images go to the previous handler.
+namespace {
+struct sigaction g_old[4];
+const int kSigs[4] = {SIGSEGV, SIGFPE, SIGILL, SIGBUS};
+[[noreturn]] void fault_dispatch(uint8_t* rec, uint8_t* ctx) {
+  if (!dispatch(rec, ctx)) {
+    std::function<void(uint32_t)> h; { std::lock_guard<std::mutex> l(g_mu); h = g_unhandled; }
+    if (h) h(u32(rec));
+    _exit(1);
+  }
+  if (__asan_handle_no_return) __asan_handle_no_return();
+  anyxbox_seh_restore(ctx);   // handler chose EXCEPTION_CONTINUE_EXECUTION: resume at the faulting instruction
+  __builtin_unreachable();
+}
+void chain(int sig, siginfo_t* si, void* uc) {
+  for (int i = 0; i < 4; i++) if (kSigs[i] == sig) {
+    const struct sigaction& o = g_old[i];
+    if (o.sa_flags & SA_SIGINFO) { if (o.sa_sigaction) { o.sa_sigaction(sig, si, uc); return; } }
+    else if (o.sa_handler != SIG_DFL && o.sa_handler != SIG_IGN) { o.sa_handler(sig); return; }
+    break;
+  }
+  signal(sig, SIG_DFL);   // nobody else handles it: the instruction faults again and the default action runs
+}
+void on_fault(int sig, siginfo_t* si, void* ucv) {
+  ucontext_t* uc = (ucontext_t*)ucv;
+  greg_t* g = uc->uc_mcontext.gregs;
+  uint64_t rip = (uint64_t)g[REG_RIP];
+  bool guest = false, active = false;
+  if (g_mu.try_lock()) {
+    active = (bool)g_unhandled;
+    for (auto& im : g_imgs) if (rip >= im.base && rip < im.base + im.size) guest = true;
+    g_mu.unlock();
+  }
+  if (!guest || !active) { chain(sig, si, ucv); return; }
+  uint64_t rsp = (uint64_t)g[REG_RSP];
+  uint64_t base = (rsp - 0x300 - 0x580) & ~0xFull;
+  uint8_t* ctx = (uint8_t*)(uintptr_t)base; uint8_t* rec = ctx + CTX_SIZE;
+  std::memset(ctx, 0, CTX_SIZE + 0xA0);
+  const int map[16] = {REG_RAX, REG_RCX, REG_RDX, REG_RBX, REG_RSP, REG_RBP, REG_RSI, REG_RDI, REG_R8, REG_R9, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15};
+  for (int i = 0; i < 16; i++) R(ctx, i) = (uint64_t)g[map[i]];
+  RIP(ctx) = rip;
+  uint32_t flags = 0x10001F, eflags = (uint32_t)g[REG_EFL];
+  std::memcpy(ctx + O_FLAGS, &flags, 4); std::memcpy(ctx + 0x44, &eflags, 4);
+  if (uc->uc_mcontext.fpregs) {
+    for (int i = 0; i < 16; i++) std::memcpy(ctx + O_XMM + 16 * i, &uc->uc_mcontext.fpregs->_xmm[i], 16);
+    std::memcpy(ctx + 0x34, &uc->uc_mcontext.fpregs->mxcsr, 4);
+  }
+  uint32_t code = 0xC0000005, nparams = 0; uint64_t p0 = 0, p1 = 0;
+  if (sig == SIGSEGV || sig == SIGBUS) { code = 0xC0000005; nparams = 2; p0 = (g[REG_ERR] & 2) ? 1 : 0; p1 = (uint64_t)(uintptr_t)si->si_addr; }
+  else if (sig == SIGFPE) { code = si->si_code == FPE_INTDIV ? 0xC0000094u : si->si_code == FPE_INTOVF ? 0xC0000095u : si->si_code == FPE_FLTDIV ? 0xC000008Eu : 0xC0000090u; }
+  else if (sig == SIGILL) code = 0xC000001D;
+  std::memcpy(rec, &code, 4); std::memcpy(rec + 16, &rip, 8); std::memcpy(rec + 24, &nparams, 4); std::memcpy(rec + 32, &p0, 8); std::memcpy(rec + 40, &p1, 8);
+  uint64_t sp = base - 8; *(uint64_t*)(uintptr_t)sp = 0;   // fake return address: fault_dispatch never returns
+  g[REG_RSP] = (greg_t)sp; g[REG_RIP] = (greg_t)(uintptr_t)&fault_dispatch; g[REG_RDI] = (greg_t)(uintptr_t)rec; g[REG_RSI] = (greg_t)(uintptr_t)ctx;
+}
+}  // namespace
+void seh_install_fault_handlers() {
+  static std::once_flag once;
+  std::call_once(once, [] {
+    for (int i = 0; i < 4; i++) {
+      struct sigaction sa; std::memset(&sa, 0, sizeof sa);
+      sa.sa_sigaction = on_fault; sa.sa_flags = SA_SIGINFO; sigemptyset(&sa.sa_mask);
+      sigaction(kSigs[i], &sa, &g_old[i]);
+    }
+  });
+}
 void seh_register_image(uint64_t base, uint32_t size, uint32_t pdata_rva, uint32_t pdata_size) {
   std::lock_guard<std::mutex> l(g_mu);
   g_imgs.push_back({base, size, pdata_rva, pdata_size / 12});
@@ -297,6 +369,7 @@ namespace anyxbox {
 void seh_register_image(uint64_t, uint32_t, uint32_t, uint32_t) {}
 void seh_unregister_image(uint64_t) {}
 void seh_set_unhandled(std::function<void(uint32_t)>) {}
+void seh_install_fault_handlers() {}
 bool seh_register(ImportRegistry&) { return false; }
 }
 #endif
