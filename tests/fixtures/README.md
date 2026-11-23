@@ -143,3 +143,8 @@ https://github.com/AKgame47/Anyxbox/actions/runs/45273708342/job/138039881731
 This replaces run230 in the same fixture slot. It includes all three descriptor/view/
 interface markers. Earlier binary provenance remains historical. Fresh and retained
 CI paths require the view marker; fixture-slot requires exact combined output.
+
+Batch84 extends the fresh resource_interfaces.cpp probe with shader bind/caller-release/
+same-object-rebind/unbind reference checks. It uses existing hand-built triangle DXBC,
+not Microsoft shader output. Retained run239 is unchanged and does not prove these
+new calls. Fresh independent evidence awaits CI.
