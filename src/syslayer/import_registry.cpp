@@ -13,4 +13,9 @@ uint64_t ImportRegistry::resolve(const std::string& dll, const std::string& name
   auto it = map_.find(key(dll, byo ? "#" + std::to_string(o) : name));
   return it == map_.end() ? 0 : it->second;
 }
+bool ImportRegistry::has_dll(const std::string& dll) const {
+  std::string pre = lower(dll) + "!";
+  auto it = map_.lower_bound(pre);
+  return it != map_.end() && it->first.compare(0, pre.size(), pre) == 0;
+}
 }
