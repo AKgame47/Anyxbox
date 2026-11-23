@@ -21,11 +21,24 @@ int main() {
   ctx.image_base = 0x1234000;
   std::string out; ctx.out = &out;
   CHECK(kernel32_register(reg, ctx));
-  CHECK(reg.size() == 50);
+  CHECK(reg.size() == 54);
 
   CHECK(fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")(nullptr) == 0x1234000);
   CHECK(fn<MS uint64_t(*)(const char*)>("GetModuleHandleA")("user32.dll") == 0);
 
+  {
+    auto cs = fn<MS uint64_t(*)(void*, int32_t, int32_t, const uint16_t*)>("CreateSemaphoreW");
+    auto rs = fn<MS uint32_t(*)(uint64_t, int32_t, int32_t*)>("ReleaseSemaphore");
+    auto wt = fn<MS uint32_t(*)(uint64_t, uint32_t)>("WaitForSingleObject");
+    CHECK(cs(nullptr, 3, 2, nullptr) == 0);                                  // initial above maximum
+    uint64_t sem = cs(nullptr, 1, 2, nullptr); CHECK(sem != 0);
+    CHECK(wt(sem, 0) == 0 && wt(sem, 0) == 0x102);                           // one token, then timeout
+    int32_t prev = -1; CHECK(rs(sem, 2, &prev) == 1 && prev == 0);
+    CHECK(rs(sem, 1, &prev) == 0);                                           // would exceed maximum
+    CHECK(rs(sem, 0, &prev) == 0 && rs(0xFFFFFFFF00ull, 1, &prev) == 0);
+    CHECK(wt(sem, 0) == 0 && wt(sem, 0) == 0 && wt(sem, 0) == 0x102);
+    CHECK(fn<MS uint64_t(*)(void*, int32_t, int32_t, const uint16_t*)>("CreateEventW")(nullptr, 1, 1, nullptr) != 0);
+  }
   auto va = fn<MS void*(*)(void*, uint64_t, uint32_t, uint32_t)>("VirtualAlloc");
   auto vf = fn<MS uint32_t(*)(void*, uint64_t, uint32_t)>("VirtualFree");
   void* p = va(nullptr, 100, 0x3000, 4);
@@ -141,4 +154,4 @@ int main() {
     CHECK(r.exit_code == 5 + 0x1234 + 99);
   }
   std::puts("ok"); return 0;
-}
+  }
