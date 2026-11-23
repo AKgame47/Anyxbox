@@ -68,6 +68,9 @@ class SdlWindow : public HostWindow {
       auto i32 = [&](int o) { int32_t v; std::memcpy(&v, buf + o, 4); return v; };
       ev = HostEvent{};
       switch (t) {
+        case 0x200: // SDL_WINDOWEVENT: event byte at offset 12; FOCUS_LOST = 13
+          if(buf[12]==13) {ev.type=HostEvent::FocusLost;return true;}
+          continue;
         case 0x100: ev.type = HostEvent::Quit; return true;
         case 0x300: case 0x301: {
           int32_t vk = sdl_keycode_to_vk(i32(20));
