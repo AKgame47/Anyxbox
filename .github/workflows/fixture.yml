@@ -209,6 +209,7 @@ jobs:
           grep -q 'constant buffers: VS/PS caller release, cross-slot swap, rebind and unbind references ok' resource-interfaces.log
           grep -q 'pixel samplers: caller release, cross-slot swap, rebind and unbind references ok' resource-interfaces.log
           grep -q 'copied state bindings: layout/rasterizer/depth/blend caller release, rebind and unbind references ok' resource-interfaces.log
+          grep -q 'ClearState: shared VS/PS buffer references released and repeated clear safe' resource-interfaces.log
       - name: Verify retained resource interface probe (strict)
         run: |
           ./import_gap tests/fixtures/resource_interfaces.run.exe
