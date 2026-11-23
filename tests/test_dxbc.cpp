@@ -132,8 +132,8 @@ int main() {
   // ---- texture translation rejection paths ----
   { auto ok = dxb::ps_sample(); auto r = dxbc_to_spirv(ok.data(), ok.size()); CHECK(r.ok);
     auto lod = dxb::ps_sample(dxb::swz(2, 1, 0, 3), 0.0f); r = dxbc_to_spirv(lod.data(), lod.size()); CHECK(r.ok);
-    auto t1 = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 1, 0); r = dxbc_to_spirv(t1.data(), t1.size()); CHECK(!r.ok && r.error.find("t0") != std::string::npos);
-    auto s1 = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 0, 1); r = dxbc_to_spirv(s1.data(), s1.size()); CHECK(!r.ok && r.error.find("s0") != std::string::npos);
+    auto t1 = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 1, 0); r = dxbc_to_spirv(t1.data(), t1.size()); CHECK(!r.ok && r.error.find("declared") != std::string::npos);
+    auto s1 = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 0, 1); r = dxbc_to_spirv(s1.data(), s1.size()); CHECK(!r.ok && r.error.find("declared") != std::string::npos);
     auto nd = dxb::ps_sample(dxb::swz(0, 1, 2, 3), -1, 0, 0, false); r = dxbc_to_spirv(nd.data(), nd.size()); CHECK(!r.ok && r.error.find("declared") != std::string::npos);
     auto vt = dxb::shader(1, {}, {{"SV_Position", 0, 1, 0, 0xF}}, {dxb::ins(103, {dxb::dst(dxb::T_OUTPUT, 0, 0xF)}, false, 0, {1}), dxb::dcl_tex2d(0), dxb::ins(dxb::OP_RET, {})});
     r = dxbc_to_spirv(vt.data(), vt.size()); CHECK(!r.ok && r.error.find("vertex") != std::string::npos);
@@ -147,7 +147,7 @@ int main() {
     for (size_t i = 0; i < ok.size(); i++) for (int bit = 0; bit < 8; bit++) { auto x = ok; x[i] ^= (uint8_t)(1u << bit); (void)dxbc_to_spirv(x.data(), x.size()); }
     d3d11::Device dv; d3d11::DeviceContext cx(dv); auto tx = dv.CreateTexture2D(2, 2, d3d11::Format::R8G8B8A8_UNORM);
     uint8_t px[16] = {0}; CHECK(dv.UpdateTexture(tx, px, 16)); CHECK(!dv.UpdateTexture(tx, px, 15)); CHECK(!dv.UpdateTexture(77, px, 16));
-    CHECK(!cx.PSSetShaderResource(1, tx)); CHECK(!cx.PSSetShaderResource(0, 77)); CHECK(cx.PSSetShaderResource(0, tx)); CHECK(!cx.PSSetSampler(2, {}));
+    CHECK(cx.PSSetShaderResource(1, tx) && !cx.PSSetShaderResource(4, tx)); CHECK(!cx.PSSetShaderResource(0, 77)); CHECK(cx.PSSetShaderResource(0, tx)); CHECK(cx.PSSetSampler(2, {})); CHECK(!cx.PSSetSampler(4, {}));
     std::printf("texture rejection paths ok\n"); }
 
   // ---- control flow translation and rejection ----
