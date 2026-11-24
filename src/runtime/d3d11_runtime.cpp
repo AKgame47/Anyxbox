@@ -346,7 +346,14 @@ MSABI void ctx_IASetPrimitiveTopology(void* self, uint32_t t) {
   G(self)->ctx->IASetPrimitiveTopology(t == 4 ? Topology::TriangleList : Topology::Undefined);
 }
 MSABI void ctx_RSSetViewports(void* self, uint32_t n, const Viewport6* v) {
-  if (n >= 1 && v) G(self)->ctx->RSSetViewport({v->x, v->y, v->w, v->h, v->mn, v->mx});
+  auto* rt=G(self);
+  if(n>1 || (n && !v)){rt->last_error="viewport: only zero or one viewport is supported";return;}
+  if(!n){rt->ctx->RSDisableViewport();return;}
+  if(!std::isfinite(v->x)||!std::isfinite(v->y)||!std::isfinite(v->w)||!std::isfinite(v->h)||
+     !std::isfinite(v->mn)||!std::isfinite(v->mx)||v->w<0||v->h<0||v->mn<0||v->mx>1||v->mn>v->mx||
+     v->x < -32768 || v->y < -32768 || v->x > 32767 || v->y > 32767 ||
+     (double)v->x+v->w>32767 || (double)v->y+v->h>32767){rt->last_error="viewport: invalid dimensions or depth bounds";return;}
+  rt->ctx->RSSetViewport({v->x,v->y,v->w,v->h,v->mn,v->mx});
 }
 MSABI void ctx_RSSetScissorRects(void* self, uint32_t n, const ScissorRect* rects) {
   auto rt = G(self);
