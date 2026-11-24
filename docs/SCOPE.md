@@ -867,3 +867,26 @@ Other binding-category release remains unit evidence; rendered defaults/backend
 reuse are not established. Supported subset only, not full D3D11 state, lifetime,
 validation, reclamation, thread safety or native isolation. Runtime lifetime still
 required. No physical-device/input or Xbox-game compatibility evidence is added.
+
+## Batch100: query supported bound shaders
+
+VSGetShader(slot76) and PSGetShader(slot74), cross-checked against public header
+vtable order, return the exact tracked shader with an added reference. Optional
+shader output does not acquire a reference when absent. Class count returns zero;
+dynamic class instances remain unsupported and no instance-array entries are
+written. No class-instance ownership or broad COM interface support is implied.
+
+Existing interface unit checks empty state, identity after caller release, exact
+returned-reference accounting across unbind, optional outputs and NULL after
+ClearState. All 41 local sanitizer programs pass after full relink. The existing
+public-header probe adds identity/returned-reference checks across ClearState and
+fresh CI requires its marker. Fresh probe now translates four shaders, while the
+unchanged retained run313 still translates two and lacks the getter marker.
+Independent MinGW compilation/execution awaits CI. No new fixture/scene/CMake
+or release build and no rendering claim.
+
+This adds two supported-subset query methods, not dynamic classes, complete
+state saving/restoring, device lifetime, reclamation, thread safety or host
+isolation. Runtime lifetime still required. References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vsgetshader
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-psgetshader
