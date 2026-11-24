@@ -75,7 +75,17 @@ int main(){
   void* out=(void*)1;CHECK(((GetBuffer)vt(swap)[9])(swap,1,ids[4],&out)==(int32_t)0x80070057&&out==nullptr);
   out=(void*)1;CHECK(((GetBuffer)vt(swap)[9])(swap,0,nullptr,&out)==(int32_t)0x80004002&&out==nullptr);
   CHECK(((GetBuffer)vt(swap)[9])(swap,0,ids[4],nullptr)==(int32_t)0x80070057);
-  ((R)vt(back)[2])(back);((R)vt(swap)[2])(swap);((R)vt(factory)[2])(factory);
+  CHECK(((R)vt(swap)[2])(swap)==0); // must release its owned backbuffer reference
+  CHECK(checktex(back,backdesc));CHECK(((R)vt(back)[2])(back)==0);
+  // A view also keeps the backbuffer wrapper alive after caller/swap references go.
+  CHECK(((Swap)vt(factory)[10])(factory,dev,desc,&swap)==0);
+  CHECK(((GetBuffer)vt(swap)[9])(swap,0,ids[4],&back)==0);
+  void* backView=nullptr;CHECK(((CB)vt(dev)[9])(dev,(const uint32_t*)back,nullptr,&backView)==0);
+  CHECK(((R)vt(back)[2])(back)==2);CHECK(((R)vt(swap)[2])(swap)==0);
+  void* fromView=nullptr;((GD)vt(backView)[7])(backView,&fromView);CHECK(fromView==back);
+  CHECK(((R)vt(backView)[2])(backView)==0);CHECK(checktex(fromView,backdesc));
+  CHECK(((R)vt(fromView)[2])(fromView)==0);((R)vt(factory)[2])(factory);
+  puts("swapchain backbuffer: owned reference released, returned/view references survive swapchain release");
   // Views retain resource identity across release of the original caller reference.
   for(unsigned slot:{7u,9u,10u}){
     td[2]=1;td[7]=0;td[8]=slot==10?0x40:0x28;td[9]=0;td[4]=slot==10?40:28;
