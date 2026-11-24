@@ -316,6 +316,12 @@ MSABI void ctx_PSSetShader(void* self, void* shader, void* const*, uint32_t) {
   if(next)addref(next);
   auto* old=bound;bound=next;if(old)release(old);
 }
+void get_shader(Obj* bound,void** out,uint32_t* count){
+  if(out){if(bound)addref(bound);*out=bound;}
+  if(count)*count=0; // dynamic class instances are not implemented
+}
+MSABI void ctx_VSGetShader(void* self,void** out,void**,uint32_t* count){get_shader(G(self)->impl->vs,out,count);}
+MSABI void ctx_PSGetShader(void* self,void** out,void**,uint32_t* count){get_shader(G(self)->impl->ps,out,count);}
 void retain_binding(Obj*& bound,Obj* next){
   if(next)addref(next);
   auto* old=bound;bound=next;if(old)release(old);
@@ -575,6 +581,7 @@ D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   I.ctx_vt[8] = (void*)&ctx_PSSetShaderResources; I.ctx_vt[10] = (void*)&ctx_PSSetSamplers; I.ctx_vt[12] = (void*)&ctx_DrawIndexed;
   I.ctx_vt[14] = (void*)&ctx_Map; I.ctx_vt[15] = (void*)&ctx_Unmap; I.ctx_vt[19] = (void*)&ctx_IASetIndexBuffer; I.ctx_vt[48] = (void*)&ctx_UpdateSubresource;
   I.ctx_vt[35] = (void*)&ctx_OMSetBlendState; I.ctx_vt[36] = (void*)&ctx_OMSetDepthStencilState; I.ctx_vt[43] = (void*)&ctx_RSSetState;
+  I.ctx_vt[76]=(void*)&ctx_VSGetShader;I.ctx_vt[74]=(void*)&ctx_PSGetShader;
   I.ctx_vt[110]=(void*)&ctx_ClearState;
   I.ctx_vt[45] = (void*)&ctx_RSSetScissorRects;
   I.ctx_vt[53] = (void*)&ctx_ClearDepthStencilView; I.ctx_vt[33] = (void*)&ctx_OMSetRenderTargets; I.ctx_vt[44] = (void*)&ctx_RSSetViewports; I.ctx_vt[50] = (void*)&ctx_ClearRenderTargetView;
