@@ -417,6 +417,7 @@ MSABI void ctx_IASetIndexBuffer(void* self, void* buf, uint32_t fmt, uint32_t of
 MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t base) {
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
+  if(!vs || !ps){rt->last_error="draw: this runtime requires bound vertex and pixel shaders";return;}
   if (vs && ps) {
     rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout); rt->ctx->SetTexturePairing(ps->tex_sampler);
     if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
@@ -534,6 +535,7 @@ MSABI void ctx_ClearRenderTargetView(void* self, void* rtv, const float* rgba) {
 MSABI void ctx_Draw(void* self, uint32_t count, uint32_t start) {
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
+  if(!vs || !ps){rt->last_error="draw: this runtime requires bound vertex and pixel shaders";return;}
   if (vs && ps) {
     rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout);
     if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
