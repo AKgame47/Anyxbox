@@ -86,6 +86,26 @@ int main(){
   CHECK(((R)vt(backView)[2])(backView)==0);CHECK(checktex(fromView,backdesc));
   CHECK(((R)vt(fromView)[2])(fromView)==0);((R)vt(factory)[2])(factory);
   puts("swapchain backbuffer: owned reference released, returned/view references survive swapchain release");
+  // Factory routing must not follow a later runtime's global import registration.
+  {anyxbox::D3D11Runtime first,second;anyxbox::ImportRegistry one,two;
+    first.register_imports(one);void* firstDev=nullptr;void* firstCtx=nullptr;void* firstFactory=nullptr;
+    auto makeOne=(Create)(uintptr_t)one.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+    CHECK(makeOne(nullptr,1,nullptr,0,nullptr,0,7,&firstDev,nullptr,&firstCtx)==0);
+    CHECK(((Factory)(uintptr_t)one.resolve("dxgi.dll","CreateDXGIFactory",0,false))(ids[0],&firstFactory)==0);
+    second.register_imports(two);void* otherDev=nullptr;void* otherCtx=nullptr;
+    CHECK(((Create)(uintptr_t)two.resolve("d3d11.dll","D3D11CreateDevice",0,false))(nullptr,1,nullptr,0,nullptr,0,7,&otherDev,nullptr,&otherCtx)==0);
+    auto makeSwap=(Swap)vt(firstFactory)[10];void* routed=(void*)1;
+    CHECK(makeSwap(firstFactory,nullptr,desc,&routed)==(int32_t)0x80070057&&routed==nullptr);
+    routed=(void*)1;CHECK(makeSwap(firstFactory,otherDev,desc,&routed)==(int32_t)0x80070057&&routed==nullptr);
+    CHECK(makeSwap(firstFactory,firstDev,desc,&routed)==0);
+    CHECK(first.dev.texture(1)!=nullptr&&second.dev.texture(1)==nullptr);
+    void* resource=nullptr;CHECK(((GetBuffer)vt(routed)[9])(routed,0,ids[4],&resource)==0);
+    void* owner=nullptr;((GD)vt(resource)[3])(resource,&owner);CHECK(owner==firstDev);((R)vt(owner)[2])(owner);
+    ((R)vt(resource)[2])(resource);((R)vt(routed)[2])(routed);((R)vt(firstFactory)[2])(firstFactory);
+    for(auto* o:{firstDev,firstCtx,otherDev,otherCtx})((R)vt(o)[2])(o);
+  }
+  rt.register_imports(reg);
+  puts("factory swapchain: owning runtime/device honored after foreign registration; null/foreign device refused");
   // Views retain resource identity across release of the original caller reference.
   for(unsigned slot:{7u,9u,10u}){
     td[2]=1;td[7]=0;td[8]=slot==10?0x40:0x28;td[9]=0;td[4]=slot==10?40:28;
