@@ -951,3 +951,18 @@ native host isolation remain incomplete; runtime lifetime still required.
 References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargets
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshaderresources
+
+## Batch104: retain verified independent color-hazard regression
+
+Replaces the same resource probe with exact run332 bytes from source 47ae263.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports;
+direct execution passes thirteen markers, zero exit, four translated shaders,
+zero presents and empty error. Fixture-slot requires exact output; retained CI
+requires hazard marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Independent hazard scope is both binding directions' reference checks and rebind
+after output unbind. Repeated slots/alias RTV/disjoint mip remain unit evidence.
+Single mip-zero color RTV versus pixel t0..t3 Texture2D only; no rendered hazard,
+full hazard, broader lifetime/reclamation/thread safety/isolation claim. Runtime
+lifetime required. No physical-device/input/game evidence is added.
