@@ -81,8 +81,10 @@ struct D3D11Runtime::Impl {
   Obj* vs_cbs[14] = {};Obj* ps_cbs[14] = {};
   Obj* samplers[4] = {};
   Obj* layout=nullptr;Obj* rasterizer=nullptr;Obj* depth_state=nullptr;Obj* blend_state=nullptr;
+  uint32_t sample_mask=~0u;
   Impl() {}
   void clear_bindings(){
+    sample_mask=~0u;
     auto drop=[](Obj*& o){auto* old=o;o=nullptr;if(old)release(old);};
     for(auto** o:{&vs,&ps,&rtv,&dsv,&ib,&layout,&rasterizer,&depth_state,&blend_state})drop(*o);
     for(auto& o:srvs)drop(o);
@@ -381,7 +383,8 @@ MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, voi
   if(oldr)release(oldr);
   if(oldd)release(oldd);
 }
-MSABI void ctx_OMSetBlendState(void* self, void* st, const float* /*factor*/, uint32_t /*mask*/) {
+MSABI void ctx_OMSetBlendState(void* self, void* st, const float* /*factor*/, uint32_t mask) {
+  G(self)->impl->sample_mask=mask;
   Obj* o = (Obj*)st;retain_binding(G(self)->impl->blend_state,o); G(self)->ctx->OMSetBlendState(o ? o->bl : BlendDesc());
 }
 MSABI void ctx_OMSetDepthStencilState(void* self, void* st, uint32_t /*stencil_ref*/) {
@@ -436,6 +439,7 @@ MSABI void ctx_DrawIndexed(void* self, uint32_t count, uint32_t start, int32_t b
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
   if(!vs || !ps){rt->last_error="draw: this runtime requires bound vertex and pixel shaders";return;}
+  if(!(rt->impl->sample_mask&1u))return; // supported targets are single-sample
   if (vs && ps) {
     rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout); rt->ctx->SetTexturePairing(ps->tex_sampler);
     if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
@@ -554,6 +558,7 @@ MSABI void ctx_Draw(void* self, uint32_t count, uint32_t start) {
   D3D11Runtime* rt = G(self);
   Obj* vs = rt->impl->vs; Obj* ps = rt->impl->ps;
   if(!vs || !ps){rt->last_error="draw: this runtime requires bound vertex and pixel shaders";return;}
+  if(!(rt->impl->sample_mask&1u))return; // supported targets are single-sample
   if (vs && ps) {
     rt->ctx->SetConstantLayout(vs->cb_layout, ps->cb_layout);
     if (rt->on_shaders_ubo) rt->on_shaders_ubo(vs->spirv, ps->spirv, vs->vs_ubo);
