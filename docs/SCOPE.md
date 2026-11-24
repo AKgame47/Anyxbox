@@ -1056,3 +1056,25 @@ full DXGI/device lifetime, thread safety or native isolation. Runtime lifetime i
 still required for guest interface calls. No physical-device/input/game claim.
 Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-getbuffer
+
+## Batch109: factory swap-chain runtime/device routing
+
+Factory CreateSwapChain now uses the factory object's owning runtime and accepts
+only that runtime's exact supported device pointer. Null/foreign devices return
+E_INVALIDARG with NULL output before allocation. Its helper takes an explicit
+runtime instead of the most recently registered global runtime. Foreign pointers
+are compared, not dereferenced. Arbitrary IUnknown aliases/D3D12 queues unsupported.
+
+Existing interface unit creates a first factory/device, registers a second runtime,
+refuses null/foreign devices, then creates the first factory's swap chain against
+its original device. Only the original model gains a texture; GetBuffer/GetDevice
+returns the original identity. Existing factory test now creates a real device,
+checks null refusal and releases swap chains instead of expecting invalid NULL
+device success. All41 sanitizer programs pass after full relink. Exact-tip CI
+awaits publication. No independent guest routing evidence/new probe marker,
+scene, fixture, CMake target or release.
+
+Global import runtime routing remains process-global. Concurrent runtimes/thread
+safety, full DXGI/device lifetime, reclamation and native host isolation remain
+incomplete. Runtime lifetime required. No hardware/input/game claim. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgifactory-createswapchain
