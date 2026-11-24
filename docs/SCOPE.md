@@ -966,3 +966,27 @@ after output unbind. Repeated slots/alias RTV/disjoint mip remain unit evidence.
 Single mip-zero color RTV versus pixel t0..t3 Texture2D only; no rendered hazard,
 full hazard, broader lifetime/reclamation/thread safety/isolation claim. Runtime
 lifetime required. No physical-device/input/game evidence is added.
+
+## Batch105: explicit single-viewport binding and disable
+
+RSSetViewports(0,NULL) now disables the model viewport instead of leaving stale
+state active. Unsupported counts above one and missing nonempty arrays refuse
+before mutation. Nonfinite values, negative sizes, invalid depth ranges and
+feature-level-11 viewport bounds refuse before changing the previous viewport.
+Single viewport remains the supported limit; zero-sized viewport drawing still
+uses the model's existing refusal rather than full D3D11 behavior.
+
+Existing guest draw runs normally, then host-driven COM checks disable the viewport,
+verify draw refusal with unchanged target bytes/stats, restore it, submit invalid
+count/pointer/size/depth/bounds updates, and verify a following draw still uses a
+valid viewport. Reference and software-Vulkan checks pass; the existing guest
+comparison remains 4626 covered pixels and zero mismatches. These follow-on checks
+are not independently compiled guest viewport evidence. All 41 sanitizer programs
+pass after full relink. Exact-tip CI remains pending publication.
+
+No new scene/fixture/public-probe marker/CMake target/release. Retained run332 stays
+prior query/hazard regression only. Full viewport arrays, complete validation,
+device lifetime, reclamation, thread safety and host isolation remain incomplete.
+Runtime lifetime still required. No new hardware/input/game claim. References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-rssetviewports
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_viewport
