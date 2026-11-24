@@ -228,6 +228,7 @@ jobs:
           grep -q 'pixel samplers: caller release, cross-slot swap, rebind and unbind references ok' retained-resource-interfaces.log
           grep -q 'copied state bindings: layout/rasterizer/depth/blend caller release, rebind and unbind references ok' retained-resource-interfaces.log
           grep -q 'ClearState: shared VS/PS buffer references released and repeated clear safe' retained-resource-interfaces.log
+          grep -q 'shader getters: VS/PS identity, owned return after caller release and null after ClearState ok' retained-resource-interfaces.log
       - name: Import coverage of the C runtime fixture
         run: ./import_gap hello_crt.exe || true
       - name: Run the C runtime fixture
