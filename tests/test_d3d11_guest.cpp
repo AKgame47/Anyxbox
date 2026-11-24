@@ -190,6 +190,27 @@ bool viewport_binding_checks(D3D11Runtime& rt){
   ((Release)vt[2])(c);((Release)(*(void***)d)[2])(d);return true;
 }
 
+bool sample_mask_checks(D3D11Runtime& rt){
+  using Create=int32_t(__attribute__((ms_abi)) *)(void*,uint32_t,void*,uint32_t,void*,uint32_t,uint32_t,void**,void*,void**);
+  using Blend=void(__attribute__((ms_abi)) *)(void*,void*,const float*,uint32_t);
+  using Draw=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t);
+  using Indexed=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t,int32_t);
+  using Release=uint32_t(__attribute__((ms_abi)) *)(void*);
+  ImportRegistry reg;rt.register_imports(reg);void* d=nullptr;void* c=nullptr;
+  if(((Create)(uintptr_t)reg.resolve("d3d11.dll","D3D11CreateDevice",0,false))(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)!=0)return false;
+  auto vt=*(void***)c;std::vector<uint8_t> before,after;if(!rt.dev.ReadTexture(1,&before))return false;
+  auto stats=rt.ctx->stats();
+  for(uint32_t mask:{0u,0xfffffffeu}){
+    ((Blend)vt[35])(c,nullptr,nullptr,mask);((Draw)vt[13])(c,3,0);((Indexed)vt[12])(c,3,0,0);
+    if(!rt.last_error.empty()||rt.ctx->stats().triangles_in!=stats.triangles_in||rt.ctx->stats().pixels_written!=stats.pixels_written)return false;
+    if(!rt.dev.ReadTexture(1,&after)||after!=before)return false;
+  }
+  ((Blend)vt[35])(c,nullptr,nullptr,1);((Draw)vt[13])(c,3,0);
+  if(!rt.last_error.empty()||rt.ctx->stats().triangles_in!=stats.triangles_in+1)return false;
+  ((Blend)vt[35])(c,nullptr,nullptr,~0u);
+  ((Release)vt[2])(c);((Release)(*(void***)d)[2])(d);return true;
+}
+
 int main() {
 #if !(defined(__linux__) && defined(__x86_64__))
   std::printf("SKIP: guest code runs on Linux x86-64 only\n"); return 0;
@@ -216,6 +237,8 @@ int main() {
     CHECK(at(64, 80)[0] + at(64, 80)[1] + at(64, 80)[2] > 200);   // triangle centre is lit
     CHECK(refuses_missing_shaders(rt));
     CHECK(viewport_binding_checks(rt));
+    CHECK(sample_mask_checks(rt));
+    std::puts("single-sample mask: cleared bit0 suppresses Draw/DrawIndexed pixels and stats, set bit0 restores draw (reference)");
     std::puts("viewport binding: zero disables, invalid batches preserve prior viewport (reference)");
     std::puts("missing shader stages: Draw/DrawIndexed refused without pixel or stat changes (reference)");
     std::printf("guest PE drew through the COM vtables (reference renderer): ok\n");
@@ -241,6 +264,8 @@ int main() {
   CHECK(bad == 0 && cov > 3000 && rt.last_error.empty());
   CHECK(refuses_missing_shaders(rt));
   CHECK(viewport_binding_checks(rt));
+  CHECK(sample_mask_checks(rt));
+  std::puts("single-sample mask: cleared bit0 suppresses Draw/DrawIndexed pixels and stats, set bit0 restores draw (Vulkan)");
   std::puts("viewport binding: zero disables, invalid batches preserve prior viewport (Vulkan)");
   std::puts("missing shader stages: Draw/DrawIndexed refused without stale shader pixels or stat changes (Vulkan)");
   std::printf("d3d11 guest: all ok\n");
