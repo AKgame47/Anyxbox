@@ -1012,3 +1012,25 @@ conformance, all sixteen slots, physical hardware/input/game compatibility,
 device lifetime, reclamation, thread safety or native host isolation. Runtime
 lifetime still required. Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetsamplers
+
+## Batch107: supported single-sample output mask
+
+OMSetBlendState now records its sample mask. For the supported single-sample
+COM draw path, a cleared bit0 suppresses Draw/DrawIndexed model/backend dispatch.
+Other bits do not enable the one sample. ClearState resets the mask to all ones.
+This shortcut suppresses all draw work and leaves model stats unchanged; it is
+not general D3D11 pipeline-statistics/shader-side-effect/query conformance, nor
+multisample support. Blend-factor parameters remain ignored.
+
+Existing guest draw executes normally, then host-driven COM code tests masks0
+and0xfffffffe on both draw methods, verifying unchanged pixels/stats and empty
+error; setting bit0 permits another valid draw. Reference and software Vulkan
+pass, and the existing comparison still covers4626 pixels with0 mismatches.
+These are host-driven follow-on checks, not independent guest sample-mask evidence.
+All41 local sanitizer programs pass after full relink. Exact-tip CI awaits
+publication. No new scene/fixture/probe marker/CMake target/release.
+
+Single-sample supported-path masking only, not full blending, device lifetime,
+reclamation, thread safety or native host isolation. Runtime lifetime required.
+No physical-device/input/game claim. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetblendstate
