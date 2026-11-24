@@ -890,3 +890,18 @@ state saving/restoring, device lifetime, reclamation, thread safety or host
 isolation. Runtime lifetime still required. References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vsgetshader
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-psgetshader
+
+## Batch101: retain verified independent shader-getter regression
+
+Replaces the same resource probe with exact run322 bytes from source cac602b.
+Sixteen fixtures remain. Current-runtime import check covers all 52 imports;
+direct execution passes twelve markers, zero exit, four translated shaders,
+zero presents and empty error. Fixture-slot requires exact output/four shaders;
+retained CI requires getter marker. All 41 local sanitizer programs pass.
+No production/CMake/new-target/scene/release change.
+
+Independent shader-getter scope is VS/PS identity, added returned references
+after caller release and NULL after ClearState. Unbind/optional outputs remain
+unit evidence. Two no-dynamic-class query methods, not full state saving, rendering,
+COM/device lifetime, reclamation, thread safety or native host isolation.
+Runtime lifetime still required. No physical-device/input/game claim.
