@@ -420,7 +420,7 @@ MSABI void ctx_PSSetSamplers(void* self, uint32_t start, uint32_t n, void* const
   for(uint32_t i=0;i<n;++i){next[i]=smps?(Obj*)smps[i]:nullptr;if(next[i])addref(next[i]);}
   for(uint32_t i=0;i<n;++i){
     auto* old=rt->impl->samplers[start+i];rt->impl->samplers[start+i]=next[i];
-    rt->ctx->PSSetSampler(start+i,next[i]?next[i]->smp:SamplerDesc());
+    rt->ctx->PSSetSampler(start+i,next[i]?next[i]->smp:DefaultPixelSampler());
     if(old)release(old);
   }
 }
@@ -575,6 +575,7 @@ MSABI int32_t fac_IsCurrent(void*);
 }
 D3D11Runtime::D3D11Runtime() : impl(new Impl()) {
   ctx.reset(new DeviceContext(dev));
+  for(unsigned slot=0;slot<4;++slot)ctx->PSSetSampler(slot,DefaultPixelSampler());
   ctx->RSSetState(RasterizerDesc());   // D3D11 default: cull back, clockwise front
   Impl& I = *impl;
   for (auto& p : I.dev_vt) p = (void*)&stub_notimpl;
