@@ -104,6 +104,7 @@ class DeviceContext {
     if (slot >= 16) return fail("IASetVertexBuffer: slot must be 0..15");
     vbs_[slot] = {buffer, stride, offset}; return true; }
   void IASetPrimitiveTopology(Topology t) { topo_ = t; }
+  void RSDisableViewport(){vp_=Viewport();has_vp_=false;}
   void RSSetViewport(const Viewport& v) { vp_ = v; has_vp_ = true; }
   // Only slot 0 exists for now; returns false (and sets last_error) for any other slot or an invalid buffer. 0 unbinds.
   // Constant buffer slots 0..13. With a layout set (from SpirvResult::cb_layout) the buffers bound to the declared slots are
