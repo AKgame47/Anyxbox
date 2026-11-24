@@ -281,3 +281,8 @@ NULL after ClearState. Exact output, zero exit, four translated shaders, zero
 presents and empty error are required. Fresh and retained CI require the getter
 marker. Unbind/optional-output cases remain unit evidence. Earlier provenance is
 historical; no rendering/full-state-saving/dynamic-class claim follows.
+
+Batch103 extends only the fresh public-header probe with supported color RTV/pixel
+SRV hazard reference checks in both binding directions and rebind after output
+unbind. Retained run322 bytes remain unchanged and lack this marker. Independent
+MinGW compilation/execution awaits CI. No new scene or fixture is added.
