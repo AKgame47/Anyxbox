@@ -141,6 +141,33 @@ std::vector<uint8_t> finish_pe(std::vector<uint8_t> pe, const std::vector<V>& ve
 }
 }  // namespace
 
+// Verify missing stages cannot reuse a backend shader pair from the previous draw.
+bool refuses_missing_shaders(D3D11Runtime& rt){
+  using Create=int32_t(__attribute__((ms_abi)) *)(void*,uint32_t,void*,uint32_t,void*,uint32_t,uint32_t,void**,void*,void**);
+  using Get=void(__attribute__((ms_abi)) *)(void*,void**,void**,uint32_t*);
+  using Bind=void(__attribute__((ms_abi)) *)(void*,void*,void*,uint32_t);
+  using Draw=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t);
+  using Indexed=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t,int32_t);
+  using Release=uint32_t(__attribute__((ms_abi)) *)(void*);
+  ImportRegistry reg;rt.register_imports(reg);void* d=nullptr;void* c=nullptr;
+  auto create=(Create)(uintptr_t)reg.resolve("d3d11.dll","D3D11CreateDevice",0,false);
+  if(create(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)!=0)return false;
+  auto vt=*(void***)c;void* shaders[2]={};((Get)vt[76])(c,&shaders[0],nullptr,nullptr);((Get)vt[74])(c,&shaders[1],nullptr,nullptr);
+  auto beforeStats=rt.ctx->stats();std::vector<uint8_t> before,after;if(!rt.dev.ReadTexture(1,&before))return false;
+  for(unsigned stage:{11u,9u}){
+    ((Bind)vt[stage])(c,nullptr,nullptr,0);
+    ((Draw)vt[13])(c,3,0);if(rt.last_error!="draw: this runtime requires bound vertex and pixel shaders")return false;
+    rt.last_error.clear();((Indexed)vt[12])(c,3,0,0);
+    if(rt.last_error!="draw: this runtime requires bound vertex and pixel shaders")return false;
+    rt.last_error.clear();((Bind)vt[stage])(c,shaders[stage==11?0:1],nullptr,0);
+  }
+  if(!rt.dev.ReadTexture(1,&after)||before!=after)return false;
+  if(rt.ctx->stats().triangles_in!=beforeStats.triangles_in||rt.ctx->stats().pixels_written!=beforeStats.pixels_written)return false;
+  for(auto* shader:shaders)((Release)(*(void***)shader)[2])(shader);
+  ((Release)vt[2])(c);((Release)(*(void***)d)[2])(d);
+  return true;
+}
+
 int main() {
 #if !(defined(__linux__) && defined(__x86_64__))
   std::printf("SKIP: guest code runs on Linux x86-64 only\n"); return 0;
@@ -165,6 +192,8 @@ int main() {
     auto at = [&](int x, int y) { return &px[((size_t)y * W + x) * 4]; };
     CHECK(at(2, 2)[2] > 40 && at(2, 2)[0] < 20);              // cleared navy at the corner
     CHECK(at(64, 80)[0] + at(64, 80)[1] + at(64, 80)[2] > 200);   // triangle centre is lit
+    CHECK(refuses_missing_shaders(rt));
+    std::puts("missing shader stages: Draw/DrawIndexed refused without pixel or stat changes (reference)");
     std::printf("guest PE drew through the COM vtables (reference renderer): ok\n");
   }
   // 2. Vulkan: same PE, shaders really executed (software GPU), compared with the reference renderer.
@@ -186,6 +215,8 @@ int main() {
   for (size_t i = 0; i + 3 < a.size(); i += 4) { int d = 0; for (int k = 0; k < 3; k++) d = std::max(d, std::abs((int)a[i + k] - (int)b[i + k])); if (d > 3) bad++; if (b[i] > 60 || b[i + 1] > 60) cov++; }
   std::printf("guest PE via Vulkan vs reference: covered %d, mismatches %d, err='%s'\n", cov, bad, rt.last_error.c_str());
   CHECK(bad == 0 && cov > 3000 && rt.last_error.empty());
+  CHECK(refuses_missing_shaders(rt));
+  std::puts("missing shader stages: Draw/DrawIndexed refused without stale shader pixels or stat changes (Vulkan)");
   std::printf("d3d11 guest: all ok\n");
   return 0;
 #endif
