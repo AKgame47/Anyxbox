@@ -66,7 +66,11 @@ MSABI uint32_t addref(void* self) { return ++((Obj*)self)->refs; }
 MSABI uint32_t release(void* self) {
   Obj* o = (Obj*)self;
   uint32_t r = --o->refs;
-  if (r == 0 && o->kind != K_DEVICE && o->kind != K_CONTEXT) {if(o->resource)release(o->resource);delete o;}   // device and context live in the runtime
+  if(r==0 && o->kind!=K_DEVICE && o->kind!=K_CONTEXT){
+    if(o->resource)release(o->resource);
+    if(o->kind==K_SWAPCHAIN && o->backbuffer)release(o->backbuffer);
+    delete o;
+  } // device and context live in the runtime
   return r;
 }
 // ---- vtables (filled in Impl) ----
@@ -76,7 +80,7 @@ struct D3D11Runtime::Impl {
   Obj device, context;
   void* dev_vt[43]; void* ctx_vt[116]; void* child_vt[16]; void* resource_vt[16]; void* view_vt[16]; void* sc_vt[20]; void* fac_vt[25];
   // bound state
-  Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr; Obj* swapchain = nullptr;
+  Obj* vs = nullptr; Obj* ps = nullptr; Obj* rtv = nullptr; Obj* dsv = nullptr;
   Obj* srvs[4] = {};Obj* vbs[16] = {};Obj* ib = nullptr;
   Obj* vs_cbs[14] = {};Obj* ps_cbs[14] = {};
   Obj* samplers[4] = {};
@@ -658,7 +662,6 @@ int32_t create_swapchain(const uint8_t* desc, void** swap) {
   auto* back=sc->backbuffer;back->bind_flags=((usage&0x20)?0x20u:0u)|((usage&0x10)?8u:0u);
   const uint32_t realized[]={w,h,1,1,fmt?fmt:28u,1,0,0,back->bind_flags,0,0};
   std::memcpy(back->descriptor,realized,sizeof(realized));
-  g_rt->impl->swapchain = sc;
   *swap = sc;
   return S_OK_;
 }
