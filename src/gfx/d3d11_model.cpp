@@ -163,8 +163,7 @@ void DeviceContext::ClearState(){
   vs_layout_.clear();ps_layout_.clear();
   for(unsigned i=0;i<4;++i){
     ps_texs_[i]=0;ps_first_[i]=0;ps_levels_[i]=~0u;tex_pair_[i]=-1;
-    ps_smps_[i]=SamplerDesc();ps_smps_[i].linear=true;ps_smps_[i].mip_linear=true;
-    ps_smps_[i].min_lod=-3.402823466e+38F;ps_smps_[i].max_lod=3.402823466e+38F;
+    ps_smps_[i]=DefaultPixelSampler();
   }
   topo_=Topology::Undefined;vp_=Viewport();has_vp_=false;err_.clear();
 }
