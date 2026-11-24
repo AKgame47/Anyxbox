@@ -280,6 +280,23 @@ int main(){
   }
   for(auto* state:teardownStates)CHECK(stateRelease(state)==0); // static Release only
   puts("copied state bindings: layout/rasterizer/depth/blend caller release, rebind, replacement, unbind and teardown ok");
+  td[4]=28;td[8]=0x28;td[2]=2;void* hazardTex=nullptr;
+  CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&hazardTex)==0);
+  void* hazardRT=nullptr;void* hazardSRV=nullptr;void* aliasRT=nullptr;void* mipSRV=nullptr;
+  CHECK(((CB)vt(dev)[9])(dev,(const uint32_t*)hazardTex,nullptr,&hazardRT)==0);
+  CHECK(((CB)vt(dev)[9])(dev,(const uint32_t*)hazardTex,nullptr,&aliasRT)==0);
+  CHECK(((CB)vt(dev)[7])(dev,(const uint32_t*)hazardTex,nullptr,&hazardSRV)==0);
+  uint32_t mipDesc[]={28,4,1,1};
+  CHECK(((CB)vt(dev)[7])(dev,(const uint32_t*)hazardTex,mipDesc,&mipSRV)==0);
+  void* hazardInputs[]={hazardSRV,hazardSRV,hazardSRV,mipSRV};
+  bindResources(ctx,0,4,hazardInputs);CHECK(refs(hazardSRV)==4&&refs(mipSRV)==2);
+  bindTargets(ctx,1,&hazardRT,nullptr);CHECK(refs(hazardSRV)==1&&refs(mipSRV)==2);
+  bindResources(ctx,0,4,hazardInputs);CHECK(refs(hazardSRV)==1&&refs(mipSRV)==2);
+  bindTargets(ctx,1,&aliasRT,nullptr);CHECK(refs(hazardRT)==1&&refs(aliasRT)==2&&refs(mipSRV)==2);
+  bindTargets(ctx,0,nullptr,nullptr);bindResources(ctx,0,1,&hazardSRV);CHECK(refs(hazardSRV)==2);
+  bindResources(ctx,0,4,nullptr);for(auto* o:{hazardRT,aliasRT,hazardSRV,mipSRV,hazardTex})((R)vt(o)[2])(o);
+  td[2]=1;
+  puts("color hazards: output bind clears overlapping pixel SRVs, input bind rejects overlap, alias RTV and disjoint mip ok");
   using Shader=int32_t(MS*)(void*,const void*,size_t,void*,void**);
   using BindShader=void(MS*)(void*,void*,void*,uint32_t);
   for(unsigned stage:{11u,9u}){
