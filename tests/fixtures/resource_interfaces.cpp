@@ -142,6 +142,18 @@ int main(){
   ctx->IASetInputLayout(nullptr);ctx->RSSetState(nullptr);ctx->OMSetDepthStencilState(nullptr,0);ctx->OMSetBlendState(nullptr,nullptr,~0u);
   CHECK(inputLayout->Release()==0&&raster->Release()==0&&depthState->Release()==0&&blend->Release()==0);
   std::puts("copied state bindings: layout/rasterizer/depth/blend caller release, rebind and unbind references ok");
+  ID3D11Texture2D* hazardTexture=nullptr;td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+  CHECK(SUCCEEDED(dev->CreateTexture2D(&td,nullptr,&hazardTexture)));
+  ID3D11RenderTargetView* hazardRT=nullptr;ID3D11ShaderResourceView* hazardInput=nullptr;
+  CHECK(SUCCEEDED(dev->CreateRenderTargetView(hazardTexture,nullptr,&hazardRT)));
+  CHECK(SUCCEEDED(dev->CreateShaderResourceView(hazardTexture,nullptr,&hazardInput)));
+  ctx->PSSetShaderResources(0,1,&hazardInput);CHECK(hazardInput->AddRef()==3);CHECK(hazardInput->Release()==2);
+  ctx->OMSetRenderTargets(1,&hazardRT,nullptr);CHECK(hazardInput->AddRef()==2);CHECK(hazardInput->Release()==1);
+  ctx->PSSetShaderResources(0,1,&hazardInput);CHECK(hazardInput->AddRef()==2);CHECK(hazardInput->Release()==1);
+  ctx->OMSetRenderTargets(0,nullptr,nullptr);ctx->PSSetShaderResources(0,1,&hazardInput);
+  CHECK(hazardInput->AddRef()==3);CHECK(hazardInput->Release()==2);ctx->PSSetShaderResources(0,1,nullptr);
+  CHECK(hazardInput->Release()==0&&hazardRT->Release()==0&&hazardTexture->Release()==0);
+  std::puts("color hazards: RTV bind clears pixel SRV, conflicting SRV stays null, rebind after output unbind ok");
   ID3D11VertexShader* vs=nullptr;ID3D11PixelShader* ps=nullptr;
   CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&vs)));
   CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&ps)));
