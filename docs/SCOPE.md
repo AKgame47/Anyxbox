@@ -905,3 +905,23 @@ after caller release and NULL after ClearState. Unbind/optional outputs remain
 unit evidence. Two no-dynamic-class query methods, not full state saving, rendering,
 COM/device lifetime, reclamation, thread safety or native host isolation.
 Runtime lifetime still required. No physical-device/input/game claim.
+
+## Batch102: refuse unsupported draws with missing shader stages
+
+Draw and DrawIndexed now refuse before model/backend dispatch unless both a vertex
+and pixel shader are bound. Previously skipping shader callbacks left the backend's
+last shader pair active and could draw with stale shaders after unbind. This is a
+fail-closed limitation of this runtime's supported draw path, not complete D3D11
+semantics: valid depth-only draws without a pixel shader remain unsupported.
+
+Existing guest draw test first executes its successful guest on reference/software
+Vulkan, then uses the same context and tracked shaders to unbind each stage in
+turn, call both draw methods, verify the explicit refusal, unchanged target bytes
+and unchanged draw stats, and restore the stage. This is host-driven COM regression
+after a guest draw, not new independently compiled guest evidence. All 41 local
+sanitizer programs pass after full relink. Exact-tip CI evidence awaits publication.
+No new scene, fixture, public-header marker, CMake target or release. Retained
+run322 remains byte-exact earlier query regression. No rendering capability,
+physical-device/input/game or broader lifetime/isolation claim is added.
+Reference for NULL disabling the vertex stage:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vssetshader
