@@ -364,6 +364,13 @@ MSABI void ctx_OMSetRenderTargets(void* self, uint32_t n, void* const* rtvs, voi
   auto* oldr=rt->impl->rtv;auto* oldd=rt->impl->dsv;
   rt->impl->rtv=r;rt->impl->dsv=d;
   rt->ctx->OMSetRenderTarget(r?r->id:0,d?d->id:0);
+  // Supported RTVs address mip zero; nonzero-first SRVs do not overlap.
+  for(uint32_t slot=0;slot<4;++slot){
+    auto*& srv=rt->impl->srvs[slot];
+    if(r && srv && r->resource==srv->resource && srv->first_mip==0){
+      auto* old=srv;srv=nullptr;rt->ctx->PSSetShaderResource(slot,0);release(old);
+    }
+  }
   if(oldr)release(oldr);
   if(oldd)release(oldd);
 }
@@ -388,7 +395,11 @@ MSABI void ctx_PSSetShaderResources(void* self, uint32_t start, uint32_t n, void
   Obj* next[4]={};
   // Capture and retain the entire batch first. Cross-slot swaps may otherwise free
   // an object before its later incoming slot has acquired a reference.
-  for(uint32_t i=0;i<n;++i){next[i]=srvs?(Obj*)srvs[i]:nullptr;if(next[i])addref(next[i]);}
+  for(uint32_t i=0;i<n;++i){
+    auto* candidate=srvs?(Obj*)srvs[i]:nullptr;auto* target=rt->impl->rtv;
+    bool overlap=candidate && target && candidate->resource==target->resource && candidate->first_mip==0;
+    next[i]=overlap?nullptr:candidate;if(next[i])addref(next[i]);
+  }
   for(uint32_t i=0;i<n;++i){
     auto* o=next[i];auto* old=rt->impl->srvs[start+i];rt->impl->srvs[start+i]=o;
     rt->ctx->PSSetShaderResource(start+i,o?o->id:0,o?o->first_mip:0,o?o->mip_count:~0u);
