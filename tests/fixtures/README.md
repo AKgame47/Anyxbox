@@ -265,3 +265,9 @@ VS/PS buffer release. Exact output, zero exit, two translated shaders, zero pres
 and empty error are required. Fresh and retained CI require the ClearState marker.
 Other binding-category release remains unit evidence; rendered defaults/backend
 reuse are not established. Earlier provenance above is historical.
+
+Batch100 extends only the fresh probe with VSGetShader/PSGetShader identity and
+added-reference checks after caller release; returned references survive ClearState,
+then getters return NULL. Dynamic shader classes are unsupported, count zero.
+Fresh probe now creates four shaders total, not two. Retained run313 bytes remain
+unchanged and lack this marker. Independent MinGW build/execution awaits CI.
