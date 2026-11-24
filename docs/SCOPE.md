@@ -925,3 +925,29 @@ run322 remains byte-exact earlier query regression. No rendering capability,
 physical-device/input/game or broader lifetime/isolation claim is added.
 Reference for NULL disabling the vertex stage:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-vssetshader
+
+## Batch103: supported color RTV/pixel-SRV hazard unbinding
+
+Binding the supported color RTV clears tracked pixel SRV slots that refer to the
+same resource and include mip zero, updating both model slots and COM references.
+Binding a pixel SRV overlapping the current RTV instead binds NULL at that input
+slot without acquiring its reference. Resource identity is compared rather than
+view object identity, so distinct RTVs of the same resource cannot bypass checks.
+SRVs starting above mip zero remain bound because supported RTVs address mip zero.
+
+Existing interface unit checks both directions, repeated pixel slots, distinct
+RTV aliases, disjoint mip retention, and input rebind after output unbind. It verifies
+reference deltas. All 41 local sanitizer programs pass after full relink. Existing
+public-header probe adds both-direction reference checks and rebind; fresh CI
+requires its marker. Independent MinGW compilation/execution awaits CI. No new
+rendered hazard scene or pixel correctness claim. Retained run322 remains earlier
+query regression only, no new marker.
+
+This covers single-color-RTV versus pixel t0..t3 hazards for supported Texture2D
+views. It does not add depth-SRV support, other shader stages, UAV/stream-output,
+MRT, arrays, arbitrary RTV mip selection or full hazard validation. No new fixture,
+scene, CMake target or release. Device lifetime, reclamation, thread safety and
+native host isolation remain incomplete; runtime lifetime still required.
+References:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargets
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetshaderresources
