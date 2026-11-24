@@ -1034,3 +1034,25 @@ Single-sample supported-path masking only, not full blending, device lifetime,
 reclamation, thread safety or native host isolation. Runtime lifetime required.
 No physical-device/input/game claim. Reference:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetblendstate
+
+## Batch108: release swap-chain-owned backbuffer wrapper
+
+Final Release of a swap-chain wrapper now drops its owned backbuffer COM reference.
+Previously that reference was never released. The unused raw runtime swap-chain
+cache is removed rather than left dangling. Explicit GetBuffer references and
+view-owned backbuffer references still keep the resource wrapper alive independently
+of the swap-chain wrapper.
+
+Existing interface unit now destroys a swap chain before reading/releasing its
+GetBuffer result and requires the last Release to reach zero. A second path releases
+the caller's buffer reference, destroys the swap chain, gets the resource through
+its surviving RTV, releases the RTV, checks descriptor identity and releases the
+returned reference to zero. All41 local sanitizer programs pass after full relink.
+Exact-tip CI awaits publication. No independently compiled guest evidence/new probe
+marker, scene, fixture, CMake target or release build is added.
+
+This releases one wrapper ownership edge, not model texture allocation reclamation,
+full DXGI/device lifetime, thread safety or native isolation. Runtime lifetime is
+still required for guest interface calls. No physical-device/input/game claim.
+Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-getbuffer
