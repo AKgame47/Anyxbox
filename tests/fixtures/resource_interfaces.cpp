@@ -158,6 +158,20 @@ int main(){
   CHECK(clearBuffer->Release()==2);CHECK(clearBuffer->AddRef()==3);
   ctx->ClearState();ctx->ClearState();CHECK(clearBuffer->Release()==0);
   std::puts("ClearState: shared VS/PS buffer references released and repeated clear safe");
+  ID3D11VertexShader* queriedVS=nullptr;ID3D11PixelShader* queriedPS=nullptr;
+  CHECK(SUCCEEDED(dev->CreateVertexShader(triangle_vs,sizeof(triangle_vs),nullptr,&queriedVS)));
+  CHECK(SUCCEEDED(dev->CreatePixelShader(triangle_ps,sizeof(triangle_ps),nullptr,&queriedPS)));
+  ctx->VSSetShader(queriedVS,nullptr,0);ctx->PSSetShader(queriedPS,nullptr,0);
+  CHECK(queriedVS->Release()==1&&queriedPS->Release()==1);
+  ID3D11VertexShader* returnedVS=nullptr;ID3D11PixelShader* returnedPS=nullptr;UINT classes=9;
+  ctx->VSGetShader(&returnedVS,nullptr,&classes);CHECK(returnedVS==queriedVS&&classes==0);
+  classes=9;ctx->PSGetShader(&returnedPS,nullptr,&classes);CHECK(returnedPS==queriedPS&&classes==0);
+  ctx->ClearState();
+  CHECK(returnedVS->Release()==0&&returnedPS->Release()==0);
+  returnedVS=(ID3D11VertexShader*)1;returnedPS=(ID3D11PixelShader*)1;
+  ctx->VSGetShader(&returnedVS,nullptr,nullptr);ctx->PSGetShader(&returnedPS,nullptr,nullptr);
+  CHECK(returnedVS==nullptr&&returnedPS==nullptr);
+  std::puts("shader getters: VS/PS identity, owned return after caller release and null after ClearState ok");
   depth->Release();texture->Release();buffer->Release();ctx->Release();dev->Release();
   std::puts("resource interfaces: device/context, buffer/color/depth identity, type and GetDevice ok");return 0;
 }
