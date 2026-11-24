@@ -646,7 +646,7 @@ MSABI int32_t sc_GetBuffer(void* self, uint32_t index, const uint8_t* iid, void*
 }
 D3D11Runtime* g_rt = nullptr;   // one runtime per guest run; set by register_imports
 // DXGI_SWAP_CHAIN_DESC Width@0 Height@4 Format@16 SampleCount@28 BufferCount@40 (72 bytes); shared by CreateSwapChain and D3D11CreateDeviceAndSwapChain
-int32_t create_swapchain(const uint8_t* desc, void** swap) {
+int32_t create_swapchain(D3D11Runtime* rt,const uint8_t* desc, void** swap) {
   *swap = nullptr;
   if (!desc) return E_INVALIDARG_;
   uint32_t w, h, fmt, samples; std::memcpy(&w, desc, 4); std::memcpy(&h, desc + 4, 4); std::memcpy(&fmt, desc + 16, 4); std::memcpy(&samples, desc + 28, 4);
@@ -654,10 +654,10 @@ int32_t create_swapchain(const uint8_t* desc, void** swap) {
   if (h == 0) h = 480;   // 0 means "size of the window", which this headless runtime does not have
   Format f = fmt == 0 ? Format::R8G8B8A8_UNORM : fmt_from_dxgi(fmt);
   if ((f != Format::R8G8B8A8_UNORM && f != Format::B8G8R8A8_UNORM) || samples > 1) return E_INVALIDARG_;
-  ResourceId tid = g_rt->dev.CreateTexture2D(w, h, f);
+  ResourceId tid = rt->dev.CreateTexture2D(w, h, f);
   if (!tid) return E_INVALIDARG_;
-  Obj* sc = make(g_rt, K_SWAPCHAIN, 0); sc->vtbl = (void**)g_rt->impl->sc_vt;
-  sc->backbuffer = make(g_rt, K_TEXTURE, tid);
+  Obj* sc = make(rt, K_SWAPCHAIN, 0); sc->vtbl = (void**)rt->impl->sc_vt;
+  sc->backbuffer = make(rt, K_TEXTURE, tid);
   uint32_t usage;std::memcpy(&usage,desc+36,4);
   auto* back=sc->backbuffer;back->bind_flags=((usage&0x20)?0x20u:0u)|((usage&0x10)?8u:0u);
   const uint32_t realized[]={w,h,1,1,fmt?fmt:28u,1,0,0,back->bind_flags,0,0};
@@ -670,9 +670,13 @@ int32_t create_swapchain(const uint8_t* desc, void** swap) {
 const int32_t DXGI_ERROR_NOT_FOUND_ = (int32_t)0x887A0002;
 MSABI int32_t fac_EnumAdapters(void*, uint32_t, void** out) { if (out) *out = nullptr; return DXGI_ERROR_NOT_FOUND_; }
 MSABI int32_t fac_MakeWindowAssociation(void*, void*, uint32_t) { return S_OK_; }
-MSABI int32_t fac_CreateSwapChain(void* /*self*/, void* /*device*/, const uint8_t* desc, void** out) {
-  if (!out || !g_rt) return E_INVALIDARG_;
-  return create_swapchain(desc, out);
+MSABI int32_t fac_CreateSwapChain(void* self,void* device,const uint8_t* desc,void** out){
+  if(!out)return E_INVALIDARG_;
+  *out=nullptr;auto* rt=G(self);
+  // Only this runtime's exact supported device is accepted. Do not dereference
+  // arbitrary foreign interface pointers or silently select the global runtime.
+  if(device!=&rt->impl->device)return E_INVALIDARG_;
+  return create_swapchain(rt,desc,out);
 }
 MSABI int32_t fac_IsCurrent(void*) { return 1; }
 // CreateDXGIFactory / CreateDXGIFactory1(REFIID, void**): any requested interface id gets the factory (IUnknown/IDXGIFactory/IDXGIFactory1 share one vtable).
@@ -697,7 +701,7 @@ MSABI int32_t host_D3D11CreateDeviceAndSwapChain(void* adapter, uint32_t driver,
                                                  uint32_t nlevels, uint32_t sdk, const uint8_t* desc, void** swap, void** dev,
                                                  uint32_t* level, void** ctx) {
   if (!g_rt) return E_FAIL_;
-  if (swap) { int32_t hr = create_swapchain(desc, swap); if (hr != S_OK_) return hr; }
+  if (swap) { int32_t hr = create_swapchain(g_rt,desc,swap); if (hr != S_OK_) return hr; }
   int32_t hr = host_D3D11CreateDevice(adapter, driver, software, flags, levels, nlevels, sdk, dev, level, ctx);
   return hr;
 }
