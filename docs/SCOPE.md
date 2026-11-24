@@ -990,3 +990,25 @@ device lifetime, reclamation, thread safety and host isolation remain incomplete
 Runtime lifetime still required. No new hardware/input/game claim. References:
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-rssetviewports
 https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_viewport
+
+## Batch106: consistent supported null pixel-sampler defaults
+
+Null PSSetSamplers bindings now use the documented linear min/mag/mip, clamp,
+finite unrestricted LOD defaults for supported sampling fields rather than the
+model's historical point-filter default. Initial COM context and ClearState use
+the same helper. Direct model constructor defaults remain unchanged for existing
+non-COM callers. Unimplemented comparison/anisotropy/border fields are not added.
+
+The existing textured guest still verifies eight point-sampled quadrants. After
+that draw, host-driven COM code unbinds the sampler, draws again on software Vulkan,
+then binds an explicit documented-default sampler and redraws. Exact target bytes
+match between null and explicit defaults and differ from the prior point pixels.
+This is host-driven comparison, not independent MinGW guest default-state evidence.
+All 41 local sanitizer programs pass after full relink. Exact-tip CI awaits
+publication. No new scene/fixture/probe marker/CMake target/release.
+
+Only supported sampler fields/default consistency are addressed, not full sampling
+conformance, all sixteen slots, physical hardware/input/game compatibility,
+device lifetime, reclamation, thread safety or native host isolation. Runtime
+lifetime still required. Reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-pssetsamplers
