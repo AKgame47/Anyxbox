@@ -271,3 +271,13 @@ added-reference checks after caller release; returned references survive ClearSt
 then getters return NULL. Dynamic shader classes are unsupported, count zero.
 Fresh probe now creates four shaders total, not two. Retained run313 bytes remain
 unchanged and lack this marker. Independent MinGW build/execution awaits CI.
+
+Batch101 replaces the same resource_interfaces.run.exe with exact run322 output,
+source tip cac602b. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45293844829/job/138109114660
+513303 bytes; SHA256 706adb27929de5c6b97fbebdd155d5dce36b57c67d7ce317b75b8f080cc54719.
+It includes twelve completion markers, adding shader-getter identity/owned return/
+NULL after ClearState. Exact output, zero exit, four translated shaders, zero
+presents and empty error are required. Fresh and retained CI require the getter
+marker. Unbind/optional-output cases remain unit evidence. Earlier provenance is
+historical; no rendering/full-state-saving/dynamic-class claim follows.
