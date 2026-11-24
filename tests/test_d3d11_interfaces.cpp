@@ -293,6 +293,20 @@ int main(){
     bind(ctx,second,nullptr,0);CHECK(((R)vt(first)[2])(first)==0);
     bind(ctx,nullptr,nullptr,0);CHECK(((R)vt(second)[2])(second)==0);
   }
+  using GetShader=void(MS*)(void*,void**,void**,uint32_t*);
+  for(unsigned stage:{11u,9u}){
+    auto bind=(BindShader)vt(ctx)[stage];auto get=(GetShader)vt(ctx)[stage==11?76:74];
+    void* out=(void*)1;void* instance=(void*)1;uint32_t count=1;
+    get(ctx,&out,&instance,&count);CHECK(out==nullptr&&count==0&&instance==(void*)1);
+    void* shader=nullptr;const void* code=stage==11?(const void*)triangle_vs:triangle_ps;
+    CHECK(((Shader)vt(dev)[stage==11?12:15])(dev,code,stage==11?sizeof(triangle_vs):sizeof(triangle_ps),nullptr,&shader)==0);
+    bind(ctx,shader,nullptr,0);CHECK(((R)vt(shader)[2])(shader)==1);
+    count=7;get(ctx,&out,nullptr,&count);CHECK(out==shader&&count==0&&refs(shader)==2);
+    get(ctx,nullptr,nullptr,nullptr);CHECK(refs(shader)==2); // no output, no AddRef
+    bind(ctx,nullptr,nullptr,0);CHECK(refs(shader)==1);CHECK(((R)vt(out)[2])(out)==0);
+    out=(void*)1;get(ctx,&out,nullptr,nullptr);CHECK(out==nullptr);
+  }
+  puts("shader getters: VS/PS identity, owned return after caller release, null unbind and optional outputs ok");
   // Runtime teardown must drop bound shader references even without explicit unbind.
   void* surviving[2]={};R finalRelease=nullptr;
   {anyxbox::D3D11Runtime scoped;anyxbox::ImportRegistry sr;scoped.register_imports(sr);void* d=nullptr;void* c=nullptr;
@@ -325,6 +339,7 @@ int main(){
   CHECK(((CB)vt(dev)[5])(dev,td,nullptr,&dt)==0);CHECK(((CB)vt(dev)[10])(dev,(const uint32_t*)dt,nullptr,&clearDepth)==0);
   ((R)vt(dt)[2])(dt);bindTargets(ctx,1,&held[6],clearDepth);
   clear(ctx);clear(ctx);
+  for(unsigned slot:{74u,76u}){void* out=(void*)1;uint32_t count=99;((GetShader)vt(ctx)[slot])(ctx,&out,nullptr,&count);CHECK(out==nullptr&&count==0);}
   for(auto* o:held)CHECK(refs(o)==1);
   CHECK(refs(clearDepth)==1);
   for(auto* o:held)CHECK(((R)vt(o)[2])(o)==0);
