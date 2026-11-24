@@ -168,6 +168,28 @@ bool refuses_missing_shaders(D3D11Runtime& rt){
   return true;
 }
 
+bool viewport_binding_checks(D3D11Runtime& rt){
+  using Create=int32_t(__attribute__((ms_abi)) *)(void*,uint32_t,void*,uint32_t,void*,uint32_t,uint32_t,void**,void*,void**);
+  using Set=void(__attribute__((ms_abi)) *)(void*,uint32_t,const float*);
+  using Draw=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t);
+  using Release=uint32_t(__attribute__((ms_abi)) *)(void*);
+  ImportRegistry reg;rt.register_imports(reg);void* d=nullptr;void* c=nullptr;
+  if(((Create)(uintptr_t)reg.resolve("d3d11.dll","D3D11CreateDevice",0,false))(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)!=0)return false;
+  auto vt=*(void***)c;auto set=(Set)vt[44];auto draw=(Draw)vt[13];
+  float valid[]={0,0,128,128,0,1};auto stats=rt.ctx->stats();
+  std::vector<uint8_t> before,after;if(!rt.dev.ReadTexture(1,&before))return false;
+  set(c,0,nullptr);draw(c,3,0);
+  if(rt.last_error!="draw: viewport not set")return false;
+  rt.last_error.clear();if(!rt.dev.ReadTexture(1,&after)||after!=before||rt.ctx->stats().triangles_in!=stats.triangles_in)return false;
+  set(c,1,valid);
+  set(c,2,valid);if(rt.last_error!="viewport: only zero or one viewport is supported")return false;rt.last_error.clear();
+  set(c,1,nullptr);if(rt.last_error.empty())return false;rt.last_error.clear();
+  float invalid[][6]={{0,0,-1,128,0,1},{0,0,128,128,1,0},{32767,0,1,128,0,1},{0,0,128,128,0,2}};
+  for(auto& v:invalid){set(c,1,v);if(rt.last_error!="viewport: invalid dimensions or depth bounds")return false;rt.last_error.clear();}
+  draw(c,3,0);if(!rt.last_error.empty()||rt.ctx->stats().triangles_in!=stats.triangles_in+1)return false;
+  ((Release)vt[2])(c);((Release)(*(void***)d)[2])(d);return true;
+}
+
 int main() {
 #if !(defined(__linux__) && defined(__x86_64__))
   std::printf("SKIP: guest code runs on Linux x86-64 only\n"); return 0;
@@ -193,6 +215,8 @@ int main() {
     CHECK(at(2, 2)[2] > 40 && at(2, 2)[0] < 20);              // cleared navy at the corner
     CHECK(at(64, 80)[0] + at(64, 80)[1] + at(64, 80)[2] > 200);   // triangle centre is lit
     CHECK(refuses_missing_shaders(rt));
+    CHECK(viewport_binding_checks(rt));
+    std::puts("viewport binding: zero disables, invalid batches preserve prior viewport (reference)");
     std::puts("missing shader stages: Draw/DrawIndexed refused without pixel or stat changes (reference)");
     std::printf("guest PE drew through the COM vtables (reference renderer): ok\n");
   }
@@ -216,6 +240,8 @@ int main() {
   std::printf("guest PE via Vulkan vs reference: covered %d, mismatches %d, err='%s'\n", cov, bad, rt.last_error.c_str());
   CHECK(bad == 0 && cov > 3000 && rt.last_error.empty());
   CHECK(refuses_missing_shaders(rt));
+  CHECK(viewport_binding_checks(rt));
+  std::puts("viewport binding: zero disables, invalid batches preserve prior viewport (Vulkan)");
   std::puts("missing shader stages: Draw/DrawIndexed refused without stale shader pixels or stat changes (Vulkan)");
   std::printf("d3d11 guest: all ok\n");
   return 0;
