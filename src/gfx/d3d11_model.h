@@ -37,6 +37,10 @@ struct PipelineState { RasterizerDesc rs; DepthStencilDesc ds; BlendDesc blend; 
 struct ClipVertex { float x, y, z, w; float r, g, b, a; float u = 0, v = 0; };  // D3D clip space (y up)
 
 struct SamplerDesc { bool linear = false; bool wrap = false; bool mip_linear = false; float min_lod = 0, max_lod = 1000; };   // point/linear min-mag and mip filter, clamp/wrap (U and V)
+inline SamplerDesc DefaultPixelSampler(){
+  SamplerDesc s;s.linear=true;s.mip_linear=true;
+  s.min_lod=-3.402823466e+38F;s.max_lod=3.402823466e+38F;return s;
+}
 class Device;
 // Pluggable draw path. The reference renderer is built in; the Vulkan backend lives in d3d11_vulkan.h.
 class DrawBackend {
