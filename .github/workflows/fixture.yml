@@ -211,6 +211,7 @@ jobs:
           grep -q 'copied state bindings: layout/rasterizer/depth/blend caller release, rebind and unbind references ok' resource-interfaces.log
           grep -q 'ClearState: shared VS/PS buffer references released and repeated clear safe' resource-interfaces.log
           grep -q 'shader getters: VS/PS identity, owned return after caller release and null after ClearState ok' resource-interfaces.log
+          grep -q 'color hazards: RTV bind clears pixel SRV, conflicting SRV stays null, rebind after output unbind ok' resource-interfaces.log
       - name: Verify retained resource interface probe (strict)
         run: |
           ./import_gap tests/fixtures/resource_interfaces.run.exe
