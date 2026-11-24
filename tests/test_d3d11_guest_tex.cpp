@@ -170,6 +170,27 @@ int main() {
   CHECK(near_c(at(80, 32), 255, 255, 0)); CHECK(near_c(at(112, 32), 0, 255, 255));
   CHECK(near_c(at(80, 96), 255, 0, 255)); CHECK(near_c(at(112, 96), 128, 128, 128));
   std::printf("guest PE sampled the uploaded textures through Vulkan: all 8 quadrants correct\n");
+  // Host-driven COM check on the already-rendered guest context: null sampler
+  // must match an explicit documented default, not retain the earlier point state.
+  {
+    using Create=int32_t(__attribute__((ms_abi)) *)(void*,uint32_t,void*,uint32_t,void*,uint32_t,uint32_t,void**,void*,void**);
+    using State=int32_t(__attribute__((ms_abi)) *)(void*,const void*,void**);
+    using Set=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t,void* const*);
+    using Draw=void(__attribute__((ms_abi)) *)(void*,uint32_t,uint32_t,int32_t);
+    using Release=uint32_t(__attribute__((ms_abi)) *)(void*);
+    ImportRegistry reg;rt.register_imports(reg);void* d=nullptr;void* c=nullptr;
+    CHECK(((Create)(uintptr_t)reg.resolve("d3d11.dll","D3D11CreateDevice",0,false))(nullptr,1,nullptr,0,nullptr,0,7,&d,nullptr,&c)==0);
+    auto cvt=*(void***)c;auto dvt=*(void***)d;
+    ((Set)cvt[10])(c,0,1,nullptr);((Draw)cvt[12])(c,6,6,0);CHECK(rt.last_error.empty());
+    std::vector<uint8_t> nullPixels,explicitPixels;CHECK(rt.dev.ReadTexture(1,&nullPixels));
+    uint32_t desc[13]={0x15,3,3,3,0,1,1};float lo=-3.402823466e+38F,hi=3.402823466e+38F;
+    std::memcpy(desc+11,&lo,4);std::memcpy(desc+12,&hi,4);void* sampler=nullptr;
+    CHECK(((State)dvt[23])(d,desc,&sampler)==0);((Set)cvt[10])(c,0,1,&sampler);
+    ((Draw)cvt[12])(c,6,6,0);CHECK(rt.last_error.empty());CHECK(rt.dev.ReadTexture(1,&explicitPixels));
+    CHECK(nullPixels==explicitPixels&&nullPixels!=im);
+    ((Release)(*(void***)sampler)[2])(sampler);((Release)cvt[2])(c);((Release)dvt[2])(d);
+    std::puts("null pixel sampler: linear/clamp default matches explicit state and differs from prior point pixels (Vulkan)");
+  }
   std::printf("d3d11 guest textures: all ok\n");
   return 0;
 #endif
