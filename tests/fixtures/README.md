@@ -286,3 +286,12 @@ Batch103 extends only the fresh public-header probe with supported color RTV/pix
 SRV hazard reference checks in both binding directions and rebind after output
 unbind. Retained run322 bytes remain unchanged and lack this marker. Independent
 MinGW compilation/execution awaits CI. No new scene or fixture is added.
+
+Batch104 replaces the same resource_interfaces.run.exe with exact run332 output,
+source tip 47ae263. No additional fixture is added.
+Provenance: https://github.com/AKgame47/Anyxbox/actions/runs/45297024018/job/138119894215
+514327 bytes; SHA256 ec1194ec7457025ac1763ef5f38b8ce551a2fed9ea7a9d403456a94e02166ba1.
+Thirteen markers include both-direction color-hazard reference checks/rebind.
+Exact output, zero exit, four shaders, zero presents and empty error are required.
+Fresh and retained CI require the hazard marker. Repeated slots/alias RTV/disjoint
+mip remain unit evidence. No rendered hazard claim; older provenance is historical.
